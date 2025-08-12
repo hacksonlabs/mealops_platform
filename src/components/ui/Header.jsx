@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import Icon from '../AppIcon';
-import Button from './Button';
+import mealLogo from '../images/meal.png';
 
 const Header = ({ user = null, notifications = 0, className = '' }) => {
   const location = useLocation();
@@ -76,7 +76,7 @@ const Header = ({ user = null, notifications = 0, className = '' }) => {
   };
 
   const isActivePath = (path) => {
-    return location?.pathname === path;
+    return location?.pathname === path || (location?.pathname === '/' && path === '/dashboard-home');
   };
 
   return (
@@ -85,12 +85,9 @@ const Header = ({ user = null, notifications = 0, className = '' }) => {
         {/* Logo */}
         <div className="flex items-center">
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <Icon name="Utensils" size={20} color="white" />
-            </div>
-            <span className="text-xl font-heading font-semibold text-foreground">
-              MealOps
-            </span>
+            <Link to="/" className="flex items-center space-x-2">
+              <img src={mealLogo} alt="MealOps Logo" className="h-12 max-h-24 w-auto object-contain" />
+            </Link>
           </div>
         </div>
 

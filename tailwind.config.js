@@ -20,15 +20,15 @@ export default {
       colors: {
         border: "var(--color-border)", /* slate-200 */
         input: "var(--color-input)", /* white */
-        ring: "var(--color-ring)", /* blue-800 */
+        ring: "var(--color-ring)", /* green-500 */
         background: "var(--color-background)", /* slate-50 */
         foreground: "var(--color-foreground)", /* slate-900 */
         primary: {
-          DEFAULT: "var(--color-primary)", /* blue-800 */
+          DEFAULT: "var(--color-primary)", /* green-500 */
           foreground: "var(--color-primary-foreground)", /* white */
         },
         secondary: {
-          DEFAULT: "var(--color-secondary)", /* slate-500 */
+          DEFAULT: "var(--color-secondary)", /* orange-500 */
           foreground: "var(--color-secondary-foreground)", /* white */
         },
         destructive: {
@@ -52,7 +52,7 @@ export default {
           foreground: "var(--color-card-foreground)", /* slate-900 */
         },
         success: {
-          DEFAULT: "var(--color-success)", /* emerald-600 */
+          DEFAULT: "var(--color-success)", /* green-600 */
           foreground: "var(--color-success-foreground)", /* white */
         },
         warning: {
