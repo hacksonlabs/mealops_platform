@@ -1,63 +1,10 @@
 import React from 'react';
-import { useState, useEffect } from 'react';
-import { orderService } from '../../../services/orderService';
-import { teamService } from '../../../services/teamService';
-import { useAuth } from '../../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
-export function NextMealWidget() {
-  const { user } = useAuth();
+export function NextMealWidget({ meal }) {
   const navigate = useNavigate();
-  const [nextOrder, setNextOrder] = useState(null);
-  const [team, setTeam] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadData = async () => {
-      if (!user) return;
-
-      try {
-        const { data: teamData } = await teamService?.getUserTeam();
-        
-        if (teamData?.id) {
-          const { data: orders } = await orderService?.getUpcomingOrders(teamData?.id, 1);
-          
-          if (isMounted) {
-            setTeam(teamData);
-            setNextOrder(orders?.[0] || null);
-          }
-        }
-      } catch (error) {
-        console.error('Error loading next meal data:', error);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [user]);
-
-  if (loading) {
-    return (
-      <div className="bg-white rounded-lg shadow-sm border p-6">
-        <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 rounded mb-4 w-32"></div>
-          <div className="h-8 bg-gray-100 rounded mb-2"></div>
-          <div className="h-4 bg-gray-100 rounded w-3/4"></div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!nextOrder) {
+  
+  if (!meal) {
     return (
       <div className="bg-white rounded-lg shadow-sm border p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Next Scheduled Meal</h3>
@@ -72,7 +19,7 @@ export function NextMealWidget() {
     );
   }
 
-  const scheduledDate = new Date(nextOrder.scheduled_date);
+  const scheduledDate = new Date(`${meal.date}T${meal.time}`);
   const formattedDate = scheduledDate?.toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'short',
@@ -91,20 +38,20 @@ export function NextMealWidget() {
           {formattedDate} at {formattedTime}
         </div>
         <div className="text-lg text-blue-600 font-medium">
-          {nextOrder?.title}
+          {meal?.restaurant}
         </div>
         <div className="text-gray-600">
-          {nextOrder?.restaurants?.name || 'Restaurant TBD'} • {nextOrder?.saved_locations?.name || 'Location TBD'}
+          {meal?.restaurant || 'Restaurant TBD'} • {meal?.location || 'Location TBD'}
         </div>
       </div>
       <div className="mt-4 pt-4 border-t">
         <div className="flex justify-between items-center text-sm">
           <span className="text-gray-500">Status</span>
           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-            nextOrder?.order_status === 'confirmed' ? 'bg-green-100 text-green-800'
-              : nextOrder?.order_status === 'scheduled' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
+            meal?.status === 'confirmed' ? 'bg-green-100 text-green-800'
+              : meal?.status === 'scheduled' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
           }`}>
-            {nextOrder?.order_status?.charAt(0)?.toUpperCase() + nextOrder?.order_status?.slice(1)}
+            {meal?.status?.charAt(0)?.toUpperCase() + meal?.status?.slice(1)}
           </span>
         </div>
       </div>
