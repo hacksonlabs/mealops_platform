@@ -21,7 +21,7 @@ const Routes = () => {
       <ScrollToTop />
       <RouterRoutes>
         {/* Define your route here */}
-        <Route path="/" element={<CalendarOrderScheduling />} />
+        <Route path="/" element={<DashboardHome />} />
         <Route path="/order-history-management" element={<OrderHistoryManagement />} />
         <Route path="/expense-reports-analytics" element={<ExpenseReportsAnalytics />} />
         <Route path="/login-registration" element={<LoginRegistration />} />

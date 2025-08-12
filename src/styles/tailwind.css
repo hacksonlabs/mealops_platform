@@ -11,7 +11,7 @@
     --color-foreground: #0F172A; /* slate-900 */
     --color-border: #E2E8F0; /* slate-200 */
     --color-input: #FFFFFF; /* white */
-    --color-ring: #1E40AF; /* blue-800 */
+    --color-ring: #2BAE66; /* green-500 */
     
     /* Card & Surface Colors */
     --color-card: #FFFFFF; /* white */
@@ -24,11 +24,11 @@
     --color-muted-foreground: #475569; /* slate-600 */
     
     /* Primary Brand Colors */
-    --color-primary: #1E40AF; /* blue-800 */
+    --color-primary: #2BAE66; /* green-500 */
     --color-primary-foreground: #FFFFFF; /* white */
     
     /* Secondary Colors */
-    --color-secondary: #64748B; /* slate-500 */
+    --color-secondary: #FFB347; /* orange-500 */
     --color-secondary-foreground: #FFFFFF; /* white */
     
     /* Accent Colors */
@@ -36,7 +36,7 @@
     --color-accent-foreground: #FFFFFF; /* white */
     
     /* State Colors */
-    --color-success: #059669; /* emerald-600 */
+    --color-success: #229A58; /* green-600 */
     --color-success-foreground: #FFFFFF; /* white */
     
     --color-warning: #D97706; /* amber-600 */
