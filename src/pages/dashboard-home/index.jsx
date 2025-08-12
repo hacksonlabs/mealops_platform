@@ -23,8 +23,6 @@ const DashboardHome = () => {
       subtitle: "Next 7 days",
       icon: "Calendar",
       color: "primary",
-      trend: "up",
-      trendValue: "+1 from last week"
     },
     {
       title: "Pending Polls",
@@ -32,8 +30,6 @@ const DashboardHome = () => {
       subtitle: "Awaiting responses",
       icon: "Vote",
       color: "warning",
-      trend: "neutral",
-      trendValue: "Same as last week"
     },
     {
       title: "Team Size",
@@ -41,8 +37,6 @@ const DashboardHome = () => {
       subtitle: "Active members",
       icon: "Users",
       color: "success",
-      trend: "up",
-      trendValue: "+2 new members"
     },
     {
       title: "Monthly Spend",

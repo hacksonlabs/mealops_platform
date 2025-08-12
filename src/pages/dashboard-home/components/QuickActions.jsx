@@ -1,10 +1,10 @@
 import React from 'react';
-import Button from '../../../components/ui/Button';
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { teamService } from '../../../services/teamService';
-
 import { useAuth } from '../../../contexts/AuthContext';
+import Icon from '../../../components/AppIcon';
+import Button from '../../../components/ui/Button';
 
 export function QuickActions() {
   const { user } = useAuth();
@@ -16,12 +16,13 @@ export function QuickActions() {
     let isMounted = true;
 
     const loadTeamData = async () => {
-      if (!user) return;
-      
+      // The `loading` state is now set to false regardless of whether a user exists.
       try {
-        const { data: teamData } = await teamService?.getUserTeam();
-        if (isMounted) {
-          setTeam(teamData);
+        if (user) {
+          const { data: teamData } = await teamService?.getUserTeam();
+          if (isMounted) {
+            setTeam(teamData);
+          }
         }
       } catch (error) {
         console.error('Error loading team data:', error);
@@ -60,7 +61,7 @@ export function QuickActions() {
       title: "Manage Team",
       description: "View and manage team members",
       variant: "outline",
-      onClick: () => navigate('/team-management')
+      onClick: () => navigate('/team-members-management')
     }
   ];
 
@@ -87,17 +88,12 @@ export function QuickActions() {
         {quickActions?.map((action, index) => (
           <div 
             key={index}
-            className="p-4 border border-border rounded-lg hover:bg-muted/50 transition-athletic cursor-pointer"
+            className="p-4 border border-border rounded-lg hover:bg-muted/50 transition-athletic cursor-pointer group"
             onClick={action?.onClick}
           >
             <div className="flex items-start space-x-3">
               <div className="w-10 h-10 bg-primary/10 text-primary rounded-lg flex items-center justify-center flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  iconName={action?.icon}
-                  size="icon"
-                  className="w-10 h-10 hover:bg-transparent"
-                />
+                <Icon name={action?.icon} size={20} />
               </div>
               
               <div className="flex-1 min-w-0">
@@ -109,18 +105,9 @@ export function QuickActions() {
                 </p>
               </div>
 
-              <Button
-                variant={action?.variant}
-                size="sm"
-                iconName="ArrowRight"
-                iconPosition="right"
-                onClick={(e) => {
-                  e?.stopPropagation();
-                  action?.onClick();
-                }}
-              >
-                Go
-              </Button>
+              <div className="flex-shrink-0">
+                <Icon name="ArrowRight" size={20} className="text-muted-foreground group-hover:text-foreground transition-athletic" />
+              </div>
             </div>
           </div>
         ))}
@@ -133,6 +120,7 @@ export function QuickActions() {
             iconName="Settings" 
             iconPosition="left"
             size="sm"
+            onClick={() => { /* Add your Settings navigation here */ }}
           >
             Settings
           </Button>
@@ -142,6 +130,7 @@ export function QuickActions() {
             iconName="HelpCircle" 
             iconPosition="left"
             size="sm"
+            onClick={() => { /* Add your Help navigation here */ }}
           >
             Help
           </Button>
@@ -149,6 +138,6 @@ export function QuickActions() {
       </div>
     </div>
   );
-};
+}
 
 export default QuickActions;
