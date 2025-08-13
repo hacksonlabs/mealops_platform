@@ -12,7 +12,13 @@ import SecurityBadges from './components/SecurityBadges';
 const LoginRegistration = () => {
   const [activeTab, setActiveTab] = useState('login');
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [errors, setErrors] = useState({});
 
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setErrors({});
+  };
+  
   return (
     <>
       <Helmet>
@@ -50,13 +56,13 @@ const LoginRegistration = () => {
           <div className="bg-card border border-border rounded-lg shadow-athletic-lg p-6">
             <AuthTabs 
               activeTab={activeTab} 
-              onTabChange={setActiveTab} 
+              onTabChange={handleTabChange} 
             />
             
             {activeTab === 'login' ? (
               <LoginForm onForgotPassword={() => setShowForgotPassword(true)} />
             ) : (
-              <RegisterForm />
+              <RegisterForm errors={errors} setErrors={setErrors}/>
             )}
             
             <SecurityBadges />
@@ -87,12 +93,12 @@ const LoginRegistration = () => {
           <div className="mt-8 text-center text-xs text-muted-foreground">
             <p>
               © {new Date()?.getFullYear()} MealOps. All rights reserved. |{' '}
-              <a href="#" className="text-primary hover:text-primary/80 transition-athletic">
+              <a href="/privacy-policy" target="_blank" className="text-primary hover:text-primary/80 transition-athletic">
                 Privacy Policy
               </a>{' '}
               |{' '}
-              <a href="#" className="text-primary hover:text-primary/80 transition-athletic">
-                Terms of Service
+              <a href="/terms-and-conditions" target="_blank" className="text-primary hover:text-primary/80 transition-athletic">
+                Terms and Conditions
               </a>
             </p>
           </div>

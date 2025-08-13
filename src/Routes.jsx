@@ -13,6 +13,8 @@ import TeamSetup from './pages/team-setup';
 import TeamMembersManagement from './pages/team-members-management';
 import SavedAddressesLocations from './pages/saved-addresses-locations';
 import PaymentMethodsBilling from './pages/payment-methods-billing';
+import TermsConditoins from './pages/TermsAndConditions';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 
 const Routes = () => {
   return (
@@ -32,6 +34,8 @@ const Routes = () => {
         <Route path="/team-members-management" element={<TeamMembersManagement />} />
         <Route path="/saved-addresses-locations" element={<SavedAddressesLocations />} />
         <Route path="/payment-methods-billing" element={<PaymentMethodsBilling />} />
+        <Route path="/terms-and-conditions" element={<TermsConditoins />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>
