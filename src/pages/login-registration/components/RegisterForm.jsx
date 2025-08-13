@@ -5,6 +5,7 @@ import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import { useAuth } from '../../../contexts/AuthContext';
 import { emailService } from '../../../services/emailService';
+import { supabase } from '../../../lib/supabase'; 
 
 export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) {
   const navigate = useNavigate();
@@ -14,10 +15,13 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
   const [success, setSuccess] = useState('');
   const [formData, setFormData] = useState({
     fullName: '',
+    schoolName: '',
+    team: '',
+    conference: '',
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'player'
+    acceptTerms: false,
   });
 
   const handleInputChange = (e) => {
@@ -36,10 +40,27 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
   const validateForm = () => {
     const newErrors = {};
 
-    if (!formData?.teamName) {
-      newErrors.teamName = 'Team name is required';
-    } else if (formData?.teamName?.length < 2) {
-      newErrors.teamName = 'Team name must be at least 2 characters';
+    if (!formData?.fullName) {
+      newErrors.fullName = 'Your name is required';
+    } else if (formData?.fullName?.length < 2) {
+      newErrors.fullName = 'Your full name must be at least 2 characters';
+    }
+    if (!formData?.schoolName) {
+      newErrors.schoolName = 'School name is required';
+    } else if (formData?.schoolName?.length < 2) {
+      newErrors.schoolName = 'School name must be at least 2 characters';
+    }
+
+    if (!formData?.team) {
+      newErrors.team = 'Team name is required';
+    } else if (formData?.team?.length < 2) {
+      newErrors.team = 'Team name must be at least 2 characters';
+    }
+
+    if (!formData?.conference) {
+      newErrors.conference = 'Conference name is required';
+    } else if (formData?.conference?.length < 2) {
+      newErrors.conference = 'Conference name must be at least 2 characters';
     }
 
     if (!formData?.email) {
@@ -50,11 +71,12 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
 
     if (!formData?.password) {
       newErrors.password = 'Password is required';
-    } else if (formData?.password?.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters';
-    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/?.test(formData?.password)) {
-      newErrors.password = 'Password must contain uppercase, lowercase, and number';
+    } else if (formData?.password?.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
     }
+    // } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/?.test(formData?.password)) {
+    //   newErrors.password = 'Password must contain uppercase, lowercase, and number';
+    // }
 
     if (!formData?.confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
@@ -76,14 +98,8 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
     setError('');
     setSuccess('');
 
-    if (formData?.password !== formData?.confirmPassword) {
-      setError('Passwords do not match');
-      setLoading(false);
-      return;
-    }
-
-    if (formData?.password?.length < 6) {
-      setError('Password must be at least 6 characters long');
+    const isValid = validateForm();
+    if (!isValid) {
       setLoading(false);
       return;
     }
@@ -92,11 +108,24 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
       const { data, error: signUpError } = await signUp(
         formData?.email,
         formData?.password,
-        {
-          full_name: formData?.fullName,
-          role: formData?.role
-        }
       );
+
+      // If signUp is successful
+      if (data?.user?.id) {
+        const { error: profileInsertError } = await supabase.from('user_profiles').insert({
+          id: data.user.id,
+          full_name: formData.fullName,
+          school_name: formData.schoolName,
+          team: formData.team,
+          conference_name: formData.conference,
+          email: formData.email,
+        });
+        if (profileInsertError) {
+          setError('Something went wrong while saving your profile info.');
+          setLoading(false);
+          return;
+        }
+      }
 
       if (signUpError) {
         if (signUpError?.message?.includes('already registered')) {
@@ -115,15 +144,16 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
       }
 
       // Send welcome email
-      if (data?.user?.email) {
-        await emailService?.sendWelcomeEmail(data?.user?.email, formData?.fullName);
-      }
+      // if (data?.user?.email) {
+      //   await emailService?.sendWelcomeEmail(data?.user?.email, formData?.fullName);
+      // }
 
-      setSuccess('Account created successfully! Please check your email to confirm your account.');
+      setSuccess('Account created successfully! Redirecting to dashboard...');
 
-      // Redirect to team setup after a short delay
+
+      // Redirect to dashboard-home after a short delay
       setTimeout(() => {
-        navigate('/team-setup');
+        navigate('/dashboard-home');
       }, 2000);
     } catch (error) {
       if (error?.message?.includes('Failed to fetch') ||
@@ -140,31 +170,42 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Role
-        </label>
-        <select
-          name="role"
-          value={formData?.role}
-          onChange={handleInputChange}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-
-          <option value="player">Player</option>
-          <option value="coach">Coach</option>
-          <option value="admin">Admin</option>
-        </select>
-      </div>
       <Input
-        label="Team Name"
+        label="Full Name"
         type="text"
-        name="teamName"
-        placeholder="Enter your team name"
-        value={formData?.teamName}
+        name="fullName"
+        placeholder="Enter your name"
+        value={formData?.fullName}
         onChange={handleInputChange}
-        error={errors?.teamName}
+        error={errors?.fullName}
         required />
-
+      <Input
+        label="School Name"
+        type="text"
+        name="schoolName"
+        placeholder="Enter your school name"
+        value={formData?.schoolName}
+        onChange={handleInputChange}
+        error={errors?.schoolName}
+        required />
+      <Input
+        label="Team"
+        type="text"
+        name="team"
+        placeholder="Enter your team (IE: Wbb)"
+        value={formData?.team}
+        onChange={handleInputChange}
+        error={errors?.team}
+        required />
+      <Input
+        label="Conference"
+        type="text"
+        name="conference"
+        placeholder="Enter your conference (IE: Pac-12 💀)"
+        value={formData?.conference}
+        onChange={handleInputChange}
+        error={errors?.conference}
+        required />
       <Input
         label="Email Address"
         type="email"
@@ -175,35 +216,38 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         error={errors?.email}
         required />
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Password
-        </label>
-        <input
-          type="password"
-          name="password"
-          placeholder="Create a password"
-          value={formData?.password}
-          onChange={handleInputChange}
-          error={errors?.password}
-          description="Must contain uppercase, lowercase, and number"
-          required />
+      <div className="flex space-x-4">
+        <div className="flex-1">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Password
+          </label>
+          <input
+            type="password"
+            name="password"
+            placeholder="Create password"
+            value={formData?.password}
+            onChange={handleInputChange}
+            required
+            className="w-full border rounded-md px-3 py-2"
+          />
+        </div>
 
+        <div className="flex-1">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Confirm Password
+          </label>
+          <input
+            type="password"
+            name="confirmPassword"
+            placeholder="Confirm password"
+            value={formData?.confirmPassword}
+            onChange={handleInputChange}
+            required
+            className="w-full border rounded-md px-3 py-2"
+          />
+        </div>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Confirm Password
-        </label>
-        <input
-          type="password"
-          name="confirmPassword"
-          placeholder="Confirm your password"
-          value={formData?.confirmPassword}
-          onChange={handleInputChange}
-          error={errors?.confirmPassword}
-          required />
 
-      </div>
       <Checkbox
         label="I agree to the Terms of Service and Privacy Policy"
         name="acceptTerms"
@@ -211,12 +255,13 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         onChange={handleInputChange}
         error={errors?.acceptTerms}
         required />
-
+      {error && <p className="text-red-500 text-sm">{error}</p>}
+      {success && <p className="text-green-600 text-sm">{success}</p>}
       <Button
         type="submit"
         variant="default"
         fullWidth
-        loading={isLoading}
+        loading={loading}
         iconName="UserPlus"
         iconPosition="left"
         className="mt-6">

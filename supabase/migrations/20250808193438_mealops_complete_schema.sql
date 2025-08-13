@@ -15,7 +15,9 @@ CREATE TABLE public.user_profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id),
     email TEXT NOT NULL UNIQUE,
     full_name TEXT NOT NULL,
-    role public.user_role DEFAULT 'player'::public.user_role,
+    school_name TEXT NOT NULL,
+    team TEXT NOT NULL,
+    conference_name TEXT NOT NULL,
     phone TEXT,
     allergies TEXT,
     is_active BOOLEAN DEFAULT true,
@@ -143,7 +145,6 @@ CREATE TABLE public.order_spreadsheets (
 
 -- 3. Essential Indexes
 CREATE INDEX idx_user_profiles_email ON public.user_profiles(email);
-CREATE INDEX idx_user_profiles_role ON public.user_profiles(role);
 CREATE INDEX idx_teams_coach_id ON public.teams(coach_id);
 CREATE INDEX idx_team_members_team_id ON public.team_members(team_id);
 CREATE INDEX idx_team_members_user_id ON public.team_members(user_id);
@@ -198,22 +199,34 @@ WHERE tm.user_id = auth.uid()
 LIMIT 1
 $$;
 
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER
-SECURITY DEFINER
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    INSERT INTO public.user_profiles (id, email, full_name, role)
-    VALUES (
-        NEW.id, 
-        NEW.email, 
-        COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
-        COALESCE(NEW.raw_user_meta_data->>'role', 'player')::public.user_role
-    );
-    RETURN NEW;
-END;
-$$;
+
+DROP FUNCTION IF EXISTS public.handle_new_user CASCADE;
+
+-- CREATE OR REPLACE FUNCTION public.handle_new_user()
+-- RETURNS TRIGGER
+-- SECURITY DEFINER
+-- LANGUAGE plpgsql
+-- AS $$
+-- BEGIN
+--     INSERT INTO public.user_profiles (
+--         id,
+--         email,
+--         full_name,
+--         school_name,
+--         team,
+--         conference_name
+--     )
+--     VALUES (
+--         NEW.id,
+--         NEW.email,
+--         NEW.raw_user_meta_data->>'fullName',
+--         NEW.raw_user_meta_data->>'schoolName',
+--         NEW.raw_user_meta_data->>'team',
+--         NEW.raw_user_meta_data->>'conference'
+--     );
+--     RETURN NEW;
+-- END;
+-- $$;
 
 -- 5. Enable RLS
 ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
@@ -364,7 +377,7 @@ DECLARE
 BEGIN
     -- Create auth users with required fields
     INSERT INTO auth.users (
-        id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
+        id, instance_id, aud, email, encrypted_password, email_confirmed_at,
         created_at, updated_at, raw_user_meta_data, raw_app_meta_data,
         is_sso_user, is_anonymous, confirmation_token, confirmation_sent_at,
         recovery_token, recovery_sent_at, email_change_token_new, email_change,
@@ -374,15 +387,15 @@ BEGIN
     ) VALUES
         (coach_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
          'coach@team.com', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
-         '{"full_name": "Coach Johnson", "role": "coach"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
+         '{"full_name": "Coach Johnson"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null),
         (player1_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
          'player1@team.com', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
-         '{"full_name": "Alex Smith", "role": "player"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
+         '{"full_name": "Alex Smith"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null),
         (player2_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
          'player2@team.com', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
-         '{"full_name": "Taylor Davis", "role": "player"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
+         '{"full_name": "Taylor Davis"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null);
 
     -- Create team and team structure
