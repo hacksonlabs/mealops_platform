@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import Icon from '../../components/AppIcon';
+import greenOnlyLogo from '../../../src/components/images/logo_only_green.png';
 
 import AuthTabs from './components/AuthTabs';
 import { LoginForm } from './components/LoginForm';
@@ -29,7 +30,7 @@ const LoginRegistration = () => {
           <div className="text-center mb-8">
             <div className="inline-flex items-center space-x-3 mb-4">
               <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center shadow-athletic">
-                <Icon name="Utensils" size={24} color="white" />
+                <img src={greenOnlyLogo} alt="MealOps Logo" className="h-14 max-h-24 w-auto rounded-md brightness-110" />
               </div>
               <div>
                 <h1 className="text-2xl font-heading font-bold text-foreground">
