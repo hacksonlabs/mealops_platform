@@ -161,6 +161,52 @@ CREATE INDEX idx_poll_votes_poll_id ON public.poll_votes(poll_id);
 CREATE INDEX idx_payment_methods_team_id ON public.payment_methods(team_id);
 
 -- 4. Functions (must be before RLS policies)
+
+-- Drop the old, incomplete handle_new_user function if it exists
+DROP FUNCTION IF EXISTS public.handle_new_user CASCADE;
+
+-- Create a new function that handles creating the user profile.
+-- This function runs with SECURITY DEFINER privileges, allowing it to bypass RLS
+-- on `public.user_profiles` when it's called by the trigger.
+CREATE OR REPLACE FUNCTION public.handle_new_user_profile()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- This trigger should fire when a new user is inserted into auth.users (meaning signup)
+    -- OR when an existing user's email_confirmed_at changes from NULL to a timestamp (meaning email verified).
+    -- We specifically create the profile only if the email is confirmed.
+    IF (NEW.email_confirmed_at IS NOT NULL AND OLD.email_confirmed_at IS DISTINCT FROM NEW.email_confirmed_at) OR
+       (TG_OP = 'INSERT' AND NEW.email_confirmed_at IS NOT NULL) THEN
+        INSERT INTO public.user_profiles (
+            id,
+            email,
+            full_name,
+            school_name,
+            team,
+            conference_name
+        )
+        VALUES (
+            NEW.id,
+            NEW.email,
+            -- Extract additional user data from the raw_user_meta_data JSONB field
+            NEW.raw_user_meta_data->>'fullName', -- Matches the key passed from frontend
+            NEW.raw_user_meta_data->>'schoolName', -- Matches the key passed from frontend
+            NEW.raw_user_meta_data->>'team',       -- Matches the key passed from frontend
+            NEW.raw_user_meta_data->>'conference'  -- Matches the key passed from frontend
+        )
+        -- If a profile for this ID already exists (e.g., in a rare race condition), update it
+        ON CONFLICT (id) DO UPDATE SET
+            email = EXCLUDED.email,
+            full_name = EXCLUDED.full_name,
+            school_name = EXCLUDED.school_name,
+            team = EXCLUDED.team,
+            conference_name = EXCLUDED.conference_name,
+            updated_at = CURRENT_TIMESTAMP;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- IMPORTANT: SECURITY DEFINER allows this function to write to user_profiles
+
+
 CREATE OR REPLACE FUNCTION public.is_team_member(team_uuid UUID)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -199,8 +245,6 @@ WHERE tm.user_id = auth.uid()
 LIMIT 1
 $$;
 
-
-DROP FUNCTION IF EXISTS public.handle_new_user CASCADE;
 
 -- CREATE OR REPLACE FUNCTION public.handle_new_user()
 -- RETURNS TRIGGER
@@ -375,27 +419,27 @@ DECLARE
     option1_uuid UUID := gen_random_uuid();
     option2_uuid UUID := gen_random_uuid();
 BEGIN
-    -- Create auth users with required fields
+    -- Create auth users with required fields.
+    -- IMPORTANT: For the trigger to work as expected, raw_user_meta_data
+    -- must contain the profile fields (fullName, schoolName, etc.)
+    -- and email_confirmed_at must be set to a timestamp if you want the profile created immediately.
     INSERT INTO auth.users (
         id, instance_id, aud, email, encrypted_password, email_confirmed_at,
-        created_at, updated_at, raw_user_meta_data, raw_app_meta_data,
+        created_at, updated_at, raw_user_meta_data, app_metadata,
         is_sso_user, is_anonymous, confirmation_token, confirmation_sent_at,
         recovery_token, recovery_sent_at, email_change_token_new, email_change,
         email_change_sent_at, email_change_token_current, email_change_confirm_status,
         reauthentication_token, reauthentication_sent_at, phone, phone_change,
         phone_change_token, phone_change_sent_at
     ) VALUES
-        (coach_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-         'coach@team.com', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
-         '{"full_name": "Coach Johnson"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
+        (coach_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'coach@team.edu', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
+         '{"fullName": "Coach Johnson", "schoolName": "University A", "team": "Basketball", "conference": "Big 10"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null),
-        (player1_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-         'player1@team.com', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
-         '{"full_name": "Alex Smith"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
+        (player1_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'player1@team.edu', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
+         '{"fullName": "Alex Smith", "schoolName": "University A", "team": "Basketball", "conference": "Big 10"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null),
-        (player2_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-         'player2@team.com', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
-         '{"full_name": "Taylor Davis"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
+        (player2_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'player2@team.edu', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
+         '{"fullName": "Taylor Davis", "schoolName": "University A", "team": "Basketball", "conference": "Big 10"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null);
 
     -- Create team and team structure
