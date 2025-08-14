@@ -15,6 +15,7 @@ import SavedAddressesLocations from './pages/saved-addresses-locations';
 import PaymentMethodsBilling from './pages/payment-methods-billing';
 import TermsConditoins from './pages/TermsAndConditions';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import AwaitingEmailVerificationPage from "pages/awaiting-email-verification";
 
 const Routes = () => {
   return (
@@ -36,6 +37,7 @@ const Routes = () => {
         <Route path="/payment-methods-billing" element={<PaymentMethodsBilling />} />
         <Route path="/terms-and-conditions" element={<TermsConditoins />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="//awaiting-email-verification" element={<AwaitingEmailVerificationPage />} />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>

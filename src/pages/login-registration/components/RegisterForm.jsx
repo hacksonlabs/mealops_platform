@@ -67,6 +67,8 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
       newErrors.email = 'Email is required';
     } else if (!/\S+@\S+\.\S+/?.test(formData?.email)) {
       newErrors.email = 'Please enter a valid email address';
+    }else if (!formData?.email.endsWith('.edu')) {
+      newErrors.email = 'Only .edu email addresses are allowed for registration';
     }
 
     if (!formData?.password) {
@@ -108,24 +110,30 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
       const { data, error: signUpError } = await signUp(
         formData?.email,
         formData?.password,
+        {
+          fullName: formData.fullName,
+          schoolName: formData.schoolName,
+          team: formData.team,
+          conference: formData.conference,
+        }
       );
 
-      // If signUp is successful
-      if (data?.user?.id) {
-        const { error: profileInsertError } = await supabase.from('user_profiles').insert({
-          id: data.user.id,
-          full_name: formData.fullName,
-          school_name: formData.schoolName,
-          team: formData.team,
-          conference_name: formData.conference,
-          email: formData.email,
-        });
-        if (profileInsertError) {
-          setError('Something went wrong while saving your profile info.');
-          setLoading(false);
-          return;
-        }
-      }
+      // // If signUp is successful
+      // if (data?.user?.id) {
+      //   const { error: profileInsertError } = await supabase.from('user_profiles').insert({
+      //     id: data.user.id,
+      //     full_name: formData.fullName,
+      //     school_name: formData.schoolName,
+      //     team: formData.team,
+      //     conference_name: formData.conference,
+      //     email: formData.email,
+      //   });
+      //   if (profileInsertError) {
+      //     setError('Something went wrong while saving your profile info.');
+      //     setLoading(false);
+      //     return;
+      //   }
+      // }
 
       if (signUpError) {
         if (signUpError?.message?.includes('already registered')) {
@@ -148,12 +156,12 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
       //   await emailService?.sendWelcomeEmail(data?.user?.email, formData?.fullName);
       // }
 
-      setSuccess('Account created successfully! Redirecting to dashboard...');
+      setSuccess('Account created successfully! Redirecting to verification instructions...');
 
 
-      // Redirect to dashboard-home after a short delay
+      // Redirect to awaiting-email-verification after a short delay
       setTimeout(() => {
-        navigate('/dashboard-home');
+        navigate('/awaiting-email-verification', { state: { email: formData.email } })
       }, 2000);
     } catch (error) {
       if (error?.message?.includes('Failed to fetch') ||
@@ -210,7 +218,7 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         label="Email Address"
         type="email"
         name="email"
-        placeholder="Enter your email"
+        placeholder="Enter your .edu email"
         value={formData?.email}
         onChange={handleInputChange}
         error={errors?.email}

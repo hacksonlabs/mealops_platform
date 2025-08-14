@@ -62,6 +62,7 @@ export function AuthProvider({ children }) {
         password,
         options: {
           data: userData,
+          emailRedirectTo: `${window.location.origin}/login-registration`,
         },
       });
 
