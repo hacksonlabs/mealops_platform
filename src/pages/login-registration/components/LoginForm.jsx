@@ -135,17 +135,6 @@ export function LoginForm({ onSwitchToRegister, onForgotPassword, errors, setErr
 
         Sign In
       </Button>
-      <div className="mt-4 p-3 bg-muted rounded-md">
-        <p className="text-xs text-muted-foreground mb-2">Demo Credentials:</p>
-        <div className="flex items-center space-x-2 text-xs">
-          <Icon name="Mail" size={12} />
-          <span className="font-data">coach@mealops.com</span>
-        </div>
-        <div className="flex items-center space-x-2 text-xs mt-1">
-          <Icon name="Lock" size={12} />
-          <span className="font-data">demo123</span>
-        </div>
-      </div>
     </form>);
 
 }
