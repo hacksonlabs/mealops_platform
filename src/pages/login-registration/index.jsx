@@ -18,7 +18,7 @@ const LoginRegistration = () => {
     setActiveTab(tab);
     setErrors({});
   };
-  
+
   return (
     <>
       <Helmet>
@@ -60,7 +60,7 @@ const LoginRegistration = () => {
             />
             
             {activeTab === 'login' ? (
-              <LoginForm onForgotPassword={() => setShowForgotPassword(true)} />
+              <LoginForm onForgotPassword={() => setShowForgotPassword(true)} errors={errors} setErrors={setErrors}/>
             ) : (
               <RegisterForm errors={errors} setErrors={setErrors}/>
             )}
