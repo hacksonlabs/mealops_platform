@@ -14,7 +14,8 @@ export function LoginForm({ onSwitchToRegister, onForgotPassword, errors, setErr
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     email: '',
-    password: ''
+    password: '',
+    rememberMe: false,
   });
 
   const handleInputChange = (e) => {
@@ -54,6 +55,12 @@ export function LoginForm({ onSwitchToRegister, onForgotPassword, errors, setErr
     setLoading(true);
     setError('');
 
+    const isValid = validateForm();
+    if (!isValid) {
+      setLoading(false);
+      return;
+    }
+
     try {
       const { data, error: signInError } = await signIn(formData?.email, formData?.password);
 
@@ -73,10 +80,10 @@ export function LoginForm({ onSwitchToRegister, onForgotPassword, errors, setErr
 
       // Success - redirect to team setup for first-time users or dashboard
       navigate('/team-setup');
-    } catch (error) {
-      if (error?.message?.includes('Failed to fetch') ||
-      error?.message?.includes('NetworkError') ||
-      error?.name === 'TypeError' && error?.message?.includes('fetch')) {
+    } catch (err) {
+      if (err?.message?.includes('Failed to fetch') ||
+      err?.message?.includes('NetworkError') ||
+      err?.name === 'TypeError' && err?.message?.includes('fetch')) {
         setError('Cannot connect to authentication service. Your Supabase project may be paused or deleted. Please visit your Supabase dashboard to check project status.');
       } else {
         setError('Something went wrong during sign in. Please try again.');
@@ -124,11 +131,12 @@ export function LoginForm({ onSwitchToRegister, onForgotPassword, errors, setErr
           Forgot password?
         </button>
       </div>
+      {error && <p className="text-red-500 text-sm">{error}</p>}
       <Button
         type="submit"
         variant="default"
         fullWidth
-        loading={isLoading}
+        loading={loading}
         iconName="LogIn"
         iconPosition="left"
         className="mt-6">
