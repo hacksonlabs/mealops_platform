@@ -118,23 +118,6 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         }
       );
 
-      // // If signUp is successful
-      // if (data?.user?.id) {
-      //   const { error: profileInsertError } = await supabase.from('user_profiles').insert({
-      //     id: data.user.id,
-      //     full_name: formData.fullName,
-      //     school_name: formData.schoolName,
-      //     team: formData.team,
-      //     conference_name: formData.conference,
-      //     email: formData.email,
-      //   });
-      //   if (profileInsertError) {
-      //     setError('Something went wrong while saving your profile info.');
-      //     setLoading(false);
-      //     return;
-      //   }
-      // }
-
       if (signUpError) {
         if (signUpError?.message?.includes('already registered')) {
           setError('An account with this email already exists. Please sign in instead.');
@@ -229,12 +212,13 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Password
           </label>
-          <input
+          <Input
             type="password"
             name="password"
             placeholder="Create password"
             value={formData?.password}
             onChange={handleInputChange}
+            error={errors?.password}
             required
             className="w-full border rounded-md px-3 py-2"
           />
@@ -244,12 +228,13 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Confirm Password
           </label>
-          <input
+          <Input
             type="password"
             name="confirmPassword"
             placeholder="Confirm password"
             value={formData?.confirmPassword}
             onChange={handleInputChange}
+            error={errors?.confirmPassword}
             required
             className="w-full border rounded-md px-3 py-2"
           />
