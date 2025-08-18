@@ -16,6 +16,7 @@ import PaymentMethodsBilling from './pages/payment-methods-billing';
 import TermsConditoins from './pages/TermsAndConditions';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import AwaitingEmailVerificationPage from "pages/awaiting-email-verification";
+import ResetPassword from 'pages/reset-password';
 
 const Routes = () => {
   return (
@@ -39,6 +40,7 @@ const Routes = () => {
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="//awaiting-email-verification" element={<AwaitingEmailVerificationPage />} />
         <Route path="*" element={<NotFound />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
       </RouterRoutes>
       </ErrorBoundary>
     </BrowserRouter>

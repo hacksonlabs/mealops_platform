@@ -67,7 +67,7 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
       newErrors.email = 'Email is required';
     } else if (!/\S+@\S+\.\S+/?.test(formData?.email)) {
       newErrors.email = 'Please enter a valid email address';
-    }else if (!formData?.email.endsWith('.edu')) {
+    } else if (!formData?.email.endsWith('.edu')) {
       newErrors.email = 'Only .edu email addresses are allowed for registration';
     }
 
