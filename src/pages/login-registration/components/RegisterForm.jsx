@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
+import Icon from '../../../components/AppIcon';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import { useAuth } from '../../../contexts/AuthContext';
 import { emailService } from '../../../services/emailService';
@@ -23,6 +24,8 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
     confirmPassword: '',
     acceptTerms: false,
   });
+
+  const GOOGLE_FORM_LINK = "https://docs.google.com/forms/d/e/1FAIpQLSdNwsOgM5HU0sk8R0RueuXPRFTXcbMAUtIRtqJosjbc8VmXRg/viewform?usp=sharing&ouid=100340340297824841757;"
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e?.target;
@@ -197,15 +200,45 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         onChange={handleInputChange}
         error={errors?.conference}
         required />
-      <Input
-        label="Email Address"
-        type="email"
-        name="email"
-        placeholder="Enter your .edu email"
-        value={formData?.email}
-        onChange={handleInputChange}
-        error={errors?.email}
-        required />
+
+      <div className="space-y-2">
+        <div className="flex items-center space-x-2 relative group w-fit">
+          <label 
+            htmlFor="email-input-id" // Set ID to link label to input
+            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+            style={{ color: errors?.email ? 'var(--color-destructive)' : 'var(--color-foreground)' }}
+          >
+            Email Address
+            <span className="text-destructive ml-1">*</span>
+          </label>
+          <Icon name="Info" size={16} className="text-gray-400 cursor-pointer hover:text-gray-600" />
+          {/* Tooltip on hover */}
+          <div className="absolute left-full ml-2 w-64 p-3 bg-gray-800 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none group-hover:pointer-events-auto z-10 top-1/2 -translate-y-1/2">
+            Only .edu email addresses are allowed for direct registration. If you do not have a .edu email, please{' '}
+            <a 
+              href={GOOGLE_FORM_LINK} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-blue-300 hover:underline"
+              onClick={(e) => e.stopPropagation()} // Prevent closing tooltip when clicking link
+            >
+              fill out this form
+            </a>{' '}
+            to request access.
+          </div>
+        </div>
+        <Input
+          id="email-input-id"
+          type="email"
+          name="email"
+          placeholder="Enter your .edu email"
+          value={formData?.email}
+          onChange={handleInputChange}
+          error={errors?.email}
+          required
+          className=""
+        />
+      </div>
 
       <div className="flex space-x-4">
         <div className="flex-1">
