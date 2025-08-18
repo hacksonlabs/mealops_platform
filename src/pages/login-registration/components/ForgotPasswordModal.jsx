@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import Icon from '../../../components/AppIcon';
+import { supabase } from '../../../lib/supabase';
 
 const ForgotPasswordModal = ({ isOpen, onClose }) => {
   const [email, setEmail] = useState('');
@@ -15,22 +16,38 @@ const ForgotPasswordModal = ({ isOpen, onClose }) => {
     if (!email) {
       setError('Email is required');
       return;
-    }
-    
-    if (!/\S+@\S+\.\S+/?.test(email)) {
+    } else if (!/\S+@\S+\.\S+/?.test(email)) {
       setError('Please enter a valid email address');
+      return;
+    } else if (!email.endsWith('.edu')) {
+      setError('Only .edu email addresses are accepted for password reset.');
       return;
     }
     
     setIsLoading(true);
-    setError('');
     
     try {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setIsSuccess(true);
-    } catch (error) {
-      setError('Failed to send reset email. Please try again.');
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`
+      });
+
+      if (resetError) {
+        // Handle specific Supabase errors for password reset
+        if (resetError.message.includes('No user found')) {
+          setError('No account found with that email address. Please check your email.');
+        } else if (resetError.message.includes('Failed to fetch') || resetError.message.includes('NetworkError')) {
+          setError('Cannot connect to authentication service. Please check your internet connection or try again later.');
+        } else {
+          setError('Failed to send reset email. Please try again. ' + resetError.message);
+        }
+        console.error("Supabase password reset error:", resetError); // Log the actual error
+      } else {
+        setIsSuccess(true); // Only set success if no errors
+        setError('');
+      }
+    } catch (err) { // Catch any unexpected network or other errors
+      console.error("Unexpected error during password reset:", err);
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -119,7 +136,7 @@ const ForgotPasswordModal = ({ isOpen, onClose }) => {
                 Reset Link Sent
               </h3>
               <p className="text-sm text-muted-foreground mb-4">
-                We've sent a password reset link to <strong>{email}</strong>. 
+                If your email is registered, we've sent a password reset link to <strong>{email}</strong>. 
                 Check your inbox and follow the instructions to reset your password.
               </p>
               <Button
