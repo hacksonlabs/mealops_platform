@@ -94,13 +94,21 @@ const Button = React.forwardRef(({
                 fullWidth && "w-full"
             )}
             ref={ref}
-            disabled={disabled || loading}
+            // If asChild is true, the consumer is responsible for handling disabled state on their element.
+            // Otherwise, we apply it here.
+            disabled={asChild ? disabled : (disabled || loading)} 
             {...props}
         >
-            {loading && <LoadingSpinner />}
-            {iconName && iconPosition === 'left' && renderIcon()}
-            {children}
-            {iconName && iconPosition === 'right' && renderIcon()}
+            {asChild ? (
+                children // If asChild, just pass children through
+            ) : (
+                <> {/* Otherwise, render our internal loading spinner, icon, and children */}
+                    {loading && <LoadingSpinner />}
+                    {iconName && iconPosition === 'left' && renderIcon()}
+                    {children}
+                    {iconName && iconPosition === 'right' && renderIcon()}
+                </>
+            )}
         </Comp>
     );
 });

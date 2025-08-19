@@ -20,6 +20,7 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
     team: '',
     conference: '',
     email: '',
+    phoneNumber: '',
     password: '',
     confirmPassword: '',
     acceptTerms: false,
@@ -74,6 +75,12 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
       newErrors.email = 'Only .edu email addresses are allowed for registration';
     }
 
+    if (!formData?.phoneNumber) {
+      newErrors.phoneNumber = 'Phone number is required for order notifications';
+    } else if (!/^\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})$/.test(formData?.phoneNumber)) {
+        newErrors.phoneNumber = 'Please enter a valid 10-digit phone number';
+    }
+
     if (!formData?.password) {
       newErrors.password = 'Password is required';
     } else if (formData?.password?.length < 6) {
@@ -114,10 +121,13 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         formData?.email,
         formData?.password,
         {
-          fullName: formData.fullName,
-          schoolName: formData.schoolName,
-          team: formData.team,
-          conference: formData.conference,
+          data: { // This object will become part of auth.users.raw_user_meta_data
+            fullName: formData.fullName,
+            schoolName: formData.schoolName,
+            team: formData.team,
+            conference: formData.conference,
+            // phone: formData.phoneNumber,
+          }
         }
       );
 
@@ -137,18 +147,14 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         return;
       }
 
-      // Send welcome email
-      // if (data?.user?.email) {
-      //   await emailService?.sendWelcomeEmail(data?.user?.email, formData?.fullName);
-      // }
-
+      // Profile creation is handled by a backend trigger after auth.users INSERT.
       setSuccess('Account created successfully! Redirecting to verification instructions...');
-
-
-      // Redirect to awaiting-email-verification after a short delay
+      
+      // Redirect to an "awaiting email verification" page, passing the email
       setTimeout(() => {
-        navigate('/awaiting-email-verification', { state: { email: formData.email } })
+        navigate('/awaiting-email-verification', { state: { email: formData.email } });
       }, 2000);
+
     } catch (error) {
       if (error?.message?.includes('Failed to fetch') ||
       error?.message?.includes('NetworkError') ||
@@ -186,7 +192,7 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         label="Team"
         type="text"
         name="team"
-        placeholder="Enter your team (IE: Wbb)"
+        placeholder="Enter your team (e.g., WBB)"
         value={formData?.team}
         onChange={handleInputChange}
         error={errors?.team}
@@ -195,7 +201,7 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         label="Conference"
         type="text"
         name="conference"
-        placeholder="Enter your conference (IE: Pac-12 💀)"
+        placeholder="Enter your conference (e.g., Pac-12 💀)"
         value={formData?.conference}
         onChange={handleInputChange}
         error={errors?.conference}
@@ -240,6 +246,34 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         />
       </div>
 
+      <div className="space-y-2">
+        <div className="flex items-center space-x-2 relative group w-fit">
+          <label 
+            htmlFor="phoneNumber-input-id" // Unique ID for phone number input
+            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+            style={{ color: errors?.phoneNumber ? 'var(--color-destructive)' : 'var(--color-foreground)' }}
+          >
+            Cell Phone #
+            <span className="text-destructive ml-1">*</span>
+          </label>
+          <Icon name="Info" size={16} className="text-gray-400 cursor-pointer hover:text-gray-600" />
+          <div className="absolute left-full ml-2 w-64 p-3 bg-gray-800 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none group-hover:pointer-events-auto z-10 top-1/2 -translate-y-1/2">
+            This phone number will be used for critical order updates and notifications. You can easily update it later in your profile settings.
+          </div>
+        </div>
+        <Input
+          id="phoneNumber-input-id"
+          type="tel"
+          name="phoneNumber"
+          placeholder="e.g., (xxx) xxx-xxxx or xxxxxxxxxx"
+          value={formData?.phoneNumber}
+          onChange={handleInputChange}
+          error={errors?.phoneNumber}
+          required
+          className=""
+        />
+      </div>
+      
       <div className="flex space-x-4">
         <div className="flex-1">
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -256,7 +290,6 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
             className="w-full border rounded-md px-3 py-2"
           />
         </div>
-
         <div className="flex-1">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Confirm Password
@@ -294,8 +327,8 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
 
         Create Account
       </Button>
-    </form>);
-
+    </form>
+  );
 }
 
 export default RegisterForm;
