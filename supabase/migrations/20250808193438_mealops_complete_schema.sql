@@ -162,50 +162,63 @@ CREATE INDEX idx_payment_methods_team_id ON public.payment_methods(team_id);
 
 -- 4. Functions (must be before RLS policies)
 
--- Drop the old, incomplete handle_new_user function if it exists
-DROP FUNCTION IF EXISTS public.handle_new_user CASCADE;
+-- Drop the old functions if they exist
+DROP FUNCTION IF EXISTS public.handle_new_user_profile CASCADE;
 
--- Create a new function that handles creating the user profile.
--- This function runs with SECURITY DEFINER privileges, allowing it to bypass RLS
--- on `public.user_profiles` when it's called by the trigger.
 CREATE OR REPLACE FUNCTION public.handle_new_user_profile()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- This trigger should fire when a new user is inserted into auth.users (meaning signup)
-    -- OR when an existing user's email_confirmed_at changes from NULL to a timestamp (meaning email verified).
-    -- We specifically create the profile only if the email is confirmed.
-    IF (NEW.email_confirmed_at IS NOT NULL AND OLD.email_confirmed_at IS DISTINCT FROM NEW.email_confirmed_at) OR
-       (TG_OP = 'INSERT' AND NEW.email_confirmed_at IS NOT NULL) THEN
-        INSERT INTO public.user_profiles (
-            id,
-            email,
-            full_name,
-            school_name,
-            team,
-            conference_name
-        )
-        VALUES (
-            NEW.id,
-            NEW.email,
-            -- Extract additional user data from the raw_user_meta_data JSONB field
-            NEW.raw_user_meta_data->>'fullName', -- Matches the key passed from frontend
-            NEW.raw_user_meta_data->>'schoolName', -- Matches the key passed from frontend
-            NEW.raw_user_meta_data->>'team',       -- Matches the key passed from frontend
-            NEW.raw_user_meta_data->>'conference'  -- Matches the key passed from frontend
-        )
-        -- If a profile for this ID already exists (e.g., in a rare race condition), update it
-        ON CONFLICT (id) DO UPDATE SET
-            email = EXCLUDED.email,
-            full_name = EXCLUDED.full_name,
-            school_name = EXCLUDED.school_name,
-            team = EXCLUDED.team,
-            conference_name = EXCLUDED.conference_name,
-            updated_at = CURRENT_TIMESTAMP;
-    END IF;
+    INSERT INTO public.user_profiles (
+        id, email, full_name, school_name, team, conference_name, phone, allergies
+    )
+    VALUES (
+        NEW.id,
+        NEW.email,
+        -- If email is confirmed, use raw_user_meta_data, otherwise empty string
+        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'fullName', '') ELSE '' END,
+        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'schoolName', '') ELSE '' END,
+        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'team', '') ELSE '' END,
+        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'conference', '') ELSE '' END,
+        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'phone', '') ELSE '' END,
+        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'allergies', '') ELSE '' END
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email, -- Always keep email in sync
+        updated_at = CURRENT_TIMESTAMP,
+        full_name = CASE
+                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'fullName' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'fullName' != ''
+                        THEN NEW.raw_user_meta_data->'data'->>'fullName'
+                        ELSE public.user_profiles.full_name -- Keep existing value if email not confirmed or new value is empty
+                    END,
+        school_name = CASE
+                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'schoolName' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'schoolName' != ''
+                        THEN NEW.raw_user_meta_data->'data'->>'schoolName'
+                        ELSE public.user_profiles.school_name
+                    END,
+        team = CASE
+                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'team' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'team' != ''
+                        THEN NEW.raw_user_meta_data->'data'->>'team'
+                        ELSE public.user_profiles.team
+                    END,
+        conference_name = CASE
+                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'conference' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'conference' != ''
+                        THEN NEW.raw_user_meta_data->'data'->>'conference'
+                        ELSE public.user_profiles.conference_name
+                    END,
+        phone = CASE
+                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'phone' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'phone' != ''
+                        THEN NEW.raw_user_meta_data->'data'->>'phone'
+                        ELSE public.user_profiles.phone
+                    END,
+        allergies = CASE
+                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'allergies' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'allergies' != ''
+                        THEN NEW.raw_user_meta_data->'data'->>'allergies'
+                        ELSE public.user_profiles.allergies
+                    END;
+    
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER; -- IMPORTANT: SECURITY DEFINER allows this function to write to user_profiles
-
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION public.is_team_member(team_uuid UUID)
 RETURNS BOOLEAN
@@ -245,33 +258,6 @@ WHERE tm.user_id = auth.uid()
 LIMIT 1
 $$;
 
-
--- CREATE OR REPLACE FUNCTION public.handle_new_user()
--- RETURNS TRIGGER
--- SECURITY DEFINER
--- LANGUAGE plpgsql
--- AS $$
--- BEGIN
---     INSERT INTO public.user_profiles (
---         id,
---         email,
---         full_name,
---         school_name,
---         team,
---         conference_name
---     )
---     VALUES (
---         NEW.id,
---         NEW.email,
---         NEW.raw_user_meta_data->>'fullName',
---         NEW.raw_user_meta_data->>'schoolName',
---         NEW.raw_user_meta_data->>'team',
---         NEW.raw_user_meta_data->>'conference'
---     );
---     RETURN NEW;
--- END;
--- $$;
-
 -- 5. Enable RLS
 ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
@@ -294,6 +280,12 @@ FOR ALL
 TO authenticated
 USING (id = auth.uid())
 WITH CHECK (id = auth.uid());
+
+CREATE POLICY "Allow inserts from auth system"
+ON public.user_profiles
+FOR INSERT
+TO authenticated, service_role
+WITH CHECK (true);
 
 -- Pattern 2: Team-based access for teams
 CREATE POLICY "team_members_view_teams"
@@ -400,9 +392,12 @@ USING (public.is_team_member(team_id))
 WITH CHECK (public.is_team_member(team_id));
 
 -- 7. Triggers
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_user_auth_change
+AFTER INSERT OR UPDATE OF email_confirmed_at, raw_user_meta_data ON auth.users
+FOR EACH ROW
+EXECUTE FUNCTION public.handle_new_user_profile();
+
 
 -- 8. Mock Data
 DO $$
@@ -425,7 +420,7 @@ BEGIN
     -- and email_confirmed_at must be set to a timestamp if you want the profile created immediately.
     INSERT INTO auth.users (
         id, instance_id, aud, email, encrypted_password, email_confirmed_at,
-        created_at, updated_at, raw_user_meta_data, app_metadata,
+        created_at, updated_at, raw_user_meta_data,
         is_sso_user, is_anonymous, confirmation_token, confirmation_sent_at,
         recovery_token, recovery_sent_at, email_change_token_new, email_change,
         email_change_sent_at, email_change_token_current, email_change_confirm_status,
@@ -433,14 +428,18 @@ BEGIN
         phone_change_token, phone_change_sent_at
     ) VALUES
         (coach_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'coach@team.edu', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
-         '{"fullName": "Coach Johnson", "schoolName": "University A", "team": "Basketball", "conference": "Big 10"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
+         -- CORRECTED raw_user_meta_data: Added 'data' nesting, 'email', 'email_verified', 'phone_verified', 'phone', 'allergies'
+         '{"data": {"fullName": "Coach Johnson", "schoolName": "University A", "team": "Basketball", "conference": "Big 10", "phone": "555-123-4567", "allergies": ""}, "email": "coach@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null),
         (player1_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'player1@team.edu', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
-         '{"fullName": "Alex Smith", "schoolName": "University A", "team": "Basketball", "conference": "Big 10"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
+         -- CORRECTED raw_user_meta_data
+         '{"data": {"fullName": "Alex Smith", "schoolName": "University A", "team": "Basketball", "conference": "Big 10", "phone": "555-987-6543", "allergies": "Peanuts"}, "email": "player1@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null),
         (player2_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'player2@team.edu', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
-         '{"fullName": "Taylor Davis", "schoolName": "University A", "team": "Basketball", "conference": "Big 10"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb,
+         -- CORRECTED raw_user_meta_data
+         '{"data": {"fullName": "Taylor Davis", "schoolName": "University A", "team": "Basketball", "conference": "Big 10", "phone": "555-111-2222", "allergies": ""}, "email": "player2@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null);
+
 
     -- Create team and team structure
     INSERT INTO public.teams (id, name, sport, season, coach_id) VALUES
