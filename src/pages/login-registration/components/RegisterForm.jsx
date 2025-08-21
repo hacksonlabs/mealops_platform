@@ -20,7 +20,8 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
     team: '',
     conference: '',
     email: '',
-    phoneNumber: '',
+    phone: '',
+    allergies: '',
     password: '',
     confirmPassword: '',
     acceptTerms: false,
@@ -75,10 +76,10 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
       newErrors.email = 'Only .edu email addresses are allowed for registration';
     }
 
-    if (!formData?.phoneNumber) {
-      newErrors.phoneNumber = 'Phone number is required for order notifications';
-    } else if (!/^\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})$/.test(formData?.phoneNumber)) {
-        newErrors.phoneNumber = 'Please enter a valid 10-digit phone number';
+    if (!formData?.phone) {
+      newErrors.phone = 'Phone number is required for order notifications';
+    } else if (!/^\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})$/.test(formData?.phone)) {
+        newErrors.phone = 'Please enter a valid 10-digit phone number';
     }
 
     if (!formData?.password) {
@@ -126,7 +127,8 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
             schoolName: formData.schoolName,
             team: formData.team,
             conference: formData.conference,
-            // phone: formData.phoneNumber,
+            phone: formData.phone,
+            allergies: formData.allergies,
           }
         }
       );
@@ -251,7 +253,7 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
           <label 
             htmlFor="phoneNumber-input-id" // Unique ID for phone number input
             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-            style={{ color: errors?.phoneNumber ? 'var(--color-destructive)' : 'var(--color-foreground)' }}
+            style={{ color: errors?.phone ? 'var(--color-destructive)' : 'var(--color-foreground)' }}
           >
             Cell Phone #
             <span className="text-destructive ml-1">*</span>
@@ -264,11 +266,11 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         <Input
           id="phoneNumber-input-id"
           type="tel"
-          name="phoneNumber"
+          name="phone"
           placeholder="e.g., (xxx) xxx-xxxx or xxxxxxxxxx"
-          value={formData?.phoneNumber}
+          value={formData?.phone}
           onChange={handleInputChange}
-          error={errors?.phoneNumber}
+          error={errors?.phone}
           required
           className=""
         />
