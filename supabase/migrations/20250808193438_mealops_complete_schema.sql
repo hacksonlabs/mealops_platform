@@ -14,10 +14,9 @@ CREATE TYPE public.location_type AS ENUM ('school', 'hotel', 'gym', 'venue', 'ot
 CREATE TABLE public.user_profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id),
     email TEXT NOT NULL UNIQUE,
-    full_name TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,  
     school_name TEXT NOT NULL,
-    team TEXT NOT NULL,
-    conference_name TEXT NOT NULL,
     phone TEXT,
     allergies TEXT,
     is_active BOOLEAN DEFAULT true,
@@ -29,7 +28,8 @@ CREATE TABLE public.teams (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     sport TEXT,
-    season TEXT,
+    conference_name TEXT,
+    gender TEXT,
     coach_id UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -39,6 +39,11 @@ CREATE TABLE public.team_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
     user_id UUID REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+    role TEXT,
+    full_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone_number TEXT,
+    allergies TEXT,
     joined_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(team_id, user_id)
 );
@@ -169,52 +174,45 @@ CREATE OR REPLACE FUNCTION public.handle_new_user_profile()
 RETURNS TRIGGER AS $$
 BEGIN
     INSERT INTO public.user_profiles (
-        id, email, full_name, school_name, team, conference_name, phone, allergies
+        id, email, first_name, last_name, school_name, allergies
     )
     VALUES (
         NEW.id,
         NEW.email,
         -- If email is confirmed, use raw_user_meta_data, otherwise empty string
-        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'fullName', '') ELSE '' END,
+        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'firstName', '') ELSE '' END,
+        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'lastName', '') ELSE '' END,
         CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'schoolName', '') ELSE '' END,
-        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'team', '') ELSE '' END,
-        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'conference', '') ELSE '' END,
-        CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'phone', '') ELSE '' END,
         CASE WHEN NEW.email_confirmed_at IS NOT NULL THEN COALESCE(NEW.raw_user_meta_data->'data'->>'allergies', '') ELSE '' END
     )
     ON CONFLICT (id) DO UPDATE SET
         email = EXCLUDED.email, -- Always keep email in sync
         updated_at = CURRENT_TIMESTAMP,
-        full_name = CASE
-                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'fullName' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'fullName' != ''
-                        THEN NEW.raw_user_meta_data->'data'->>'fullName'
-                        ELSE public.user_profiles.full_name -- Keep existing value if email not confirmed or new value is empty
+        first_name = CASE
+                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'firstName' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'firstName' != ''
+                        THEN NEW.raw_user_meta_data->'data'->>'firstName'
+                        ELSE public.user_profiles.first_name
+                    END,
+        last_name = CASE
+                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'lastName' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'lastName' != ''
+                        THEN NEW.raw_user_meta_data->'data'->>'lastName'
+                        ELSE public.user_profiles.last_name
                     END,
         school_name = CASE
                         WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'schoolName' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'schoolName' != ''
                         THEN NEW.raw_user_meta_data->'data'->>'schoolName'
                         ELSE public.user_profiles.school_name
                     END,
-        team = CASE
-                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'team' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'team' != ''
-                        THEN NEW.raw_user_meta_data->'data'->>'team'
-                        ELSE public.user_profiles.team
-                    END,
-        conference_name = CASE
-                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'conference' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'conference' != ''
-                        THEN NEW.raw_user_meta_data->'data'->>'conference'
-                        ELSE public.user_profiles.conference_name
-                    END,
-        phone = CASE
-                        WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'phone' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'phone' != ''
-                        THEN NEW.raw_user_meta_data->'data'->>'phone'
-                        ELSE public.user_profiles.phone
-                    END,
         allergies = CASE
                         WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'allergies' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'allergies' != ''
                         THEN NEW.raw_user_meta_data->'data'->>'allergies'
                         ELSE public.user_profiles.allergies
-                    END;
+                    END,
+        phone = CASE
+                    WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'phone' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'phone' != ''
+                    THEN NEW.raw_user_meta_data->'data'->>'phone'
+                    ELSE public.user_profiles.phone
+                END;
     
     RETURN NEW;
 END;
@@ -413,6 +411,12 @@ DECLARE
     poll_uuid UUID := gen_random_uuid();
     option1_uuid UUID := gen_random_uuid();
     option2_uuid UUID := gen_random_uuid();
+    coach_name TEXT;
+    coach_email TEXT;
+    player1_name TEXT;
+    player1_email TEXT;
+    player2_name TEXT;
+    player2_email TEXT;
 BEGIN
     -- Create auth users with required fields.
     -- IMPORTANT: For the trigger to work as expected, raw_user_meta_data
@@ -429,27 +433,34 @@ BEGIN
     ) VALUES
         (coach_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'coach@team.edu', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
          -- CORRECTED raw_user_meta_data: Added 'data' nesting, 'email', 'email_verified', 'phone_verified', 'phone', 'allergies'
-         '{"data": {"fullName": "Coach Johnson", "schoolName": "University A", "team": "Basketball", "conference": "Big 10", "phone": "555-123-4567", "allergies": ""}, "email": "coach@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
+         '{"data": {"firstName": "Coach", "lastName": "Johnson", "schoolName": "University A", "allergies": ""}, "email": "coach@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null),
         (player1_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'player1@team.edu', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
          -- CORRECTED raw_user_meta_data
-         '{"data": {"fullName": "Alex Smith", "schoolName": "University A", "team": "Basketball", "conference": "Big 10", "phone": "555-987-6543", "allergies": "Peanuts"}, "email": "player1@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
+         '{"data": {"firstName": "Alex", "lastName": "Smith", "schoolName": "University A", "allergies": "Peanuts"}, "email": "player1@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null),
         (player2_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'player2@team.edu', crypt('password123', gen_salt('bf', 10)), now(), now(), now(),
          -- CORRECTED raw_user_meta_data
-         '{"data": {"fullName": "Taylor Davis", "schoolName": "University A", "team": "Basketball", "conference": "Big 10", "phone": "555-111-2222", "allergies": ""}, "email": "player2@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
+         '{"data": {"firstName": "Taylor", "lastName": "Davis", "schoolName": "University A", "allergies": ""}, "email": "player2@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null);
 
+    
+     PERFORM pg_sleep(1);
+
+    -- Get user data from user_profiles table
+    SELECT first_name || ' ' || last_name, email INTO coach_name, coach_email FROM public.user_profiles WHERE id = coach_uuid;
+    SELECT first_name || ' ' || last_name, email INTO player1_name, player1_email FROM public.user_profiles WHERE id = player1_uuid;
+    SELECT first_name || ' ' || last_name, email INTO player2_name, player2_email FROM public.user_profiles WHERE id = player2_uuid;
 
     -- Create team and team structure
-    INSERT INTO public.teams (id, name, sport, season, coach_id) VALUES
-        (team_uuid, 'Warriors Basketball', 'Basketball', '2024-2025', coach_uuid);
+    INSERT INTO public.teams (id, name, sport, conference_name, gender, coach_id) VALUES
+        (team_uuid, 'Warriors Basketball', 'Basketball', 'PAC-12', 'womens', coach_uuid);
 
-    INSERT INTO public.team_members (team_id, user_id) VALUES
-        (team_uuid, coach_uuid),
-        (team_uuid, player1_uuid),
-        (team_uuid, player2_uuid);
-
+    -- Correctly insert into team_members with non-null values for full_name and email
+    INSERT INTO public.team_members (team_id, user_id, role, full_name, email) VALUES
+        (team_uuid, coach_uuid, 'coach', coach_name, coach_email),
+        (team_uuid, player1_uuid, 'player', player1_name, player1_email),
+        (team_uuid, player2_uuid, 'player', player2_name, player2_email);
     -- Create locations and restaurants
     INSERT INTO public.saved_locations (id, team_id, name, address, location_type) VALUES
         (location_uuid, team_uuid, 'School Campus', '123 School Ave', 'school'::public.location_type);

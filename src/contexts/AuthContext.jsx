@@ -16,6 +16,31 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState(null);
+
+  const fetchUserProfile = async (userId) => {
+    if (!userId) {
+      setUserProfile(null);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("user_profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+
+      if (error) {
+        console.error("Error fetching user profile:", error.message);
+        setUserProfile(null);
+      } else {
+        setUserProfile(data);
+      }
+    } catch (err) {
+      console.error("Unexpected error fetching profile:", err);
+      setUserProfile(null);
+    }
+  };
 
   useEffect(() => {
     // Get initial session
@@ -31,6 +56,7 @@ export function AuthProvider({ children }) {
         } else {
           setSession(session);
           setUser(session?.user ?? null);
+          await fetchUserProfile(session?.user?.id);
         }
       } catch (error) {
         console.error("Unexpected error getting session:", error);
@@ -41,16 +67,24 @@ export function AuthProvider({ children }) {
 
     getInitialSession();
 
-    // Listen for auth changes - NEVER make this callback async
+    // Listen for auth changes and fetch profile accordingly
     const {
       data: { subscription },
-    } = supabase?.auth?.onAuthStateChange((event, session) => {
+    } = supabase?.auth?.onAuthStateChange(async (event, session) => {
       console.log("Auth event:", event);
       setSession(session);
       setUser(session?.user ?? null);
+      setLoading(true);
+
+      // Fetch profile data only if a user is logged in
+      if (session?.user) {
+        await fetchUserProfile(session.user.id);
+      } else {
+        setUserProfile(null); // Clear profile on sign-out
+      }
+      
       setLoading(false);
     });
-
     return () => subscription?.unsubscribe();
   }, []);
 
@@ -96,7 +130,7 @@ export function AuthProvider({ children }) {
 
   const signOut = async () => {
     try {
-      setLoading(true);
+      setLoading(false);
       const { error } = await supabase?.auth?.signOut();
       if (error) throw error;
       return { error: null };
@@ -148,6 +182,7 @@ export function AuthProvider({ children }) {
     user,
     session,
     loading,
+    userProfile,
     signUp,
     signIn,
     signOut,

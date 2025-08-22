@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import Icon from '../AppIcon';
 import mealLogo from '../images/meal.png';
 
-const Header = ({ user = null, notifications = 0, className = '' }) => {
+const Header = ({ notifications = 0, className = '' }) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, userProfile, signOut } = useAuth();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -72,12 +74,22 @@ const Header = ({ user = null, notifications = 0, className = '' }) => {
   const handleLogout = () => {
     setIsUserMenuOpen(false);
     // Logout logic would go here
-    navigate('/login-registration');
+    signOut();
   };
 
   const isActivePath = (path) => {
     return location?.pathname === path || (location?.pathname === '/' && path === '/dashboard-home');
   };
+
+  const fullName = userProfile?.first_name || userProfile?.last_name 
+    ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() 
+    : '';
+
+  const initials = fullName
+    .split(' ')
+    .map(name => name.charAt(0))
+    .join('')
+    .toUpperCase();
 
   return (
     <header className={`fixed top-0 left-0 right-0 z-50 bg-card border-b border-border shadow-athletic ${className}`}>
@@ -136,14 +148,25 @@ const Header = ({ user = null, notifications = 0, className = '' }) => {
               className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted transition-athletic"
             >
               <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
-                <Icon name="User" size={16} color="white" />
+                {/* Conditionally render initials or generic icon */}
+                {userProfile?.first_name ? (
+                  <span className="text-white font-bold text-xs">
+                    {initials}
+                  </span>
+                ) : (
+                  <Icon name="User" size={16} color="white" />
+                )}
               </div>
-              {user && (
+              {fullName && (
                 <span className="hidden md:block text-sm font-medium text-foreground">
-                  {user?.name || 'User'}
+                  {/* {userProfile?.first_name} */}
                 </span>
               )}
-              <Icon name="ChevronDown" size={16} className="text-muted-foreground" />
+              <Icon 
+                name="ChevronDown" 
+                size={16} 
+                className={`text-muted-foreground transition-transform duration-100 ${isUserMenuOpen ? 'rotate-180' : ''}`} 
+              />
             </button>
 
             {/* User Dropdown */}
@@ -152,7 +175,7 @@ const Header = ({ user = null, notifications = 0, className = '' }) => {
                 <div className="py-1">
                   <div className="px-4 py-2 border-b border-border">
                     <p className="text-sm font-medium text-foreground">
-                      {user?.name || 'User Name'}
+                      {'Hi ' + userProfile?.first_name + ',' || 'User'}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {user?.email || 'user@example.com'}
