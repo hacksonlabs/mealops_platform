@@ -43,49 +43,44 @@ export function AuthProvider({ children }) {
   };
 
   useEffect(() => {
-    // Get initial session
+    // Get initial session on component mount
     const getInitialSession = async () => {
       try {
-        const {
-          data: { session },
-          error,
-        } = await supabase?.auth?.getSession();
-        
-        if (error) {
-          console.error("Error getting initial session:", error?.message);
+        const { data: { session }, error } = await supabase.auth.getSession();
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session) {
+          await fetchUserProfile(session.user.id);
         } else {
-          setSession(session);
-          setUser(session?.user ?? null);
-          await fetchUserProfile(session?.user?.id);
+          setUserProfile(null);
         }
       } catch (error) {
-        console.error("Unexpected error getting session:", error);
+        console.error("Error getting initial session:", error?.message);
+        // Do not throw, as we want the app to load even if the session check fails
       } finally {
-        setLoading(false);
+        setLoading(false); // Set loading to false after the initial check
       }
     };
-
     getInitialSession();
 
-    // Listen for auth changes and fetch profile accordingly
-    const {
-      data: { subscription },
-    } = supabase?.auth?.onAuthStateChange(async (event, session) => {
+    // Set up the real-time auth state change listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       console.log("Auth event:", event);
       setSession(session);
       setUser(session?.user ?? null);
-      setLoading(true);
-
-      // Fetch profile data only if a user is logged in
+      
+      // Fetch profile based on the new session
       if (session?.user) {
-        await fetchUserProfile(session.user.id);
+        fetchUserProfile(session.user.id);
       } else {
         setUserProfile(null); // Clear profile on sign-out
       }
-      
-      setLoading(false);
     });
-    return () => subscription?.unsubscribe();
+
+    // Cleanup subscription on component unmount
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signUp = async (email, password, userData = {}) => {
@@ -130,7 +125,7 @@ export function AuthProvider({ children }) {
 
   const signOut = async () => {
     try {
-      setLoading(false);
+      setLoading(true);
       const { error } = await supabase?.auth?.signOut();
       if (error) throw error;
       return { error: null };

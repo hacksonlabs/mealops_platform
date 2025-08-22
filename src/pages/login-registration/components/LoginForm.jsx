@@ -4,7 +4,7 @@ import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import Icon from '../../../components/AppIcon';
-import { useAuth } from '../../../contexts/AuthContext';
+import { useAuth } from '../../../contexts';
 
 
 export function LoginForm({ onSwitchToRegister, onForgotPassword, errors, setErrors, isLoading }) {

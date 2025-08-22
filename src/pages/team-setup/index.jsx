@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts';
 import { supabase } from '../../lib/supabase';
 import Header from '../../components/ui/Header';
 import Button from '../../components/ui/Button';

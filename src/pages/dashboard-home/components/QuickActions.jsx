@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { teamService } from '../../../services/teamService';
-import { useAuth } from '../../../contexts/AuthContext';
+import { useAuth } from '../../../contexts';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 
