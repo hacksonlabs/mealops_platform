@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts';
 import Header from '../../components/ui/Header';
 import MetricsCard from './components/MetricsCard';
 import { NextMealWidget } from './components/NextMealWidget';
@@ -9,11 +10,7 @@ import UpcomingMealsCalendar from './components/UpcomingMealsCalendar';
 
 const DashboardHome = () => {
   const navigate = useNavigate();
-  const [user] = useState({
-    name: "Coach Sarah Johnson",
-    email: "sarah.johnson@athletics.edu",
-    role: "Head Coach"
-  });
+  const { userProfile, loading: authLoading } = useAuth();
 
   // Mock data for dashboard metrics
   const [metrics] = useState([
@@ -177,15 +174,30 @@ const DashboardHome = () => {
     navigate('/calendar-order-scheduling');
   };
 
+  // If user profile is still loading, show a loading message
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p>Loading user data...</p>
+      </div>
+    );
+  }
+
+  // Fallback if userProfile is null (e.g., not logged in)
+  if (!userProfile) {
+    navigate('/login-registration');
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      <Header user={user} notifications={2} />
+      <Header user={userProfile} notifications={2} />
       <main className="pt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Welcome Section */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2">
-              Welcome back, {user?.name?.split(' ')?.[1]}!
+              Welcome back, {userProfile.first_name}!
             </h1>
             <p className="text-muted-foreground">
               Here's what's happening with your team meals today.
