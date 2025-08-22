@@ -11,7 +11,7 @@ import EditLocationModal from './components/EditLocationModal';
 import AddRestaurantModal from './components/AddRestaurantModal';
 import { locationService } from '../../services/locationService';
 import { teamService } from '../../services/teamService';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts';
 
 const SavedAddressesLocations = () => {
   const { user: authUser, session } = useAuth();

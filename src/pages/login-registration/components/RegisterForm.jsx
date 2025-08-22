@@ -4,7 +4,7 @@ import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import Icon from '../../../components/AppIcon';
 import { Checkbox } from '../../../components/ui/Checkbox';
-import { useAuth } from '../../../contexts/AuthContext';
+import { useAuth } from '../../../contexts';
 import { emailService } from '../../../services/emailService';
 import { supabase } from '../../../lib/supabase'; 
 import { toTitleCase } from '../../../utils/stringUtils'

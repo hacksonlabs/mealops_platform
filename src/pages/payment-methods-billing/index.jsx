@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts';
 import { paymentService } from '../../services/paymentService';
 import { teamService } from '../../services/teamService';
 import Header from '../../components/ui/Header';
