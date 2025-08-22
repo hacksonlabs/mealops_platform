@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
+import { formatDateToMMDDYYYY } from '../../../utils/stringUtils'
 
 const MembersTable = ({ 
   members, 
@@ -34,7 +35,8 @@ const MembersTable = ({
     const roleConfig = {
       coach: { bg: 'bg-purple-100', text: 'text-purple-800', label: 'Coach' },
       player: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Player' },
-      admin: { bg: 'bg-amber-100', text: 'text-amber-800', label: 'Admin' }
+      admin: { bg: 'bg-amber-100', text: 'text-amber-800', label: 'Admin' },
+      staff: { bg: 'bg-gray-100', text: 'text-gray-800', label: 'Staff' }
     };
 
     const config = roleConfig?.[role] || roleConfig?.player;
@@ -121,22 +123,7 @@ const MembersTable = ({
                 <span className="text-sm font-medium text-foreground">Dietary Restrictions</span>
               </th>
               <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('status')}
-                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
-                >
-                  <span>Status</span>
-                  <Icon name={getSortIcon('status')} size={14} />
-                </button>
-              </th>
-              <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('joinedAt')}
-                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
-                >
-                  <span>Joined</span>
-                  <Icon name={getSortIcon('joinedAt')} size={14} />
-                </button>
+                <span className="text-sm font-medium text-foreground">Birthday</span>
               </th>
               <th className="px-4 py-3 text-right">
                 <span className="text-sm font-medium text-foreground">Actions</span>
@@ -159,27 +146,27 @@ const MembersTable = ({
                     </div>
                     <div>
                       <div className="text-sm font-medium text-foreground">
-                        {member?.user_profiles?.full_name}
+                        {member?.full_name}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {member?.user_profiles?.email}
+                        {member?.email}
                       </div>
-                      {member?.user_profiles?.phone && (
+                      {member?.phone_number && (
                         <div className="text-xs text-muted-foreground">
-                          {member?.user_profiles?.phone}
+                          {member?.phone_number}
                         </div>
                       )}
                     </div>
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  {getRoleBadge(member?.user_profiles?.role)}
+                  {getRoleBadge(member?.role)}
                 </td>
                 <td className="px-4 py-4">
                   <div className="text-sm text-foreground">
-                    {member?.user_profiles?.allergies ? (
+                    {member?.allergies ? (
                       <div className="max-w-xs">
-                        <p className="text-foreground line-clamp-2">{member?.user_profiles?.allergies}</p>
+                        <p className="text-foreground line-clamp-2">{member?.allergies}</p>
                       </div>
                     ) : (
                       <span className="text-muted-foreground">None specified</span>
@@ -187,11 +174,14 @@ const MembersTable = ({
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  {getStatusBadge(member?.user_profiles?.is_active)}
-                </td>
-                <td className="px-4 py-4">
                   <div className="text-sm text-foreground">
-                    {formatDate(member?.joined_at)}
+                    {member?.birthday ? (
+                      <div className="max-w-xs">
+                        <p className="text-foreground line-clamp-2">{formatDateToMMDDYYYY(member.birthday)}</p>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">None specified</span>
+                    )}
                   </div>
                 </td>
                 <td className="px-4 py-4 text-right">
