@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -10,60 +10,60 @@ import Icon from '../../components/AppIcon';
 
 export default function TeamSetup() {
   const navigate = useNavigate();
-  const { user } = useAuth(); // Current logged-in user
+  const { user, userProfile, loading: authLoading } = useAuth(); // Current logged-in user
   const [loading, setLoading] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState(''); // Current user's phone number
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [validationErrors, setValidationErrors] = useState({});
   const [teamData, setTeamData] = useState({
     name: '',
-    sport: '', // e.g., Basketball, Soccer
-    season: '', // e.g., 2024-2025
+    sport: '',
+    conference: '',
+    gender: '',
   });
-  // Members array for the table, with all specified fields and an initial empty row
-  const [members, setMembers] = useState([
-    { name: '', email: '', phoneNumber: '', role: 'player', allergies: '' }
-  ]);
+  const [members, setMembers] = useState([]);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(''); // For success messages
-  const [csvFile, setCsvFile] = useState(null); // State for uploaded CSV file
-
-  // Roles for team members, now transformed for the Select component's `options` prop
-  const memberRolesOptions = ['player', 'coach', 'head coach', 'staff', 'custom'].map(role => ({
+  const [success, setSuccess] = useState('');
+  const [csvFile, setCsvFile] = useState(null);
+  const memberRolesOptions = useMemo(() => ['player', 'coach', 'staff'].map(role => ({
     label: role.charAt(0).toUpperCase() + role.slice(1),
     value: role
-  }));
-
-  useEffect(() => {
-    if (!user) {
-      navigate('/login-registration');
-    } else {
-      // Fetch current user's phone number on load if available in user_profiles
-      const fetchUserProfile = async () => {
-        try {
-          const { data, error } = await supabase
-            .from('user_profiles')
-            .select('*') 
-            .eq('id', user.id)
-            .single();
-
-          if (error && error.code !== 'PGRST116') { // PGRST116 means no rows found (new user)
-            console.error('Error fetching user profile:', error.message);
-          } else if (data) {
-            setPhoneNumber(data.phone);
-            console.log('Fetched user profile (all columns):', data);
-          }
-        } catch (err) {
-          console.error('Unexpected error fetching user profile:', err);
-        }
-      };
-      fetchUserProfile();
-    }
-  }, [user, navigate]);
+  })), []);
+  const genderOptions = [
+    { label: 'Womens', value: 'womens' },
+    { label: 'Mens', value: 'mens' },
+    { label: 'Coed', value: 'coed' },
+  ];
 
   const handleTeamDataChange = (field, value) => {
     setTeamData(prev => ({
       ...prev,
       [field]: value
     }));
+    // Clear the specific error for this field
+    if (validationErrors[field]) {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[field];
+        return newErrors;
+      });
+    }
+  };
+
+  const handlePhoneNumberChange = (e) => {
+    const value = e.target.value;
+    setPhoneNumber(value);
+    // Clear the phone number error as the user types
+    if (validationErrors.phone) {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors.phone;
+        return newErrors;
+      });
+    }
+  };
+
+  const handleClearError = () => {
+    setError('');
   };
 
   const handleMemberChange = (index, field, value) => {
@@ -115,16 +115,17 @@ export default function TeamSetup() {
       const values = line.split(',');
       const member = {};
       headers.forEach((header, index) => {
-        const key = header === 'phone number' ? 'phoneNumber' : header; // Normalize 'phone number'
+        const key = header === 'phone number' ? 'phoneNumber' : header;
         member[key] = values[index] ? values[index].trim() : '';
       });
 
       // Default role if not provided or invalid
-      if (!memberRolesOptions.some(opt => opt.value === member.role)) { // Check against value
+      if (!memberRolesOptions.some(opt => opt.value === member.role)) {
         member.role = 'player';
       }
       return member;
     });
+
     setMembers(prevMembers => [...prevMembers, ...parsedMembers]); // Append parsed members
     setSuccess('CSV members loaded. Review and save below.');
     setError('');
@@ -136,9 +137,47 @@ export default function TeamSetup() {
     setLoading(true);
     setError('');
     setSuccess('');
+    setValidationErrors({});
+
+    // --- Start Validation Logic ---
+    const newErrors = {};
+
+    if (!phoneNumber) {
+        newErrors.phone = 'Phone number is required for order notifications';
+    } else if (!/^\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})$/.test(phoneNumber)) {
+        newErrors.phone = 'Please enter a valid 10-digit phone number';
+    }
+
+    if (!teamData?.sport) {
+      newErrors.sport = 'Sport type is required';
+    } else if (teamData.sport.length < 2) {
+      newErrors.sport = 'Sport type must be at least 2 characters';
+    }
+
+    if (!teamData?.conference) {
+      newErrors.conference = 'Conference name is required';
+    } else if (teamData.conference.length < 2) {
+      newErrors.conference = 'Conference name must be at least 2 characters';
+    }
+
+    if (!teamData?.name) {
+      newErrors.name = 'Team name is required';
+    }
+
+    if (!teamData?.gender) {
+      newErrors.gender = 'Gender is required';
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setValidationErrors(newErrors);
+      setLoading(false);
+      setError('Please fix the errors in your form.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
 
     try {
-      // 1. Update current user's phone number in user_profiles
+      // Update current user's phone number in user_profiles
       const { error: profileError } = await supabase
         .from('user_profiles')
         .update({ phone: phoneNumber })
@@ -146,10 +185,11 @@ export default function TeamSetup() {
       
       if (profileError) {
         console.error('Error updating user profile phone number:', profileError.message);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         throw new Error('Failed to save your phone number.');
       }
 
-      // 2. Create team
+      // Create team
       // teamService is assumed to handle team creation and linking to user via 'teams_users'
       // For this example, we'll create the team and assume the current user is added as coach/admin implicitly
       const { data: createdTeam, error: teamError } = await supabase
@@ -157,56 +197,67 @@ export default function TeamSetup() {
         .insert({
           name: teamData.name,
           sport: teamData.sport,
-          season: teamData.season,
-          created_by: user.id // Link team to the user who created it
+          conference_name: teamData.conference,
+          gender: teamData.gender,
+          coach_id: user.id // Link team to the user who created it
         })
         .select()
         .single();
       
       if (teamError) {
         console.error('Error creating team:', teamError.message);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         throw new Error('Failed to create team. ' + teamError.message);
       }
 
-      // Automatically link the creating user to the team in teams_users as an admin/coach
-      const { error: linkUserError } = await supabase
-        .from('teams_users')
-        .insert({
-          team_id: createdTeam.id,
-          user_id: user.id,
-          role: 'coach' // Or 'admin', depending on your default for team creators
-        });
-
-      if (linkUserError) {
-        console.error('Error linking user to team:', linkUserError.message);
-        // This might not be a critical error to stop the whole process if team is created
-      }
-
-      // 3. Add members to the new 'team_members' table
       const validMembers = members.filter(member => 
         member.name.trim() && member.email.trim() && member.role.trim()
       );
 
-      if (validMembers.length > 0) {
-        const membersToInsert = validMembers.map(member => ({
+      const membersToInsert = validMembers.map(member => ({
+        team_id: createdTeam.id,
+        user_id: null,
+        role: member.role,
+        full_name: member.name, 
+        email: member.email,
+        phone_number: member.phoneNumber,
+        allergies: member.allergies,
+      }));
+
+      const isCoachInList = membersToInsert.some(m => m.email === user.email);
+
+      // If the coach is not in the list (e.g., they weren't in the CSV), add them now.
+      if (!isCoachInList) {
+        membersToInsert.push({
           team_id: createdTeam.id,
-          name: member.name,
-          email: member.email,
-          phone_number: member.phoneNumber, // This will be stored as phone_number in team_members table
-          role: member.role,
-          allergies: member.allergies,
-        }));
-
-        const { error: membersError } = await supabase
-          .from('team_members')
-          .insert(membersToInsert);
-
-        if (membersError) {
-          console.error('Error adding team members:', membersError.message);
-          throw new Error('Failed to add some team members.');
+          user_id: user.id,
+          role: 'coach',
+          full_name: `${userProfile?.first_name} ${userProfile?.last_name}`,
+          email: user.email,
+          phone_number: phoneNumber,
+          allergies: userProfile?.allergies,
+        });
+      } else {
+        // If the coach IS in the list (e.g., via CSV), update their record
+        // to link their user ID and assign the 'coach' role.
+        const coachRecord = membersToInsert.find(m => m.email === user.email);
+        if (coachRecord) {
+          coachRecord.user_id = user.id;
+          coachRecord.role = 'coach';
         }
       }
 
+      const { error: membersError } = await supabase
+        .from('team_members')
+        .insert(membersToInsert);
+
+      if (membersError) {
+        console.error('Error adding team members:', membersError.message);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        throw new Error('Failed to add some team members.');
+      }
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       setSuccess('Team created and members added successfully!');
       setTimeout(() => navigate('/dashboard-home'), 2000);
 
@@ -218,33 +269,50 @@ export default function TeamSetup() {
     }
   };
 
-  if (!user) {
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600">Please sign in to set up your team.</p>
+          <p className="text-gray-600">Loading...</p>
         </div>
       </div>
     );
   }
 
+  if (!user) {
+    navigate('/login-registration');
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
-      <div className="flex-grow max-w-4xl mx-auto px-4 py-8 w-full"> {/* Increased max-w for table */}
-        <div className="bg-white rounded-lg shadow-sm border p-6">
+      <div className="flex-grow max-w-6xl mx-auto px-4 py-8 w-full">
+        <div className="bg-white rounded-lg shadow-sm border p-6 mt-20">
           <div className="mb-6 text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Set Up Your Team 🏀🏈📣</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Set Up Your Team</h1>
             <p className="text-gray-600">Let's get your team ready for MealOps. This is where you'll define your team and add your roster!</p>
           </div>
 
+          {/* Main Error Banner */}
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md relative pr-10">
               <p className="text-red-800 flex items-center">
                 <Icon name="XCircle" size={20} className="mr-2" /> {error}
               </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleClearError}
+                className="absolute top-1 right-1 text-red-600 hover:text-red-700 p-1"
+              >
+                <Icon name="X" size={16} />
+              </Button>
             </div>
           )}
+
+          {/* Success Banner */}
           {success && (
             <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-md">
               <p className="text-green-800 flex items-center">
@@ -253,8 +321,8 @@ export default function TeamSetup() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-8"> {/* Increased spacing */}
-            {/* 1. Your Information for Notifications */}
+          <form onSubmit={handleSubmit} className="space-y-8">
+            {/* 1. User Information for Notifications */}
             <div className="space-y-4 p-4 border rounded-lg bg-blue-50/50">
               <h2 className="text-lg font-semibold text-blue-800 flex items-center">
                 <Icon name="Bell" size={20} className="mr-2" /> Your Contact Info (for Notifications)
@@ -265,9 +333,10 @@ export default function TeamSetup() {
                   label="Phone Number"
                   type="tel" // Use tel type for phone numbers
                   value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  onChange={handlePhoneNumberChange}
                   placeholder="e.g., (555) 123-4567"
-                  description="Format: (XXX) XXX-XXXX or XXXXXXXXXX"
+                  // description="Format: (XXX) XXX-XXXX or XXXXXXXXXX"
+                  error={validationErrors.phone}
                 />
               </div>
             </div>
@@ -277,36 +346,56 @@ export default function TeamSetup() {
               <h2 className="text-lg font-semibold text-gray-900 flex items-center">
                 <Icon name="Users" size={20} className="mr-2" /> Team Details
               </h2>
-              
-              <div>
-                <Input
-                  label="Team Name *"
-                  type="text"
-                  value={teamData.name}
-                  onChange={(e) => handleTeamDataChange('name', e.target.value)}
-                  placeholder="e.g., Warriors Basketball"
-                  required
-                />
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Input
+                    label="Team Name"
+                    type="text"
+                    value={teamData.name}
+                    onChange={(e) => handleTeamDataChange('name', e.target.value)}
+                    placeholder="e.g., Warriors Basketball"
+                    required
+                    error={validationErrors.name}
+                  />
+                </div>
 
-              <div>
-                <Input
-                  label="Sport"
-                  type="text"
-                  value={teamData.sport}
-                  onChange={(e) => handleTeamDataChange('sport', e.target.value)}
-                  placeholder="e.g., Basketball, Football, Soccer"
-                />
-              </div>
+                <div>
+                  <Input
+                    label="Sport"
+                    type="text"
+                    value={teamData.sport}
+                    onChange={(e) => handleTeamDataChange('sport', e.target.value)}
+                    placeholder="e.g., Basketball, Football, Soccer"
+                    required
+                    error={validationErrors.sport}
+                  />
+                </div>
 
-              <div>
-                <Input
-                  label="Season Year"
-                  type="text" // Use text for year to allow "Fall 2024" or "2024-2025"
-                  value={teamData.season}
-                  onChange={(e) => handleTeamDataChange('season', e.target.value)}
-                  placeholder="e.g., 2024-2025, Spring 2025"
-                />
+                <div>
+                  <Input
+                    label="Conference"
+                    type="text"
+                    value={teamData.conference}
+                    onChange={(e) => handleTeamDataChange('conference', e.target.value)}
+                    placeholder="e.g., Pac-12 💀"
+                    required
+                    error={validationErrors.conference}
+                  />
+                </div>
+
+                <div>
+                  <Select
+                    id="gender"
+                    name="gender"
+                    label="Gender"
+                    placeholder="Select a gender"
+                    options={genderOptions}
+                    value={teamData.gender}
+                    onChange={(value) => handleTeamDataChange('gender', value)}
+                    required
+                    error={validationErrors.gender}
+                  />
+                </div>
               </div>
             </div>
 
@@ -348,49 +437,49 @@ export default function TeamSetup() {
               </div>
 
               {members.length > 0 && (
-                <div className="overflow-x-auto">
+                <div className="">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name *</th>
-                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email *</th>
-                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone Number</th>
-                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role *</th>
+                        <th scope="col" className="w-1/5 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th scope="col" className="w-1/4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th scope="col" className="w-1/5 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone #</th>
+                        <th scope="col" className="w-1/6 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                         <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Allergies</th>
-                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        <th scope="col" className="px-2 py-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {members.map((member, index) => (
                         <tr key={index}>
-                          <td className="px-3 py-2 whitespace-nowrap">
+                          <td className="px-2 py-2 whitespace-nowrap">
                             <Input
                               type="text"
                               value={member.name}
                               onChange={(e) => handleMemberChange(index, 'name', e.target.value)}
-                              placeholder="Name"
-                              className="!border-none !ring-0 !shadow-none !p-0" // Make it look like plain text
+                              placeholder=" Name"
+                              className="!border-none !ring-0 !shadow-none !p-0"
                             />
                           </td>
-                          <td className="px-3 py-2 whitespace-nowrap">
+                          <td className="px-2 py-2 whitespace-nowrap">
                             <Input
                               type="email"
                               value={member.email}
                               onChange={(e) => handleMemberChange(index, 'email', e.target.value)}
-                              placeholder="Email"
+                              placeholder=" Email"
                               className="!border-none !ring-0 !shadow-none !p-0"
                             />
                           </td>
-                          <td className="px-3 py-2 whitespace-nowrap">
+                          <td className="px-2 py-2 whitespace-nowrap">
                             <Input
                               type="tel"
                               value={member.phoneNumber}
                               onChange={(e) => handleMemberChange(index, 'phoneNumber', e.target.value)}
-                              placeholder="Phone"
+                              placeholder=" Phone"
                               className="!border-none !ring-0 !shadow-none !p-0"
                             />
                           </td>
-                          <td className="px-3 py-2 whitespace-nowrap">
+                          <td className="px-2 py-2 whitespace-nowrap">
                             <Select
                               value={member.role}
                               options={memberRolesOptions}
@@ -398,16 +487,16 @@ export default function TeamSetup() {
                               className="!border-none !ring-0 !shadow-none !p-0"
                             />
                           </td>
-                          <td className="px-3 py-2 whitespace-nowrap">
+                          <td className="px-2 py-2 whitespace-nowrap">
                             <Input
                               type="text"
                               value={member.allergies}
                               onChange={(e) => handleMemberChange(index, 'allergies', e.target.value)}
-                              placeholder="Allergies (optional)"
-                              className="!border-none !ring-0 !shadow-none !p-0"
+                              placeholder=" Optional.."
+                              className="!border-none !ring-0 !shadow-none !p-0 italic"
                             />
                           </td>
-                          <td className="px-3 py-2 whitespace-nowrap text-right text-sm font-medium">
+                          <td className="px-0.5 py-0.5 whitespace-nowrap text-right text-sm font-medium">
                             <Button
                               type="button"
                               variant="ghost"
@@ -439,7 +528,7 @@ export default function TeamSetup() {
               </Button>
               <Button
                 type="submit"
-                disabled={loading || !teamData.name.trim()} // Require team name
+                disabled={loading || !teamData.name.trim()}
               >
                 {loading ? 'Creating Team...' : 'Create Team'}
               </Button>

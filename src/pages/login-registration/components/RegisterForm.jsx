@@ -15,9 +15,11 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
     fullName: '',
     schoolName: '',
-    team: '',
+    sport: '',
     conference: '',
     email: '',
     phone: '',
@@ -45,27 +47,21 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
   const validateForm = () => {
     const newErrors = {};
 
-    if (!formData?.fullName) {
-      newErrors.fullName = 'Your name is required';
-    } else if (formData?.fullName?.length < 2) {
-      newErrors.fullName = 'Your full name must be at least 2 characters';
+    if (!formData?.firstName) {
+      newErrors.firstName = 'First name is required';
+    } else if (formData?.firstName?.length < 2) {
+      newErrors.firstName = 'First name must be at least 2 characters';
     }
+    if (!formData?.lastName) {
+      newErrors.lastName = 'Last name is required';
+    } else if (formData?.lastName?.length < 2) {
+      newErrors.lastName = 'Last name must be at least 2 characters';
+    }
+
     if (!formData?.schoolName) {
       newErrors.schoolName = 'School name is required';
     } else if (formData?.schoolName?.length < 2) {
       newErrors.schoolName = 'School name must be at least 2 characters';
-    }
-
-    if (!formData?.team) {
-      newErrors.team = 'Team name is required';
-    } else if (formData?.team?.length < 2) {
-      newErrors.team = 'Team name must be at least 2 characters';
-    }
-
-    if (!formData?.conference) {
-      newErrors.conference = 'Conference name is required';
-    } else if (formData?.conference?.length < 2) {
-      newErrors.conference = 'Conference name must be at least 2 characters';
     }
 
     if (!formData?.email) {
@@ -74,12 +70,6 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
       newErrors.email = 'Please enter a valid email address';
     } else if (!formData?.email.endsWith('.edu')) {
       newErrors.email = 'Only .edu email addresses are allowed for registration';
-    }
-
-    if (!formData?.phone) {
-      newErrors.phone = 'Phone number is required for order notifications';
-    } else if (!/^\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})$/.test(formData?.phone)) {
-        newErrors.phone = 'Please enter a valid 10-digit phone number';
     }
 
     if (!formData?.password) {
@@ -123,11 +113,9 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         formData?.password,
         {
           data: { // This object will become part of auth.users.raw_user_meta_data
-            fullName: formData.fullName,
+            firstName: formData.firstName,
+            lastName: formData.lastName,
             schoolName: formData.schoolName,
-            team: formData.team,
-            conference: formData.conference,
-            phone: formData.phone,
             allergies: formData.allergies,
           }
         }
@@ -172,15 +160,28 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <Input
-        label="Full Name"
-        type="text"
-        name="fullName"
-        placeholder="Enter your name"
-        value={formData?.fullName}
-        onChange={handleInputChange}
-        error={errors?.fullName}
-        required />
+      <div className="flex space-x-4">
+        <Input
+            label="First Name"
+            type="text"
+            name="firstName"
+            placeholder="Enter your first name"
+            value={formData?.firstName}
+            onChange={handleInputChange}
+            error={errors?.firstName}
+            required
+        />
+        <Input
+            label="Last Name"
+            type="text"
+            name="lastName"
+            placeholder="Enter your last name"
+            value={formData?.lastName}
+            onChange={handleInputChange}
+            error={errors?.lastName}
+            required
+        />
+    </div>
       <Input
         label="School Name"
         type="text"
@@ -189,24 +190,6 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
         value={formData?.schoolName}
         onChange={handleInputChange}
         error={errors?.schoolName}
-        required />
-      <Input
-        label="Team"
-        type="text"
-        name="team"
-        placeholder="Enter your team (e.g., WBB)"
-        value={formData?.team}
-        onChange={handleInputChange}
-        error={errors?.team}
-        required />
-      <Input
-        label="Conference"
-        type="text"
-        name="conference"
-        placeholder="Enter your conference (e.g., Pac-12 💀)"
-        value={formData?.conference}
-        onChange={handleInputChange}
-        error={errors?.conference}
         required />
 
       <div className="space-y-2">
@@ -243,34 +226,6 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
           value={formData?.email}
           onChange={handleInputChange}
           error={errors?.email}
-          required
-          className=""
-        />
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex items-center space-x-2 relative group w-fit">
-          <label 
-            htmlFor="phoneNumber-input-id" // Unique ID for phone number input
-            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-            style={{ color: errors?.phone ? 'var(--color-destructive)' : 'var(--color-foreground)' }}
-          >
-            Cell Phone #
-            <span className="text-destructive ml-1">*</span>
-          </label>
-          <Icon name="Info" size={16} className="text-gray-400 cursor-pointer hover:text-gray-600" />
-          <div className="absolute left-full ml-2 w-64 p-3 bg-gray-800 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none group-hover:pointer-events-auto z-10 top-1/2 -translate-y-1/2">
-            This phone number will be used for critical order updates and notifications. You can easily update it later in your profile settings.
-          </div>
-        </div>
-        <Input
-          id="phoneNumber-input-id"
-          type="tel"
-          name="phone"
-          placeholder="e.g., (xxx) xxx-xxxx or xxxxxxxxxx"
-          value={formData?.phone}
-          onChange={handleInputChange}
-          error={errors?.phone}
           required
           className=""
         />
