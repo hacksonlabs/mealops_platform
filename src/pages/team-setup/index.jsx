@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Icon from '../../components/AppIcon';
+import { toTitleCase } from '../../utils/stringUtils'
 
 export default function TeamSetup() {
   const navigate = useNavigate();
@@ -195,8 +196,8 @@ export default function TeamSetup() {
       const { data: createdTeam, error: teamError } = await supabase
         .from('teams')
         .insert({
-          name: teamData.name,
-          sport: teamData.sport,
+          name: toTitleCase(teamData.name),
+          sport: toTitleCase(teamData.sport),
           conference_name: teamData.conference,
           gender: teamData.gender,
           coach_id: user.id // Link team to the user who created it
@@ -218,10 +219,10 @@ export default function TeamSetup() {
         team_id: createdTeam.id,
         user_id: null,
         role: member.role,
-        full_name: member.name, 
-        email: member.email,
+        full_name: toTitleCase(member.name), 
+        email: member.email.toLowerCase(),
         phone_number: member.phoneNumber,
-        allergies: member.allergies,
+        allergies: toTitleCase(member.allergies),
       }));
 
       const isCoachInList = membersToInsert.some(m => m.email === user.email);
@@ -232,10 +233,10 @@ export default function TeamSetup() {
           team_id: createdTeam.id,
           user_id: user.id,
           role: 'coach',
-          full_name: `${userProfile?.first_name} ${userProfile?.last_name}`,
-          email: user.email,
+          full_name: `${toTitleCase(userProfile?.first_name)} ${toTitleCase(userProfile?.last_name)}`,
+          email: user.email.toLowerCase(),
           phone_number: phoneNumber,
-          allergies: userProfile?.allergies,
+          allergies: userProfile?.allergies ? toTitleCase(userProfile.allergies) : null,
         });
       } else {
         // If the coach IS in the list (e.g., via CSV), update their record
@@ -244,6 +245,8 @@ export default function TeamSetup() {
         if (coachRecord) {
           coachRecord.user_id = user.id;
           coachRecord.role = 'coach';
+          coachRecord.full_name = `${toTitleCase(userProfile?.first_name)} ${toTitleCase(userProfile?.last_name)}`;
+          coachRecord.email = user.email.toLowerCase();
         }
       }
 
