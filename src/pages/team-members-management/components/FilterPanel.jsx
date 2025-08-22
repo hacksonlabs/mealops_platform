@@ -13,9 +13,9 @@ const FilterPanel = ({ members, onFilterChange }) => {
   });
 
   const roleOptions = [
-    { value: 'player', label: 'Players', count: members?.filter(m => m?.user_profiles?.role === 'player')?.length || 0 },
-    { value: 'coach', label: 'Coaches', count: members?.filter(m => m?.user_profiles?.role === 'coach')?.length || 0 },
-    { value: 'admin', label: 'Admins', count: members?.filter(m => m?.user_profiles?.role === 'admin')?.length || 0 }
+    { value: 'player', label: 'Players', count: members?.filter(m => m?.role === 'player')?.length || 0 },
+    { value: 'coach', label: 'Coaches', count: members?.filter(m => m?.role === 'coach')?.length || 0 },
+    { value: 'staff', label: 'Staff', count: members?.filter(m => m?.role === 'staff')?.length || 0 }
   ];
 
   const dateRangeOptions = [

@@ -385,25 +385,16 @@ const TeamMembersManagement = () => {
                     { value: 'staff', label: 'Staff' },
                   ]}
                 />
-                <Select
-                  value={statusFilter}
-                  onChange={(value) => setStatusFilter(value)}
-                  options={[
-                    { value: 'all', label: 'All Status' },
-                    { value: 'active', label: 'Active' },
-                    { value: 'inactive', label: 'Inactive' },
-                  ]}
-                />
               </div>
               <div className="flex items-center space-x-3">
-                <Button
+                {/* <Button
                   variant="outline"
                   onClick={() => setShowFilters(!showFilters)}
                   iconName="Filter"
                   iconPosition="left"
                 >
                   {showFilters ? 'Hide Filters' : 'Show Filters'}
-                </Button>
+                </Button> */}
                 <Button
                   variant="outline"
                   onClick={handleExportMembers}
@@ -415,14 +406,14 @@ const TeamMembersManagement = () => {
               </div>
             </div>
 
-            {showFilters && (
+            {/* {showFilters && (
               <div className="mt-6 pt-6 border-t border-border">
                 <FilterPanel 
                   members={members}
                   onFilterChange={() => {}} // Add filter logic here
                 />
               </div>
-            )}
+            )} */}
           </div>
 
           {/* Bulk Actions Bar */}
