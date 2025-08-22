@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts';
 import Header from '../../components/ui/Header';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -12,6 +14,7 @@ import BulkActionsBar from './components/BulkActionsBar';
 import CSVImportModal from './components/CSVImportModal';
 import FilterPanel from './components/FilterPanel';
 import MemberDetailModal from './components/MemberDetailModal';
+
 
 const TeamMembersManagement = () => {
   const [loading, setLoading] = useState(false);
@@ -29,18 +32,15 @@ const TeamMembersManagement = () => {
   const [showCSVModal, setShowCSVModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
+  const [teamId, setTeamId] = useState(null);
 
-  // Static user for header
-  const [user] = useState({
-    name: "Team Manager",
-    email: "manager@team.com", 
-    role: "Manager"
-  });
+  const { user, userProfile, loading: authLoading } = useAuth();
 
-  // Initialize with sample data
   useEffect(() => {
-    loadTeamData();
-  }, []);
+    if (!authLoading && user?.id) {
+      loadTeamData();
+    }
+  }, [authLoading, user?.id]);
 
   // Filter members when search term or filters change
   useEffect(() => {
@@ -50,50 +50,46 @@ const TeamMembersManagement = () => {
   const loadTeamData = async () => {
     setLoading(true);
     try {
-      // Sample team members data
-      const sampleMembers = [
-        {
-          id: '1',
-          user_profiles: {
-            id: '1',
-            full_name: 'Sarah Johnson',
-            email: 'sarah.johnson@team.com',
-            phone: '(555) 123-4567',
-            role: 'coach',
-            allergies: 'None',
-            is_active: true
-          },
-          joined_at: '2024-01-15T10:00:00Z'
-        },
-        {
-          id: '2', 
-          user_profiles: {
-            id: '2',
-            full_name: 'Mike Thompson',
-            email: 'mike.thompson@team.com',
-            phone: '(555) 234-5678',
-            role: 'player',
-            allergies: 'Dairy, Nuts',
-            is_active: true
-          },
-          joined_at: '2024-01-20T10:00:00Z'
-        },
-        {
-          id: '3',
-          user_profiles: {
-            id: '3',
-            full_name: 'Alex Rodriguez',
-            email: 'alex.rodriguez@team.com',
-            phone: '(555) 345-6789',
-            role: 'staff',
-            allergies: 'Shellfish',
-            is_active: true
-          },
-          joined_at: '2024-01-25T10:00:00Z'
-        }
-      ];
+      if (!user?.id) {
+        console.error('User ID is not available.');
+        setLoading(false);
+        return;
+      }
+  
+      // Find the team associated with the user's coach_id
+      const { data: teamData, error: teamError } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('coach_id', user.id)
+        .single();
 
-      setMembers(sampleMembers);
+      if (teamError) {
+        console.error('Error fetching team:', teamError.message);
+        setLoading(false);
+        return;
+      }
+
+      if (!teamData) {
+        console.log('No team found for this user.');
+        setMembers([]);
+        setLoading(false);
+        return;
+      }
+
+      const foundTeamId = teamData.id;
+      setTeamId(foundTeamId); // Save team ID to state
+
+      // Fetch team members with the found team_id and join with user_profiles
+      const { data: membersData, error: membersError } = await supabase
+        .from('team_members')
+        .select('*') // Fetch all columns and join user_profiles
+        .eq('team_id', foundTeamId);
+
+      if (membersError) {
+        console.error('Error fetching team members:', membersError.message);
+      } else {
+        setMembers(membersData || []);
+      }
     } catch (error) {
       console.error('Error loading team data:', error?.message);
     } finally {
@@ -101,26 +97,27 @@ const TeamMembersManagement = () => {
     }
   };
 
+  
   const filterMembers = () => {
     let filtered = [...members];
 
     // Search filter
     if (searchTerm) {
       filtered = filtered?.filter(member =>
-        member?.user_profiles?.full_name?.toLowerCase()?.includes(searchTerm?.toLowerCase()) ||
-        member?.user_profiles?.email?.toLowerCase()?.includes(searchTerm?.toLowerCase())
+        member?.full_name?.toLowerCase()?.includes(searchTerm?.toLowerCase()) ||
+        member?.email?.toLowerCase()?.includes(searchTerm?.toLowerCase())
       );
     }
 
     // Role filter
     if (roleFilter !== 'all') {
-      filtered = filtered?.filter(member => member?.user_profiles?.role === roleFilter);
+      filtered = filtered?.filter(member => member?.role === roleFilter);
     }
 
     // Status filter
     if (statusFilter !== 'all') {
       const isActive = statusFilter === 'active';
-      filtered = filtered?.filter(member => member?.user_profiles?.is_active === isActive);
+      filtered = filtered?.filter(member => member?.is_active === isActive);
     }
 
     setFilteredMembers(filtered);
@@ -148,7 +145,7 @@ const TeamMembersManagement = () => {
         // Bulk activate members
         const activatedMembers = members?.map(member => 
           selectedMembers?.includes(member?.id) 
-            ? { ...member, user_profiles: { ...member?.user_profiles, is_active: true } }
+            ? { ...member, team_members: { ...member?.team_members, is_active: true } }
             : member
         );
         setMembers(activatedMembers);
@@ -157,7 +154,7 @@ const TeamMembersManagement = () => {
         // Bulk deactivate members  
         const deactivatedMembers = members?.map(member => 
           selectedMembers?.includes(member?.id) 
-            ? { ...member, user_profiles: { ...member?.user_profiles, is_active: false } }
+            ? { ...member, team_members: { ...member?.team_members, is_active: false } }
             : member
         );
         setMembers(deactivatedMembers);
@@ -179,7 +176,7 @@ const TeamMembersManagement = () => {
   const handleAddMember = async (memberData) => {
     const newMember = {
       id: Date.now()?.toString(),
-      user_profiles: {
+      team_members: {
         id: Date.now()?.toString(),
         full_name: memberData?.name,
         email: memberData?.email,
@@ -206,11 +203,11 @@ const TeamMembersManagement = () => {
       member?.id === selectedMember?.id 
         ? { 
             ...member, 
-            user_profiles: { 
-              ...member?.user_profiles, 
+            team_members: { 
+              ...member?.team_members, 
               full_name: memberData?.name,
               email: memberData?.email,
-              phone: memberData?.phone,
+              phone_number: memberData?.phone,
               role: memberData?.role,
               allergies: memberData?.allergies
             }
@@ -225,7 +222,7 @@ const TeamMembersManagement = () => {
   };
 
   const handleRemoveMember = async (member) => {
-    if (confirm(`Are you sure you want to remove ${member?.user_profiles?.full_name} from the team?`)) {
+    if (confirm(`Are you sure you want to remove ${member?.team_members?.full_name} from the team?`)) {
       const updatedMembers = members?.filter(m => m?.id !== member?.id);
       setMembers(updatedMembers);
     }
@@ -240,12 +237,12 @@ const TeamMembersManagement = () => {
     const csvContent = [
       ['Name', 'Email', 'Role', 'Phone', 'Dietary Restrictions', 'Status', 'Joined Date'],
       ...filteredMembers?.map(member => [
-        member?.user_profiles?.full_name || '',
-        member?.user_profiles?.email || '',
-        member?.user_profiles?.role || '',
-        member?.user_profiles?.phone || '',
-        member?.user_profiles?.allergies || '',
-        member?.user_profiles?.is_active ? 'Active' : 'Inactive',
+        member?.team_members?.full_name || '',
+        member?.team_members?.email || '',
+        member?.team_members?.role || '',
+        member?.team_members?.phone_number || '',
+        member?.team_members?.allergies || '',
+        member?.team_members?.is_active ? 'Active' : 'Inactive',
         new Date(member?.joined_at)?.toLocaleDateString() || ''
       ])
     ];
@@ -264,11 +261,11 @@ const TeamMembersManagement = () => {
     // Process CSV data and add to members
     const newMembers = csvData?.map((row, index) => ({
       id: (Date.now() + index)?.toString(),
-      user_profiles: {
+      team_members: {
         id: (Date.now() + index)?.toString(),
         full_name: row?.name || row?.Name || '',
         email: row?.email || row?.Email || '',
-        phone: row?.phone || row?.Phone || '',
+        phone_number: row?.phone || row?.Phone || '',
         role: (row?.role || row?.Role || 'player')?.toLowerCase(),
         allergies: row?.allergies || row?.['Dietary Restrictions'] || 'None',
         is_active: true
@@ -282,15 +279,15 @@ const TeamMembersManagement = () => {
 
   const memberStats = {
     total: members?.length || 0,
-    active: members?.filter(m => m?.user_profiles?.is_active)?.length || 0,
-    coaches: members?.filter(m => m?.user_profiles?.role === 'coach')?.length || 0,
-    players: members?.filter(m => m?.user_profiles?.role === 'player')?.length || 0,
-    staff: members?.filter(m => m?.user_profiles?.role === 'staff')?.length || 0,
+    active: members?.filter(m => m?.team_members?.is_active)?.length || 0,
+    coaches: members?.filter(m => m?.team_members?.role === 'coach')?.length || 0,
+    players: members?.filter(m => m?.team_members?.role === 'player')?.length || 0,
+    staff: members?.filter(m => m?.team_members?.role === 'staff')?.length || 0,
   };
 
   return (
     <div className="min-h-screen bg-background">
-      <Header user={user} notifications={2} />
+      <Header user={userProfile} notifications={2} />
       <main className="pt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Page Header */}
