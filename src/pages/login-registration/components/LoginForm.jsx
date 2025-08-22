@@ -5,7 +5,7 @@ import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import Icon from '../../../components/AppIcon';
 import { useAuth } from '../../../contexts';
-
+import { supabase } from '../../../lib/supabase';
 
 export function LoginForm({ onSwitchToRegister, onForgotPassword, errors, setErrors, isLoading }) {
   const navigate = useNavigate();
@@ -78,8 +78,30 @@ export function LoginForm({ onSwitchToRegister, onForgotPassword, errors, setErr
         return;
       }
 
-      // Success - redirect to team setup for first-time users or dashboard
-      navigate('/team-setup');
+      // Check if the user has a team
+      const user = data?.user || null;
+      if (user) {
+        const { data: teamData, error: teamError } = await supabase
+          .from('teams')
+          .select('id')
+          .eq('coach_id', user.id)
+          .maybeSingle(); // maybeSingle returns the row or null
+
+        if (teamError && teamError.code !== 'PGRST116') { // PGRST116 is the "no rows found" error code
+          console.error('Error fetching team:', teamError.message);
+          // Redirect to a safe page even on error
+          navigate('/login-registration');
+          return;
+        }
+
+        if (teamData) {
+          // User is a coach with a team, redirect to dashboard
+          navigate('/dashboard-home');
+        } else {
+          // User has no team, redirect to team setup
+          navigate('/team-setup');
+        }
+      }
     } catch (err) {
       if (err?.message?.includes('Failed to fetch') ||
       err?.message?.includes('NetworkError') ||

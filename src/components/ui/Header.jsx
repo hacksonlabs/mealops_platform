@@ -20,7 +20,7 @@ const Header = ({ notifications = 0, className = '' }) => {
     },
     { 
       label: 'Calendar', 
-      path: '/calendar-order-scheduling', 
+      path: '/calendar-order-scheduling',
       icon: 'Calendar',
       tooltip: 'Schedule and manage meal orders'
     },
@@ -75,6 +75,7 @@ const Header = ({ notifications = 0, className = '' }) => {
     setIsUserMenuOpen(false);
     // Logout logic would go here
     signOut();
+    navigate('/login-registration')
   };
 
   const isActivePath = (path) => {

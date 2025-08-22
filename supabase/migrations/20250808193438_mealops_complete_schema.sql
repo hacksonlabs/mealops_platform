@@ -19,6 +19,7 @@ CREATE TABLE public.user_profiles (
     school_name TEXT NOT NULL,
     phone TEXT,
     allergies TEXT,
+    birthday DATE,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -44,6 +45,7 @@ CREATE TABLE public.team_members (
     email TEXT NOT NULL,
     phone_number TEXT,
     allergies TEXT,
+    birthday DATE,
     joined_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(team_id, user_id)
 );
@@ -212,6 +214,11 @@ BEGIN
                     WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'phone' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'phone' != ''
                     THEN NEW.raw_user_meta_data->'data'->>'phone'
                     ELSE public.user_profiles.phone
+                END,
+        birthday = CASE
+                    WHEN NEW.email_confirmed_at IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'birthday' IS NOT NULL AND NEW.raw_user_meta_data->'data'->>'birthday' != ''
+                    THEN (NEW.raw_user_meta_data->'data'->>'birthday')::date
+                    ELSE public.user_profiles.birthday
                 END;
     
     RETURN NEW;
