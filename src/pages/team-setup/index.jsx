@@ -7,7 +7,7 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Icon from '../../components/AppIcon';
-import { toTitleCase } from '../../utils/stringUtils'
+import { toTitleCase, normalizePhoneNumber, normalizeBirthday } from '../../utils/stringUtils'
 
 export default function TeamSetup() {
   const navigate = useNavigate();
@@ -66,6 +66,9 @@ export default function TeamSetup() {
   const handleClearError = () => {
     setError('');
   };
+  const handleClearSuccess = () => {
+    setSuccess('');
+  };
 
   const handleMemberChange = (index, field, value) => {
     const updatedMembers = members.map((member, i) => 
@@ -97,37 +100,111 @@ export default function TeamSetup() {
 
   const parseCsv = (csvText) => {
     const lines = csvText.split('\n').filter(line => line.trim() !== '');
-    if (lines.length === 0) {
-      setError('CSV file is empty.');
+    if (lines.length <= 1) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setError('CSV file is empty or contains only headers.');
       return;
     }
 
+    // Define a mapping of possible header names to their correct key
+    const headerMap = {
+      'name': 'name',
+      'Name': 'name',
+      'email': 'email',
+      'Email': 'email',
+      'Phone Number': 'phoneNumber',
+      'phone #': 'phoneNumber',
+      'Phone #': 'phoneNumber',
+      'phone number': 'phoneNumber',
+      'phone_number': 'phoneNumber',
+      'phone': 'phoneNumber',
+      'role': 'role',
+      'Role': 'role',
+      'allergies': 'allergies',
+      'Allergies': 'allergies',
+      'birthday': 'birthday',
+      'Birthday': 'birthday',
+      'bday': 'birthday',
+      'Bday': 'birthday',
+    };
+
+    // Get the headers from the CSV and normalize them
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    const expectedHeaders = ['name', 'email', 'phone number', 'role', 'allergies'];
-
-    // Basic header validation
-    const missingHeaders = expectedHeaders.filter(header => !headers.includes(header));
-    if (missingHeaders.length > 0) {
-      setError(`CSV is missing required headers: ${missingHeaders.join(', ')}. Expected: ${expectedHeaders.join(', ')}`);
+    
+    // Check if the CSV contains at least the core required headers
+    const requiredHeaders = ['name', 'email', 'phone number'];
+    const hasRequiredHeaders = requiredHeaders.every(reqHeader => 
+      headers.some(h => headerMap[h] === headerMap[reqHeader])
+    );
+    
+    if (!hasRequiredHeaders) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setError(`CSV is missing required headers: ${requiredHeaders.join(', ')}`);
       return;
     }
 
-    const parsedMembers = lines.slice(1).map(line => {
+    let parsedMembers = lines.slice(1).map(line => {
       const values = line.split(',');
       const member = {};
+      
       headers.forEach((header, index) => {
-        const key = header === 'phone number' ? 'phoneNumber' : header;
-        member[key] = values[index] ? values[index].trim() : '';
+        const key = headerMap[header] || header;
+        let value = values[index] ? values[index].trim() : '';
+        
+        switch (key) {
+          case 'name':
+            value = toTitleCase(value);
+            break;
+          case 'email':
+            value = value.toLowerCase();
+            break;
+          case 'phoneNumber':
+            value = normalizePhoneNumber(value);
+            break;
+          case 'birthday':
+            value = normalizeBirthday(value);
+            break;
+          default:
+            // No formatting for other fields
+        }
+        
+        member[key] = value;
       });
 
-      // Default role if not provided or invalid
-      if (!memberRolesOptions.some(opt => opt.value === member.role)) {
+      if (!member.role || !memberRolesOptions.some(opt => opt.value === member.role)) {
         member.role = 'player';
       }
       return member;
     });
 
-    setMembers(prevMembers => [...prevMembers, ...parsedMembers]); // Append parsed members
+    if (user && user.email) {
+      const coachIndex = parsedMembers.findIndex(
+        member => member.email.toLowerCase() === user.email.toLowerCase()
+      );
+      if (coachIndex !== -1) {
+        parsedMembers[coachIndex].role = 'coach';
+      }
+    }
+
+    if (parsedMembers.length === 0) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setError('CSV file does not contain any member data rows.');
+      return;
+    }
+
+    const existingEmails = new Set(members.map(m => m.email.toLowerCase()));
+    const uniqueNewMembers = parsedMembers.filter(member => 
+      !existingEmails.has(member.email.toLowerCase())
+    );
+
+    if (uniqueNewMembers.length === 0) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setError('No new unique members found in the CSV file.');
+      return;
+    }
+
+    setMembers(prevMembers => [...prevMembers, ...uniqueNewMembers]);
+    // window.scrollTo({ top: 0, behavior: 'smooth' });
     setSuccess('CSV members loaded. Review and save below.');
     setError('');
   };
@@ -179,9 +256,14 @@ export default function TeamSetup() {
 
     try {
       // Update current user's phone number in user_profiles
+      const userCoachRecord = members.find(m => m.email.toLowerCase() === user.email.toLowerCase());
       const { error: profileError } = await supabase
         .from('user_profiles')
-        .update({ phone: phoneNumber })
+        .update({ 
+          phone: normalizePhoneNumber(phoneNumber),
+          allergies: toTitleCase(userCoachRecord?.allergies || ''),
+          birthday: userCoachRecord?.birthday,
+         })
         .eq('id', user.id);
       
       if (profileError) {
@@ -191,14 +273,12 @@ export default function TeamSetup() {
       }
 
       // Create team
-      // teamService is assumed to handle team creation and linking to user via 'teams_users'
-      // For this example, we'll create the team and assume the current user is added as coach/admin implicitly
       const { data: createdTeam, error: teamError } = await supabase
         .from('teams')
         .insert({
           name: toTitleCase(teamData.name),
           sport: toTitleCase(teamData.sport),
-          conference_name: teamData.conference,
+          conference_name: teamData.conference.toUpperCase(),
           gender: teamData.gender,
           coach_id: user.id // Link team to the user who created it
         })
@@ -221,8 +301,9 @@ export default function TeamSetup() {
         role: member.role,
         full_name: toTitleCase(member.name), 
         email: member.email.toLowerCase(),
-        phone_number: member.phoneNumber,
+        phone_number: normalizePhoneNumber(member.phoneNumber),
         allergies: toTitleCase(member.allergies),
+        birthday: member.birthday, // yyyy-MM-dd format
       }));
 
       const isCoachInList = membersToInsert.some(m => m.email === user.email);
@@ -237,14 +318,13 @@ export default function TeamSetup() {
           email: user.email.toLowerCase(),
           phone_number: phoneNumber,
           allergies: userProfile?.allergies ? toTitleCase(userProfile.allergies) : null,
+          birthday: userProfile?.birthday || null,
         });
       } else {
         // If the coach IS in the list (e.g., via CSV), update their record
-        // to link their user ID and assign the 'coach' role.
         const coachRecord = membersToInsert.find(m => m.email === user.email);
         if (coachRecord) {
           coachRecord.user_id = user.id;
-          coachRecord.role = 'coach';
           coachRecord.full_name = `${toTitleCase(userProfile?.first_name)} ${toTitleCase(userProfile?.last_name)}`;
           coachRecord.email = user.email.toLowerCase();
         }
@@ -317,10 +397,19 @@ export default function TeamSetup() {
 
           {/* Success Banner */}
           {success && (
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-md">
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-md relative pr-10">
               <p className="text-green-800 flex items-center">
                 <Icon name="CheckCircle" size={20} className="mr-2" /> {success}
               </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleClearSuccess}
+                className="absolute top-1 right-1 text-green-600 hover:text-green-700 p-1"
+              >
+                <Icon name="X" size={16} />
+              </Button>
             </div>
           )}
 
@@ -448,7 +537,8 @@ export default function TeamSetup() {
                         <th scope="col" className="w-1/4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                         <th scope="col" className="w-1/5 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone #</th>
                         <th scope="col" className="w-1/6 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Allergies</th>
+                        <th scope="col" className="px-3 py-2 pr-5 text-left text-xs font-medium text-gray-500 tracking-wider italic">allergies</th>
+                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 tracking-wider italic">birthday</th>
                         <th scope="col" className="px-2 py-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
                       </tr>
                     </thead>
@@ -478,7 +568,7 @@ export default function TeamSetup() {
                               type="tel"
                               value={member.phoneNumber}
                               onChange={(e) => handleMemberChange(index, 'phoneNumber', e.target.value)}
-                              placeholder=" Phone"
+                              placeholder=" (xxx) xxx-xxxx"
                               className="!border-none !ring-0 !shadow-none !p-0"
                             />
                           </td>
@@ -499,6 +589,14 @@ export default function TeamSetup() {
                               className="!border-none !ring-0 !shadow-none !p-0 italic"
                             />
                           </td>
+                          <td className="px-2 py-2 whitespace-nowrap">
+                              <Input
+                                type="date"
+                                value={member.birthday || ''}
+                                onChange={(e) => handleMemberChange(index, 'birthday', e.target.value)}
+                                className="!border-none !ring-0 !shadow-none !p-0 italic"
+                              />
+                            </td>
                           <td className="px-0.5 py-0.5 whitespace-nowrap text-right text-sm font-medium">
                             <Button
                               type="button"
