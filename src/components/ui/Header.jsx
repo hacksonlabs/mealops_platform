@@ -24,42 +24,42 @@ const Header = ({ notifications = 0, className = '' }) => {
       icon: 'Calendar',
       tooltip: 'Schedule and manage meal orders'
     },
-    { 
-      label: 'Polling', 
-      path: '/meal-polling-system', 
-      icon: 'Vote',
-      tooltip: 'Create and manage meal polls'
-    },
+    // { 
+    //   label: 'Polling', 
+    //   path: '/meal-polling-system', 
+    //   icon: 'Vote',
+    //   tooltip: 'Create and manage meal polls'
+    // },
     { 
       label: 'Orders', 
       path: '/order-history-management', 
       icon: 'ClipboardList',
       tooltip: 'View and manage order history'
     },
-    { 
-      label: 'Reports', 
-      path: '/expense-reports-analytics', 
-      icon: 'BarChart3',
-      tooltip: 'Financial analytics and expense reports'
-    },
+    // { 
+    //   label: 'Reports', 
+    //   path: '/expense-reports-analytics', 
+    //   icon: 'BarChart3',
+    //   tooltip: 'Financial analytics and expense reports'
+    // },
     { 
       label: 'Team', 
       path: '/team-members-management', 
       icon: 'Users',
       tooltip: 'Manage team members and roles'
     },
-    { 
-      label: 'Locations', 
-      path: '/saved-addresses-locations', 
-      icon: 'MapPin',
-      tooltip: 'Saved addresses and restaurant partners'
-    },
-    { 
-      label: 'Billing', 
-      path: '/payment-methods-billing', 
-      icon: 'CreditCard',
-      tooltip: 'Payment methods and billing management'
-    }
+    // { 
+    //   label: 'Locations', 
+    //   path: '/saved-addresses-locations', 
+    //   icon: 'MapPin',
+    //   tooltip: 'Saved addresses and restaurant partners'
+    // },
+    // { 
+    //   label: 'Billing', 
+    //   path: '/payment-methods-billing', 
+    //   icon: 'CreditCard',
+    //   tooltip: 'Payment methods and billing management'
+    // }
   ];
 
   const handleNavigation = (path) => {
