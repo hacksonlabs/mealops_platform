@@ -7,6 +7,7 @@ import { Checkbox } from '../../../components/ui/Checkbox';
 import { useAuth } from '../../../contexts/AuthContext';
 import { emailService } from '../../../services/emailService';
 import { supabase } from '../../../lib/supabase'; 
+import { toTitleCase } from '../../../utils/stringUtils'
 
 export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) {
   const navigate = useNavigate();
@@ -17,12 +18,8 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-    fullName: '',
     schoolName: '',
-    sport: '',
-    conference: '',
     email: '',
-    phone: '',
     allergies: '',
     password: '',
     confirmPassword: '',
@@ -108,16 +105,17 @@ export function RegisterForm({ onSwitchToLogin, errors, setErrors, isLoading }) 
     }
 
     try {
+      const userData = {
+        firstName: toTitleCase(formData.firstName ?? ''),
+        lastName: toTitleCase(formData.lastName ?? ''),
+        schoolName: toTitleCase(formData.schoolName ?? ''),
+        allergies: toTitleCase(formData.allergies ?? ''),
+      };
       const { data, error: signUpError } = await signUp(
         formData?.email,
         formData?.password,
         {
-          data: { // This object will become part of auth.users.raw_user_meta_data
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            schoolName: formData.schoolName,
-            allergies: formData.allergies,
-          }
+          data: userData
         }
       );
 
