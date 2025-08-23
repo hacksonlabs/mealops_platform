@@ -1,9 +1,9 @@
-// components/ui/Select.jsx - Shadcn style Select
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react"; // Added useMemo
 import { ChevronDown, Check, Search, X } from "lucide-react";
 import { cn } from "../../utils/cn";
 import Button from "./Button";
 import Input from "./Input";
+import { Checkbox } from "./Checkbox"; // Import the Checkbox component
 
 const Select = React.forwardRef(({
     className,
@@ -28,9 +28,34 @@ const Select = React.forwardRef(({
 }, ref) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const dropdownRef = useRef(null); // Ref for closing on outside click
 
     // Generate unique ID if not provided
     const selectId = id || `select-${Math.random()?.toString(36)?.substr(2, 9)}`;
+
+    const normalizedValue = useMemo(() => {
+        if (multiple) {
+            return Array.isArray(value) ? value : [];
+        } else {
+            // For single select, if an array is passed, take the first element or default to null/undefined
+            return Array.isArray(value) ? (value.length > 0 ? value[0] : null) : value;
+        }
+    }, [value, multiple]);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsOpen(false);
+                setSearchTerm(""); // Clear search when closing
+                onOpenChange?.(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [onOpenChange]);
 
     // Filter options based on search
     const filteredOptions = searchable && searchTerm
@@ -42,16 +67,17 @@ const Select = React.forwardRef(({
 
     // Get selected option(s) for display
     const getSelectedDisplay = () => {
-        if (!value) return placeholder;
+        if (!normalizedValue || (Array.isArray(normalizedValue) && normalizedValue.length === 0)) return placeholder;
 
         if (multiple) {
-            const selectedOptions = options?.filter(opt => value?.includes(opt?.value));
+            const selectedOptions = options?.filter(opt => normalizedValue?.includes(opt?.value));
             if (selectedOptions?.length === 0) return placeholder;
-            if (selectedOptions?.length === 1) return selectedOptions?.[0]?.label;
+            if (selectedOptions?.length <= 2) return selectedOptions?.map(opt => opt.label).join(', '); // Show up to 2 labels
             return `${selectedOptions?.length} items selected`;
         }
 
-        const selectedOption = options?.find(opt => opt?.value === value);
+        // This part runs for single select
+        const selectedOption = options?.find(opt => opt?.value === normalizedValue);
         return selectedOption ? selectedOption?.label : placeholder;
     };
 
@@ -68,13 +94,13 @@ const Select = React.forwardRef(({
 
     const handleOptionSelect = (option) => {
         if (multiple) {
-            const newValue = value || [];
+            const newValue = normalizedValue || [];
             const updatedValue = newValue?.includes(option?.value)
                 ? newValue?.filter(v => v !== option?.value)
                 : [...newValue, option?.value];
-            onChange?.(updatedValue);
+            onChange?.(updatedValue); // Always passes an array
         } else {
-            onChange?.(option?.value);
+            onChange?.(option?.value); // Always passes a single value
             setIsOpen(false);
             onOpenChange?.(false);
         }
@@ -83,6 +109,7 @@ const Select = React.forwardRef(({
     const handleClear = (e) => {
         e?.stopPropagation();
         onChange?.(multiple ? [] : '');
+        setSearchTerm(""); // Clear search term as well
     };
 
     const handleSearchChange = (e) => {
@@ -91,15 +118,15 @@ const Select = React.forwardRef(({
 
     const isSelected = (optionValue) => {
         if (multiple) {
-            return value?.includes(optionValue) || false;
+            return normalizedValue?.includes(optionValue) || false;
         }
-        return value === optionValue;
+        return normalizedValue === optionValue;
     };
 
-    const hasValue = multiple ? value?.length > 0 : value !== undefined && value !== '';
+    const hasValue = multiple ? (normalizedValue?.length > 0) : (normalizedValue !== undefined && normalizedValue !== null && normalizedValue !== '');
 
     return (
-        <div className={cn("relative", className)}>
+        <div className={cn("relative", className)} ref={dropdownRef}>
             {label && (
                 <label
                     htmlFor={selectId}
@@ -118,7 +145,7 @@ const Select = React.forwardRef(({
                     id={selectId}
                     type="button"
                     className={cn(
-                        "flex h-10 w-full items-center justify-between rounded-md border border-input bg-gray-50 text-black px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+                        "flex h-10 w-full items-center justify-between rounded-md border border-input bg-gray-50  px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
                         error && "border-destructive focus:ring-destructive",
                         !hasValue && "text-muted-foreground"
                     )}
@@ -149,14 +176,14 @@ const Select = React.forwardRef(({
                             </Button>
                         )}
 
-                        <ChevronDown className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")} />
+                        <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", isOpen && "rotate-180")} />
                     </div>
                 </button>
 
                 {/* Hidden native select for form submission */}
                 <select
                     name={name}
-                    value={value || ''}
+                    value={normalizedValue}
                     onChange={() => { }} // Controlled by our custom logic
                     className="sr-only"
                     tabIndex={-1}
@@ -165,7 +192,10 @@ const Select = React.forwardRef(({
                 >
                     <option value="">Select...</option>
                     {options?.map(option => (
-                        <option key={option?.value} value={option?.value}>
+                        <option 
+                            key={option?.value} 
+                            value={option?.value}
+                        >
                             {option?.label}
                         </option>
                     ))}
@@ -199,14 +229,28 @@ const Select = React.forwardRef(({
                                         key={option?.value}
                                         className={cn(
                                             "relative flex cursor-pointer select-none items-center rounded-sm px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
-                                            isSelected(option?.value) && "bg-primary text-primary-foreground",
-                                            option?.disabled && "pointer-events-none opacity-50"
+                                            option?.disabled && "pointer-events-none opacity-50",
+                                            // Apply selected styles to the div if multiple is false, otherwise checkbox handles it
+                                            !multiple && isSelected(option?.value) && "bg-primary text-primary-foreground"
                                         )}
-                                        onClick={() => !option?.disabled && handleOptionSelect(option)}
                                     >
-                                        <span className="flex-1">{option?.label}</span>
-                                        {multiple && isSelected(option?.value) && (
-                                            <Check className="h-4 w-4" />
+                                        {multiple ? (
+                                            // Use Checkbox for multiple selection
+                                            <Checkbox
+                                                id={`${selectId}-${option?.value}`}
+                                                checked={isSelected(option?.value)}
+                                                onChange={() => handleOptionSelect(option)}
+                                                className="mr-2"
+                                                label={option?.label}
+                                            />
+                                        ) : (
+                                            // Keep original span + checkmark for single selection
+                                            <>
+                                                <span className="flex-1" onClick={() => !option?.disabled && handleOptionSelect(option)}>{option?.label}</span>
+                                                {isSelected(option?.value) && (
+                                                    <Check className="h-4 w-4" />
+                                                )}
+                                            </>
                                         )}
                                         {option?.description && (
                                             <span className="text-xs text-muted-foreground ml-2">
