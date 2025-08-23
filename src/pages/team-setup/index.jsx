@@ -164,6 +164,9 @@ export default function TeamSetup() {
           case 'birthday':
             value = normalizeBirthday(value);
             break;
+          case 'allergies':  
+            value = toTitleCase(value); 
+            break;
           default:
             // No formatting for other fields
         }
@@ -188,7 +191,7 @@ export default function TeamSetup() {
 
     if (parsedMembers.length === 0) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      setError('CSV file does not contain any member data rows.');
+      setError('CSV file does not contain any valid member data rows.');
       return;
     }
 
