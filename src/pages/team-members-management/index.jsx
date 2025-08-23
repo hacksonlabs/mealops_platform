@@ -22,9 +22,9 @@ const TeamMembersManagement = () => {
   const [filteredMembers, setFilteredMembers] = useState([]);
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [showFilters, setShowFilters] = useState(false);
+  const [roleFilter, setRoleFilter] = useState([]); 
+  // const [statusFilter, setStatusFilter] = useState('all');
+  // const [showFilters, setShowFilters] = useState(false);
   
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
@@ -45,7 +45,7 @@ const TeamMembersManagement = () => {
   // Filter members when search term or filters change
   useEffect(() => {
     filterMembers();
-  }, [members, searchTerm, roleFilter, statusFilter]);
+  }, [members, searchTerm, roleFilter]);
 
   const loadTeamData = async () => {
     setLoading(true);
@@ -110,15 +110,16 @@ const TeamMembersManagement = () => {
     }
 
     // Role filter
-    if (roleFilter !== 'all') {
-      filtered = filtered?.filter(member => member?.role === roleFilter);
+    if (roleFilter.length > 0) {
+      filtered = filtered?.filter(member => roleFilter.includes(member?.role));
     }
 
-    // Status filter
-    if (statusFilter !== 'all') {
-      const isActive = statusFilter === 'active';
-      filtered = filtered?.filter(member => member?.is_active === isActive);
-    }
+
+    // // Status filter
+    // if (statusFilter !== 'all') {
+    //   const isActive = statusFilter === 'active';
+    //   filtered = filtered?.filter(member => member?.is_active === isActive);
+    // }
 
     setFilteredMembers(filtered);
   };
@@ -366,7 +367,7 @@ const TeamMembersManagement = () => {
           <div className="bg-card border border-border rounded-lg p-6 shadow-athletic mb-6">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
               <div className="flex flex-1 items-center space-x-4">
-                <div className="relative flex-1 max-w-md">
+                <div className="relative flex-1">
                   <Icon name="Search" size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
                   <Input
                     placeholder="Search members by name or email..."
@@ -375,16 +376,21 @@ const TeamMembersManagement = () => {
                     className="pl-10"
                   />
                 </div>
-                <Select
-                  value={roleFilter}
-                  onChange={(value) => setRoleFilter(value)}
-                  options={[
-                    { value: 'all', label: 'All Roles' },
-                    { value: 'coach', label: 'Coaches' },
-                    { value: 'player', label: 'Players' },
-                    { value: 'staff', label: 'Staff' },
-                  ]}
-                />
+                <div className="w-40">
+                  <Select
+                    value={roleFilter}
+                    multiple={true}
+                    onChange={(newlySelectedValues) => {
+                      setRoleFilter(newlySelectedValues);
+                    }}
+                    placeholder='Filter by Role'
+                    options={[
+                      { value: 'coach', label: 'Coaches' },
+                      { value: 'player', label: 'Players' },
+                      { value: 'staff', label: 'Staff' },
+                    ]}
+                  />
+                </div>
               </div>
               <div className="flex items-center space-x-3">
                 {/* <Button
