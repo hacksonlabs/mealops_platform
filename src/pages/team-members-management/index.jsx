@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
 import Header from '../../components/ui/Header';
@@ -14,6 +14,8 @@ import BulkActionsBar from './components/BulkActionsBar';
 import CSVImportModal from './components/CSVImportModal';
 import FilterPanel from './components/FilterPanel';
 import MemberDetailModal from './components/MemberDetailModal';
+import EditTeamModal from './components/EditTeamModal';
+import { toTitleCase } from '../../utils/stringUtils';
 
 
 const TeamMembersManagement = () => {
@@ -31,8 +33,10 @@ const TeamMembersManagement = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showCSVModal, setShowCSVModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showEditTeamModal, setShowEditTeamModal] = useState(false); 
   const [selectedMember, setSelectedMember] = useState(null);
   const [teamId, setTeamId] = useState(null);
+  const [teamInfo, setTeamInfo] = useState(null);
 
   const { user, userProfile, loading: authLoading } = useAuth();
 
@@ -59,7 +63,7 @@ const TeamMembersManagement = () => {
       // Find the team associated with the user's coach_id
       const { data: teamData, error: teamError } = await supabase
         .from('teams')
-        .select('id')
+        .select('id, name, sport, conference_name, gender')
         .eq('coach_id', user.id)
         .single();
 
@@ -72,18 +76,18 @@ const TeamMembersManagement = () => {
       if (!teamData) {
         console.log('No team found for this user.');
         setMembers([]);
+        setTeamInfo(null); 
         setLoading(false);
         return;
       }
-
-      const foundTeamId = teamData.id;
-      setTeamId(foundTeamId); // Save team ID to state
+      setTeamId(teamData.id);
+      setTeamInfo(teamData); // Save all team data to state
 
       // Fetch team members with the found team_id and join with user_profiles
       const { data: membersData, error: membersError } = await supabase
         .from('team_members')
-        .select('*') // Fetch all columns and join user_profiles
-        .eq('team_id', foundTeamId);
+        .select('*')
+        .eq('team_id', teamData.id);
 
       if (membersError) {
         console.error('Error fetching team members:', membersError.message);
@@ -139,6 +143,28 @@ const TeamMembersManagement = () => {
       setSelectedMembers([]);
     }
   };
+
+  const handleUpdateTeam = useCallback(async (updatedTeamData) => {
+    if (!teamId) {
+      console.error('Team ID is not available for update.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('teams')
+        .update(updatedTeamData)
+        .eq('id', teamId);
+
+      if (error) throw error;
+      await loadTeamData();
+      console.log('Team information updated successfully!');
+    } catch (error) {
+      console.error('Error updating team information:', error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [teamId, loadTeamData]);
 
   const handleBulkAction = async (action) => {
     switch (action) {
@@ -280,10 +306,10 @@ const TeamMembersManagement = () => {
 
   const memberStats = {
     total: members?.length || 0,
-    active: members?.filter(m => m?.team_members?.is_active)?.length || 0,
-    coaches: members?.filter(m => m?.team_members?.role === 'coach')?.length || 0,
-    players: members?.filter(m => m?.team_members?.role === 'player')?.length || 0,
-    staff: members?.filter(m => m?.team_members?.role === 'staff')?.length || 0,
+    active: members?.filter(m => m?.is_active)?.length || 0,
+    coaches: members?.filter(m => m?.role === 'coach')?.length || 0,
+    players: members?.filter(m => m?.role === 'player')?.length || 0,
+    staff: members?.filter(m => m?.role === 'staff')?.length || 0,
   };
 
   return (
@@ -293,8 +319,45 @@ const TeamMembersManagement = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Page Header */}
           <div className="flex items-center justify-between mb-8">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground mb-2">Team Members</h1>
+            <div className="flex-1"> {/* Added flex-1 to allow it to take available space */}
+              <h1 className="text-4xl font-extrabold text-foreground mb-3 leading-tight"> {/* Larger, bolder title */}
+                The {teamInfo?.name || 'Your Team'} Members
+              </h1>
+              <p className="text-lg text-muted-foreground mb-4"> {/* Slightly larger description */}
+                Manage members, roles, and contact information for the <span className="font-semibold text-foreground">{teamInfo?.name || 'your team'}</span>.
+              </p>
+              {teamInfo && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-6">
+                  {teamInfo.sport && (
+                    <div className="bg-gradient-to-br from-blue-500/10 to-blue-700/10 border border-blue-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
+                      <Icon name="Dumbbell" size={20} className="text-blue-500 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Sport</p>
+                        <strong className="text-base text-foreground font-semibold">{teamInfo.sport}</strong>
+                      </div>
+                    </div>
+                  )}
+                  {teamInfo.conference_name && (
+                    <div className="bg-gradient-to-br from-purple-500/10 to-purple-700/10 border border-purple-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
+                      <Icon name="ClipboardList" size={20} className="text-purple-500 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Conference</p>
+                        <strong className="text-base text-foreground font-semibold">{teamInfo.conference_name}</strong>
+                      </div>
+                    </div>
+                  )}
+                  {teamInfo.gender && (
+                    <div className="bg-gradient-to-br from-green-500/10 to-green-700/10 border border-green-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
+                      <Icon name={teamInfo.gender === 'Male' ? 'UsersRound' : (teamInfo.gender === 'Female' ? 'UserRound' : 'Users')} size={20} className="text-green-500 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Gender</p>
+                        <strong className="text-base text-foreground font-semibold">{toTitleCase(teamInfo.gender)}</strong>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* <h1 className="text-3xl font-bold text-foreground mb-2">Team Members</h1>
               <p className="text-muted-foreground">
                 Manage your team members, roles, and contact information
               </p>
@@ -302,9 +365,19 @@ const TeamMembersManagement = () => {
                 <span>{memberStats?.total} members</span>
                 <span>•</span>
                 <span>{memberStats?.active} active</span>
-              </div>
+              </div> */}
             </div>
             <div className="flex items-center space-x-3">
+              {teamInfo && ( // Only show edit button if team info is loaded
+                <Button
+                  variant="outline"
+                  onClick={() => setShowEditTeamModal(true)}
+                  iconName="Edit"
+                  iconPosition="left"
+                >
+                  Edit Team
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={() => setShowCSVModal(true)}
@@ -337,10 +410,10 @@ const TeamMembersManagement = () => {
             <div className="bg-card border border-border rounded-lg p-6 shadow-athletic">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-muted-foreground text-sm">Active Members</p>
-                  <p className="text-2xl font-bold text-foreground">{memberStats?.active}</p>
+                  <p className="text-muted-foreground text-sm">Players</p>
+                  <p className="text-2xl font-bold text-foreground">{memberStats?.players}</p>
                 </div>
-                <Icon name="UserCheck" size={24} className="text-green-600" />
+                <Icon name="UserRound" size={24} className="text-blue-600" />
               </div>
             </div>
             <div className="bg-card border border-border rounded-lg p-6 shadow-athletic">
@@ -355,10 +428,10 @@ const TeamMembersManagement = () => {
             <div className="bg-card border border-border rounded-lg p-6 shadow-athletic">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-muted-foreground text-sm">Players</p>
-                  <p className="text-2xl font-bold text-foreground">{memberStats?.players}</p>
+                  <p className="text-muted-foreground text-sm">Staff Members</p>
+                  <p className="text-2xl font-bold text-foreground">{memberStats?.staff}</p>
                 </div>
-                <Icon name="Users2" size={24} className="text-blue-600" />
+                <Icon name="Briefcase" size={24} className="text-green-600" />
               </div>
             </div>
           </div>
@@ -476,6 +549,15 @@ const TeamMembersManagement = () => {
                 setShowDetailModal(false);
                 setSelectedMember(null);
               }}
+            />
+          )}
+
+          {showEditTeamModal && teamInfo && (
+            <EditTeamModal
+              team={teamInfo}
+              onClose={() => setShowEditTeamModal(false)}
+              onUpdate={handleUpdateTeam}
+              loading={loading}
             />
           )}
         </div>
