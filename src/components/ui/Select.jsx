@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect, useMemo } from "react"; // Added useMemo
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { ChevronDown, Check, Search, X } from "lucide-react";
 import { cn } from "../../utils/cn";
 import Button from "./Button";
 import Input from "./Input";
-import { Checkbox } from "./Checkbox"; // Import the Checkbox component
+import { Checkbox } from "./Checkbox";
 
 const Select = React.forwardRef(({
     className,
