@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react';
 import Button from '../../../components/ui/Button';
+import Input from '../../../components/ui/Input';
+import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
 import { toTitleCase, normalizePhoneNumber, normalizeBirthday, formatDateToMMDDYYYY } from '../../../utils/stringUtils';
 
@@ -10,7 +12,26 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
   const [error, setError] = useState('');
   const [previewData, setPreviewData] = useState(null);
   const fileInputRef = useRef(null);
-  const [parsedMembersData, setParsedMembersData] = useState(null);
+
+  const memberRolesOptions = [
+    { value: 'player', label: 'Player' },
+    { value: 'coach', label: 'Coach' },
+    { value: 'staff', label: 'Staff' },
+  ];
+  const canonicalOrder = ['name', 'email', 'phoneNumber', 'role', 'allergies', 'birthday'];
+
+  const prettyLabelFor = (k) => ({
+        name: 'Name',
+        email: 'Email',
+        phoneNumber: 'Phone Number',
+        role: 'Role',
+        allergies: 'Allergies',
+        birthday: 'Birthday',
+      }[k] || toTitleCase(k));
+
+  const handleClearError = () => {
+    setError('');
+  };
 
   const handleDrag = (e) => {
     e?.preventDefault();
@@ -42,7 +63,6 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
 
   const handleFile = (selectedFile) => {
     setError('');
-    setParsedMembersData(null);
     setPreviewData(null);
     
     if (!selectedFile?.name?.endsWith('.csv')) {
@@ -65,33 +85,31 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
       } catch (err) {
         console.error("Error reading or initiating CSV parsing:", err);
         setError('Failed to read or parse CSV file. Please check the format.');
-        setParsedMembersData(null);
       }
     };
     reader.onerror = () => {
       setError('Failed to read file.');
-      setParsedMembersData(null);
     };
     reader.readAsText(selectedFile);
   };
 
 
 
-    const splitCsvLine = (line) => {
-      const out = [];
-      let cur = '', inQuotes = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-          if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
-          else inQuotes = !inQuotes;
-        } else if (ch === ',' && !inQuotes) {
-          out.push(cur.trim()); cur = '';
-        } else cur += ch;
-      }
-      out.push(cur.trim());
-      return out;
-    };
+  const splitCsvLine = (line) => {
+    const out = [];
+    let cur = '', inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === ',' && !inQuotes) {
+        out.push(cur.trim()); cur = '';
+      } else cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+  };
 
   const headerMap = {
     'name': 'name',
@@ -118,66 +136,52 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
 
   const parseCsvText = (csvText) => {
     try {
-      const lines = csvText.split(/\r\n|\n|\r/).filter(l => l.trim() !== '');
+      // strip BOM if present (Excel/Numbers export)
+      let text = String(csvText || '').replace(/^\uFEFF/, '');
+      const lines = text.split(/\r\n|\n|\r/).filter(l => l.trim() !== '');
       if (lines.length <= 1) {
         window.scrollTo?.({ top: 0, behavior: 'smooth' });
         setError('CSV file is empty or contains only headers.');
-        setParsedMembersData(null);
         setPreviewData(null);
         return;
       }
 
-      const prettyLabelFor = (k) => ({
-        name: 'Name',
-        email: 'Email',
-        phoneNumber: 'Phone Number',
-        role: 'Role',
-        allergies: 'Allergies',
-        birthday: 'Birthday',
-      }[k] || toTitleCase(k)); // fallback for unknown columns
+      // --- headers (skip empty header cells) ---
+      const rawHeaders = splitCsvLine(lines[0]).map(h => h.trim());
+      const headerMeta = rawHeaders
+        .map((raw, idx) => ({ raw, canon: normalizeHeader(raw), idx }))
+        .filter(h => h.raw.length > 0 && h.canon.length > 0);
+      
+      const headers = headerMeta.map(h => h.canon);
 
-      const rawHeaders = splitCsvLine(lines[0]).map(h => h.trim());      
-      const headers = rawHeaders.map(normalizeHeader);
-
-      const headerDefs = [];
-      const seen = new Set();
-      headers.forEach((k) => {
-        if (!seen.has(k)) {
-          seen.add(k);
-          headerDefs.push({ key: k, label: prettyLabelFor(k) });
-        }
-      });
-
+      // required
       const requiredKeys = ['name', 'email', 'phoneNumber'];
       const missing = requiredKeys.filter(k => !headers.includes(k));
       if (missing.length) {
         window.scrollTo?.({ top: 0, behavior: 'smooth' });
-        const pretty = missing
-          .map(k => (k === 'phoneNumber' ? 'Phone Number' : k[0].toUpperCase() + k.slice(1)))
-          .join(', ');
+        const pretty = missing.map(prettyLabelFor).join(', ');
         setError(`CSV is missing required headers: ${pretty}.`);
-        setParsedMembersData(null);
-        setPreviewData(null);
-        return;
-      }
-      const allowedCanonicalKeys = new Set(['name', 'email', 'phoneNumber', 'role', 'allergies', 'birthday']);
-      const unknownOriginalHeaders = rawHeaders.filter(h => {
-        const canon = normalizeHeader(h);
-        return !allowedCanonicalKeys.has(canon);
-      });
-      if (unknownOriginalHeaders.length) {
-        window.scrollTo?.({ top: 0, behavior: 'smooth' });
-        const allowedPretty = Array.from(allowedCanonicalKeys).map(prettyLabelFor).join(', ');
-        setError(
-          `Unrecognized header${unknownOriginalHeaders.length > 1 ? 's' : ''}: ` +
-          `${unknownOriginalHeaders.join(', ')}. ` +
-          `Allowed headers are: ${allowedPretty}.`
-        );
-        setParsedMembersData(null);
         setPreviewData(null);
         return;
       }
 
+       // unknown headers
+      const allowedCanonicalKeys = new Set(canonicalOrder);
+      const unknownOriginalHeaders = headerMeta
+        .filter(h => !allowedCanonicalKeys.has(h.canon))
+        .map(h => h.raw);
+      if (unknownOriginalHeaders.length) {
+        window.scrollTo?.({ top: 0, behavior: 'smooth' });
+        const allowedPretty = canonicalOrder.map(prettyLabelFor).join(', ');
+        setError(
+          `Unrecognized header${unknownOriginalHeaders.length > 1 ? 's' : ''}: ` +
+          `${unknownOriginalHeaders.join(', ')}. Allowed headers are: ${allowedPretty}.`
+        );
+        setPreviewData(null);
+        return;
+      }
+
+      // existing team emails
       const existingEmailsLower = new Set(
         (existingMembers || [])
           .map(m => (m?.email || '').toString().toLowerCase())
@@ -186,37 +190,55 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
 
       const parsedMembers = [];
       const csvEmailsSeen = new Set();
+      const duplicateCsvEmails = new Set();
+      const existingAlready = new Set();
 
+      // --- rows ---
       lines.slice(1).forEach((line, rowIdx) => {
         const values = splitCsvLine(line);
         if (values.every(v => v === '')) return; // blank row
 
+        // build member from kept headers, using original column index
         const member = {};
-        headers.forEach((key, i) => {
-          let value = values[i] ?? '';
-          switch (key) {
+        headerMeta.forEach(({ canon, idx }) => {
+          let value = values[idx] ?? '';
+          switch (canon) {
             case 'name':        value = toTitleCase(value); break;
             case 'email':       value = String(value).toLowerCase(); break;
             case 'phoneNumber': value = normalizePhoneNumber(value); break;
-            case 'birthday':    value = normalizeBirthday(value); break;
+            case 'birthday':    value = normalizeBirthday(value); break; // keep YYYY-MM-DD
             case 'allergies':   value = toTitleCase(value); break;
             default: break;
           }
-          member[key] = value;
+          member[canon] = value;
         });
 
+        // ensure all canonical fields exist
+        canonicalOrder.forEach((k) => {
+          if (member[k] == null) member[k] = k === 'role' ? 'player' : '';
+        });
+      
+        // required per-row validation
         if (!member.name || !member.email || !member.phoneNumber) {
           console.warn(`Skipping row ${rowIdx + 2}: missing required data.`);
           return;
         }
 
-        if (csvEmailsSeen.has(member.email.toLowerCase())) {
-          console.warn(`Skipping row ${rowIdx + 2}: Duplicate email "${member.email}" found within the CSV file. Only the first instance will be processed.`);
-          return; // Skip this duplicate entry
+        const emailLower = member.email.toLowerCase();
+        // block if already on team (collect message; do not count as CSV duplicate)
+        if (existingEmailsLower.has(emailLower)) {
+          existingAlready.add(emailLower);
+          return;
         }
-        csvEmailsSeen.add(member.email.toLowerCase());
 
+        // de-dupe within CSV (only among not-already-on-team rows)
+        if (csvEmailsSeen.has(emailLower)) {
+          duplicateCsvEmails.add(emailLower);
+          return;
+        }
+        csvEmailsSeen.add(emailLower);
 
+        // normalize role
         const roleLower = String(member.role || '').toLowerCase();
         member.role = ['player', 'coach', 'staff'].includes(roleLower) ? roleLower : 'player';
 
@@ -226,7 +248,6 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
       if (!parsedMembers.length) {
         window.scrollTo?.({ top: 0, behavior: 'smooth' });
         setError('CSV file does not contain any valid member data rows.');
-        setParsedMembersData(null);
         setPreviewData(null);
         return;
       }
@@ -238,58 +259,98 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
         if (idx !== -1) parsedMembers[idx].role = 'coach';
       }
 
-      const uniqueNewMembers = parsedMembers.filter(
-        m => !existingEmailsLower.has(m.email.toLowerCase())
-      );
-
-      if (!uniqueNewMembers.length) {
-        window.scrollTo?.({ top: 0, behavior: 'smooth' });
-        setError('No new unique members found in the CSV file.');
-        setParsedMembersData(null);
-        setPreviewData(null);
-        return;
-      }
-
-      const previewRows = uniqueNewMembers.slice(0, 5).map(member => {
-      const row = {};
-      headerDefs.forEach(({ key, label }) => {
-        let value = member[key] ?? '';
-        if (key === 'birthday') {
-          value = formatDateToMMDDYYYY(value);
-        }
-        row[label] = value;
-      });
-      return row;
-    });
-
+      // build payload for preview/editor
       const payload = {
-        headers: headerDefs.map(h => h.label), 
-        rows: previewRows,
-        totalRows: uniqueNewMembers.length,
-        fullParsedData: uniqueNewMembers,
+        rows: parsedMembers,
+        totalRows: parsedMembers.length,
+        fullParsedData: parsedMembers,
       };
 
-      setParsedMembersData(payload);
       setPreviewData(payload);
-      setError('');
+
+      // --- friendly messages (existing first, then CSV dupes) ---
+      const msgs = [];
+
+      if (existingAlready.size) {
+        const list = [...existingAlready].join(', ');
+        msgs.push(
+          `${existingAlready.size === 1
+            ? 'User with email'
+            : 'Users with emails'} ${list} ${existingAlready.size === 1
+            ? 'is'
+            : 'are'} already part of your team — skipping ${existingAlready.size === 1 ? 'entry' : 'entries'}.`
+        );
+      }
+      if (duplicateCsvEmails.size) {
+        const list = [...duplicateCsvEmails].join(', ');
+        msgs.push(
+          `Ignored ${duplicateCsvEmails.size} duplicate entr${duplicateCsvEmails.size > 1 ? 'ies' : 'y'} with email: ${list}. Only the first occurrence was kept.`
+        );
+      }
+      if (msgs.length) {
+        setError(msgs.join('\n'));
+      } else {
+        setError('');
+      }
     } catch (err) {
       console.error('Error parsing CSV:', err);
       setError('Failed to parse CSV file. Please check the format and try again.');
-      setParsedMembersData(null);
       setPreviewData(null);
     }
   };
 
 
+  const handlePreviewEdit = (rowIndex, key, value) => {
+    setPreviewData(prev => {
+      if (!prev) return prev;
+      const rows = [...prev.rows];
+      const updated = { ...rows[rowIndex] };
+
+      let v = value;
+      switch (key) {
+        case 'name':        v = toTitleCase(value); break;
+        case 'email':       v = String(value).toLowerCase(); break;
+        case 'phoneNumber': v = normalizePhoneNumber(value); break;
+        case 'birthday':    v = normalizeBirthday(value);   break; // keep YYYY-MM-DD for <input type="date">
+        case 'allergies':   v = toTitleCase(value);         break;
+        default: break;
+      }
+      updated[key] = v;
+
+      if (key === 'role' && !['player','coach','staff'].includes(String(v).toLowerCase())) {
+        updated.role = 'player';
+      }
+
+      rows[rowIndex] = updated;
+      return { ...prev, rows, fullParsedData: rows, totalRows: rows.length };
+    });
+  };
+
+  const addPreviewRow = () => {
+    setPreviewData(prev => {
+      if (!prev) return prev;
+      const rows = [
+        ...prev.rows,
+        { name: '', email: '', phoneNumber: '', role: 'player', allergies: '', birthday: '' },
+      ];
+      return { ...prev, rows, fullParsedData: rows, totalRows: rows.length };
+    });
+  };
+
+  const removePreviewRow = (index) => {
+    setPreviewData(prev => {
+      if (!prev) return prev;
+      const rows = prev.rows.filter((_, i) => i !== index);
+      return { ...prev, rows, fullParsedData: rows, totalRows: rows.length };
+    });
+  };
 
   const handleImport = async () => {
-    if (!parsedMembersData || !parsedMembersData.fullParsedData) return;
-
+    if (!previewData || !previewData.fullParsedData) return;
     setLoading(true);
     setError('');
-
     try {
-      await onImport(parsedMembersData.fullParsedData);
+      await onImport(previewData.fullParsedData);
       onClose();
     } catch (importError) {
       setError(`Failed to import members: ${importError.message || 'Please try again.'}`);
@@ -397,36 +458,112 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
 
               {/* Preview */}
               {previewData && (
-                <div className="mb-6">
-                  <h4 className="font-medium text-foreground mb-3">Preview</h4>
-                  <div className="border border-border rounded-lg overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead className="bg-muted">
+                <div className="space-y-4 p-4 border rounded-lg">
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+                      <Icon name="ClipboardList" size={20} className="mr-2" /> Team Roster
+                    </h2>
+                    <div className="flex space-x-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addPreviewRow}
+                      >
+                        <Icon name="Plus" size={16} className="mr-2" /> Add Member
+                      </Button>
+                    </div>
+                  </div>
+
+                  {previewData.rows.length > 0 && (
+                    <div className="">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
                           <tr>
-                            {previewData?.headers?.map((header, index) => (
-                              <th key={index} className="px-4 py-2 text-left text-sm font-medium text-foreground">
-                                {header}
-                              </th>
-                            ))}
+                            <th scope="col" className="w-1/5 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                            <th scope="col" className="w-1/4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                            <th scope="col" className="w-1/5 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone #</th>
+                            <th scope="col" className="w-1/6 px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                            <th scope="col" className="px-3 py-2 pr-5 text-left text-xs font-medium text-gray-500 tracking-wider italic">allergies</th>
+                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 tracking-wider italic">birthday</th>
+                            <th scope="col" className="px-2 py-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-border">
-                          {previewData?.rows?.map((row, index) => (
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {previewData.rows.map((member, index) => (
                             <tr key={index}>
-                              {previewData?.headers?.map((header, colIndex) => (
-                                <td key={colIndex} className="px-4 py-2 text-sm text-foreground">
-                                  {row?.[header] || '-'}
-                                </td>
-                              ))}
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                <Input
+                                  type="text"
+                                  value={member.name}
+                                  onChange={(e) => handlePreviewEdit(index, 'name', e.target.value)}
+                                  placeholder=" Name"
+                                  className="!border-none !ring-0 !shadow-none !p-0"
+                                />
+                              </td>
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                <Input
+                                  type="email"
+                                  value={member.email}
+                                  onChange={(e) => handlePreviewEdit(index, 'email', e.target.value)}
+                                  placeholder=" Email"
+                                  className="!border-none !ring-0 !shadow-none !p-0"
+                                />
+                              </td>
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                <Input
+                                  type="tel"
+                                  value={member.phoneNumber}
+                                  onChange={(e) => handlePreviewEdit(index, 'phoneNumber', e.target.value)}
+                                  placeholder=" (xxx) xxx-xxxx"
+                                  className="!border-none !ring-0 !shadow-none !p-0"
+                                />
+                              </td>
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                <Select
+                                  value={member.role}
+                                  options={memberRolesOptions}
+                                  onChange={(value) => handlePreviewEdit(index, 'role', value)}
+                                  className="!border-none !ring-0 !shadow-none !p-0"
+                                />
+                              </td>
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                <Input
+                                  type="text"
+                                  value={member.allergies}
+                                  onChange={(e) => handlePreviewEdit(index, 'allergies', e.target.value)}
+                                  placeholder=" Optional.."
+                                  className="!border-none !ring-0 !shadow-none !p-0 italic"
+                                />
+                              </td>
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                <Input
+                                  type="date"
+                                  value={member.birthday || ''}
+                                  onChange={(e) => handlePreviewEdit(index, 'birthday', e.target.value)}
+                                  className="!border-none !ring-0 !shadow-none !p-0 italic"
+                                />
+                              </td>
+                              <td className="px-0.5 py-0.5 whitespace-nowrap text-right text-sm font-medium">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removePreviewRow(index)}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Icon name="Trash" size={16} />
+                                </Button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                  </div>
+                  )}
+
                   <p className="text-xs text-muted-foreground mt-2">
-                    {previewData?.totalRows} members will be imported.
+                    {previewData.rows.length} member{previewData.rows.length === 1 ? '' : 's'} will be imported.
                   </p>
                 </div>
               )}
@@ -435,9 +572,19 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
 
           {/* Error Message */}
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center space-x-2 mb-6">
-              <Icon name="AlertCircle" size={16} className="text-red-600 flex-shrink-0" />
-              <p className="text-sm text-red-800">{error}</p>
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md relative pr-20">
+              <p className="text-red-800 flex items-center text-sm whitespace-pre-line">
+                <Icon name="XCircle" size={20} className="mr-2" /> {error}
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleClearError}
+                className="absolute top-1 right-1 text-red-600 hover:text-red-700 p-1"
+              >
+                <Icon name="X" size={16} />
+              </Button>
             </div>
           )}
 
@@ -458,7 +605,7 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
                 iconPosition="left"
                 className={loading ? "animate-spin" : ""}
               >
-                {loading ? 'Importing...' : `Import ${previewData?.totalRows || 0} Members`}
+                {loading ? 'Importing...' : `Import ${(previewData?.rows?.length ?? 0)} Member${(previewData?.rows?.length ?? 0) === 1 ? '' : 's'}`}
               </Button>
             )}
           </div>
