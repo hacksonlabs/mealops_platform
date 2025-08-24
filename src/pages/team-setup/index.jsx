@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts';
 import { supabase } from '../../lib/supabase';
@@ -36,30 +36,61 @@ export default function TeamSetup() {
     { label: 'Coed', value: 'coed' },
   ];
 
+  // Prefill phone number from user profile (once)
+  useEffect(() => {
+    if (authLoading) return;
+    const fromProfile = normalizePhoneNumber(userProfile?.phone || '');
+    if (fromProfile && !phoneNumber) {
+      setPhoneNumber(fromProfile);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, userProfile?.phone]);
+
+  const normalizeMemberField = (field, value) => {
+    const v = String(value ?? '');
+    switch (field) {
+      case 'name':
+      case 'allergies':
+        return toTitleCase(v);
+      case 'email':
+        return v.trim().toLowerCase();
+      case 'phoneNumber':
+        return normalizePhoneNumber(v);
+      case 'birthday':
+        return normalizeBirthday(v);           // keeps yyyy-MM-dd for <input type="date">
+      case 'role':
+        return String(v || 'player').toLowerCase();
+      default:
+        return v;
+    }
+  };
+
   const handleTeamDataChange = (field, value) => {
-    setTeamData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-    // Clear the specific error for this field
+    let v = value;
+    if (field === 'name' || field === 'sport') v = toTitleCase(value);
+    else if (field === 'conference') v = value.toUpperCase();
+
+    setTeamData(prev => ({ ...prev, [field]: v }));
+
     if (validationErrors[field]) {
       setValidationErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[field];
-        return newErrors;
+        const next = { ...prev };
+        delete next[field];
+        return next;
       });
     }
   };
 
   const handlePhoneNumberChange = (e) => {
-    const value = e.target.value;
-    setPhoneNumber(value);
-    // Clear the phone number error as the user types
+    const raw = e.target.value;
+    const formatted = normalizePhoneNumber(raw);
+    setPhoneNumber(formatted);
+
     if (validationErrors.phone) {
       setValidationErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors.phone;
-        return newErrors;
+        const next = { ...prev };
+        delete next.phone;
+        return next;
       });
     }
   };
@@ -72,10 +103,10 @@ export default function TeamSetup() {
   };
 
   const handleMemberChange = (index, field, value) => {
-    const updatedMembers = members.map((member, i) => 
-      i === index ? { ...member, [field]: value } : member
+    const formatted = normalizeMemberField(field, value);
+    setMembers(prev =>
+      prev.map((m, i) => (i === index ? { ...m, [field]: formatted } : m))
     );
-    setMembers(updatedMembers);
   };
 
   const addMemberRow = () => {
@@ -100,7 +131,7 @@ export default function TeamSetup() {
   };
 
   const parseCsv = (csvText) => {
-    // strip BOM if present (Excel/Numbers export)
+    // strip BOM
     let text = String(csvText || '').replace(/^\uFEFF/, '');
     const lines = text.split(/\r\n|\n|\r/).filter(l => l.trim() !== '');
     if (lines.length <= 1) {
@@ -109,110 +140,152 @@ export default function TeamSetup() {
       return;
     }
 
-    // Define a mapping of possible header names to their correct key
+    // header normalization
     const headerMap = {
       'name': 'name',
-      'Name': 'name',
       'email': 'email',
-      'Email': 'email',
-      'Phone Number': 'phoneNumber',
-      'phone #': 'phoneNumber',
-      'Phone #': 'phoneNumber',
       'phone number': 'phoneNumber',
+      'phone #': 'phoneNumber',
       'phone_number': 'phoneNumber',
       'phone': 'phoneNumber',
       'role': 'role',
-      'Role': 'role',
       'allergies': 'allergies',
-      'Allergies': 'allergies',
       'birthday': 'birthday',
-      'Birthday': 'birthday',
       'bday': 'birthday',
-      'Bday': 'birthday',
     };
 
-    // Get the headers from the CSV and normalize them
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    
-    // Check if the CSV contains at least the core required headers
+    const rawHeaders = splitCsvLine(lines[0]);
+    const headers = rawHeaders.map(h => String(h || '').trim().toLowerCase());
+
     const requiredHeaders = ['name', 'email', 'phone number'];
-    const hasRequiredHeaders = requiredHeaders.every(reqHeader => 
-      headers.some(h => headerMap[h] === headerMap[reqHeader])
+    const hasRequiredHeaders = requiredHeaders.every(req =>
+      headers.some(h => headerMap[h] === headerMap[req])
     );
-    
     if (!hasRequiredHeaders) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setError(`CSV is missing required headers: ${requiredHeaders.join(', ')}`);
       return;
     }
 
-    let parsedMembers = lines.slice(1).map(line => {
-      const values = line.split(',');
-      const member = {};
-      
-      headers.forEach((header, index) => {
-        const key = headerMap[header] || header;
-        let value = values[index] ? values[index].trim() : '';
-        
+    // Parse rows
+    const parsedMembers = [];
+    for (let i = 1; i < lines.length; i++) {
+      const values = splitCsvLine(lines[i]);
+      const row = {};
+      headers.forEach((h, idx) => {
+        const key = headerMap[h] || h;
+        let v = values[idx] ?? '';
         switch (key) {
-          case 'name':
-            value = toTitleCase(value);
-            break;
-          case 'email':
-            value = value.toLowerCase();
-            break;
-          case 'phoneNumber':
-            value = normalizePhoneNumber(value);
-            break;
-          case 'birthday':
-            value = normalizeBirthday(value);
-            break;
-          case 'allergies':  
-            value = toTitleCase(value); 
-            break;
-          default:
-            // No formatting for other fields
+          case 'name':        v = toTitleCase(v); break;
+          case 'email':       v = String(v).toLowerCase().trim(); break;
+          case 'phoneNumber': v = normalizePhoneNumber(v); break;
+          case 'birthday':    v = normalizeBirthday(v); break; // yyyy-MM-dd
+          case 'allergies':   v = toTitleCase(v); break;
+          case 'role':        v = String(v || 'player').toLowerCase(); break;
+          default: break;
         }
-        
-        member[key] = value;
+        row[key] = v;
       });
 
-      if (!member.role || !memberRolesOptions.some(opt => opt.value === member.role)) {
-        member.role = 'player';
-      }
-      return member;
-    });
-
-    if (user && user.email) {
-      const coachIndex = parsedMembers.findIndex(
-        member => member.email.toLowerCase() === user.email.toLowerCase()
-      );
-      if (coachIndex !== -1) {
-        parsedMembers[coachIndex].role = 'coach';
-      }
+      if (!['player','coach','staff'].includes(row.role)) row.role = 'player';
+      parsedMembers.push(row);
     }
 
-    if (parsedMembers.length === 0) {
+    // Ensure coach in CSV becomes 'coach'
+    if (user?.email) {
+      const coachIdx = parsedMembers.findIndex(m => (m.email || '').toLowerCase() === user.email.toLowerCase());
+      if (coachIdx !== -1) parsedMembers[coachIdx].role = 'coach';
+    }
+
+    if (!parsedMembers.length) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setError('CSV file does not contain any valid member data rows.');
       return;
     }
 
-    const existingEmails = new Set(members.map(m => m.email.toLowerCase()));
-    const uniqueNewMembers = parsedMembers.filter(member => 
-      !existingEmails.has(member.email.toLowerCase())
+    // --- De-duplication ---
+    // Start with keys from what's already on the page
+    const existingKeys = new Set(
+      members.map(m => dedupKeyFor(m)).filter(Boolean)
     );
 
-    if (uniqueNewMembers.length === 0) {
+    const uniqueNew = [];
+    const duplicates = [];
+
+    for (const m of parsedMembers) {
+      const key = dedupKeyFor(m);
+      if (!key) continue; // skip rows we can't identify
+      if (existingKeys.has(key)) {
+        duplicates.push(m);
+      } else {
+        existingKeys.add(key); // important: add now so later rows in the same CSV are compared
+        uniqueNew.push(m);
+      }
+    }
+
+    if (!uniqueNew.length) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      setError('No new unique members found in the CSV file.');
+      setError('All rows in the CSV were duplicates of existing entries.');
       return;
     }
 
-    setMembers(prevMembers => [...prevMembers, ...uniqueNewMembers]);
-    // window.scrollTo({ top: 0, behavior: 'smooth' });
-    setSuccess('CSV members loaded. Review and save below.');
+    setMembers(prev => [...prev, ...uniqueNew]);
+
+    const dupMsg = duplicates.length
+      ? ` (${duplicates.length} duplicate ${duplicates.length === 1 ? 'row was' : 'rows were'} skipped)`
+      : '';
+    setSuccess(`CSV members loaded. Review and save below.${dupMsg}`);
     setError('');
+  };
+
+
+  // Robust CSV line splitter (handles quoted commas, escaped quotes)
+  const splitCsvLine = (line) => {
+    const out = [];
+    let cur = '', inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === ',' && !inQuotes) {
+        out.push(cur.trim()); cur = '';
+      } else cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+  };
+
+  // Build a de-duplication key for a member.
+  // Priority: email (lowercased) -> normalized phone -> Name+Birthday -> Name
+  const dedupKeyFor = (m) => {
+    const email = String(m?.email || '').trim().toLowerCase();
+    if (email) return `e:${email}`;
+    const phoneRaw = m?.phoneNumber ?? m?.phone ?? '';
+    const phone = normalizePhoneNumber(phoneRaw || '');
+    if (phone) return `p:${phone}`;
+    const name = toTitleCase(m?.name || '');
+    const bday = normalizeBirthday(m?.birthday || '');
+    if (name && bday) return `nb:${name}|${bday}`;
+    if (name) return `n:${name}`;
+    return null; // nothing to dedupe on (shouldn't happen if CSV requires email/phone)
+  };
+
+  // Finds duplicates *within* a list (e.g., your current roster before submit).
+  // Returns an array of arrays (duplicate groups).
+  const findIntraListDuplicates = (arr) => {
+    const map = new Map();
+    const groups = [];
+    arr.forEach((m, idx) => {
+      const key = dedupKeyFor(m);
+      if (!key) return;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push({ idx, m });
+    });
+    for (const [, list] of map) {
+      if (list.length > 1) groups.push(list);
+    }
+    return groups;
   };
 
 
@@ -245,7 +318,7 @@ export default function TeamSetup() {
     }
 
     if (!teamData?.name) {
-      newErrors.name = 'Team name is required';
+      newErrors.name = 'Mascot is required';
     }
 
     if (!teamData?.gender) {
@@ -257,6 +330,22 @@ export default function TeamSetup() {
       setLoading(false);
       setError('Please fix the errors in your form.');
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    // Check for duplicates among the on-screen members before saving
+    const rosterDupGroups = findIntraListDuplicates(members);
+    if (rosterDupGroups.length) {
+      const preview = rosterDupGroups
+        .map(group => {
+          const labels = group.map(({ m }) => m.email || m.phoneNumber || m.name).join(', ');
+          return `- ${labels}`;
+        })
+        .join('\n');
+
+      setError(`You have duplicate roster entries. Please resolve before continuing:\n${preview}`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setLoading(false);
       return;
     }
 
@@ -448,11 +537,11 @@ export default function TeamSetup() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Input
-                    label="Team Name"
+                    label="Mascot"
                     type="text"
                     value={teamData.name}
                     onChange={(e) => handleTeamDataChange('name', e.target.value)}
-                    placeholder="e.g., Warriors Basketball"
+                    placeholder="e.g., Panthers"
                     required
                     error={validationErrors.name}
                   />
