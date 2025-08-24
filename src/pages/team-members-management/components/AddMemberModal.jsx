@@ -8,7 +8,7 @@ import {
   normalizePhoneNumber,
   normalizeBirthday,
 } from '../../../utils/stringUtils';
-import { findIntraListDuplicates, duplicatesMessage } from '../../../utils/addingTeamMembersUtils';
+import { findIntraListDuplicates, duplicatesMessage, MEMBER_ROLES_OPTIONS } from '../../../utils/addingTeamMembersUtils';
 
 const emptyRow = () => ({
   name: '',
@@ -18,12 +18,6 @@ const emptyRow = () => ({
   allergies: '',
   birthday: '', // yyyy-MM-dd
 });
-
-const memberRolesOptions = [
-  { value: 'player', label: 'Player' },
-  { value: 'coach',  label: 'Coach'  },
-  { value: 'staff',  label: 'Staff'  },
-];
 
 const AddMemberModal = ({ onClose, onAdd, existingMembers = [] }) => {
   const [rows, setRows] = useState([emptyRow()]);
@@ -37,7 +31,7 @@ const AddMemberModal = ({ onClose, onAdd, existingMembers = [] }) => {
   const [dupMsg, setDupMsg] = useState('');
 
   const overlayRef = useRef(null);
-  const roleOptions = useMemo(() => memberRolesOptions, []);
+  const roleOptions = useMemo(() => MEMBER_ROLES_OPTIONS, []);
 
   const handleClearError = () => setError('');
 

@@ -3,8 +3,8 @@ import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
-import { toTitleCase, normalizePhoneNumber, normalizeBirthday, formatDateToMMDDYYYY } from '../../../utils/stringUtils';
-import { parseMembersCsv, findIntraListDuplicates, duplicatesMessage } from '../../../utils/addingTeamMembersUtils';
+import { toTitleCase, normalizePhoneNumber } from '../../../utils/stringUtils';
+import { parseMembersCsv, findIntraListDuplicates, duplicatesMessage, MEMBER_ROLES_OPTIONS } from '../../../utils/addingTeamMembersUtils';
 
 const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser = null }) => {
   const [dragActive, setDragActive] = useState(false);
@@ -14,14 +14,7 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
   const [previewData, setPreviewData] = useState(null);
   const [hasDupes, setHasDupes] = useState(false);
   const [dupMsg, setDupMsg] = useState('');     // duplicate-only message (separate banner)
-  
   const fileInputRef = useRef(null);
-
-  const memberRolesOptions = [
-    { value: 'player', label: 'Player' },
-    { value: 'coach', label: 'Coach' },
-    { value: 'staff', label: 'Staff' },
-  ];
 
   // whenever previewData.rows changes, check for intra-list duplicates
   useEffect(() => {
@@ -347,7 +340,7 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
                               <td className="px-2 py-2 whitespace-nowrap">
                                 <Select
                                   value={member.role}
-                                  options={memberRolesOptions}
+                                  options={MEMBER_ROLES_OPTIONS}
                                   onChange={(value) => handlePreviewEdit(index, 'role', value)}
                                   className="!border-none !ring-0 !shadow-none !p-0"
                                 />

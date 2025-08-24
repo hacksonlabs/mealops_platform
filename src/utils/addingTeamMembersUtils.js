@@ -3,6 +3,18 @@ import { toTitleCase, normalizePhoneNumber, normalizeBirthday } from './stringUt
 // ---- Canonical schema for members CSV ----
 export const CANONICAL_ORDER = ['name', 'email', 'phoneNumber', 'role', 'allergies', 'birthday'];
 
+export const MEMBER_ROLES_OPTIONS = [
+  { value: 'player', label: 'Player' },
+  { value: 'coach',  label: 'Coach'  },
+  { value: 'staff',  label: 'Staff'  },
+];
+
+export const ROLE_CONFIG = {
+  coach: { bg: 'bg-purple-100', text: 'text-purple-800', label: 'Coach' },
+  player: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Player' },
+  staff: { bg: 'bg-gray-100', text: 'text-gray-800', label: 'Staff' }
+};
+
 export const HEADER_ALIASES = {
   'name': 'name',
 	'Name': 'name',

@@ -58,15 +58,6 @@ const TeamMembersManagement = () => {
     return () => document.removeEventListener('mousedown', onClickAway);
   }, []);
 
-  // safe slug for filenames
-  const slug = (s) =>
-    String(s || '')
-      .trim()
-      .toLowerCase()
-      .replace(/[\s/]+/g, '-')
-      .replace(/[^a-z0-9-_]/g, '');
-
-
   // --- Load all teams for this coach, then pick active team ---
   useEffect(() => {
     if (authLoading || !user?.id) return;
