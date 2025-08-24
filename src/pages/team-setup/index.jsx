@@ -99,7 +99,9 @@ export default function TeamSetup() {
   };
 
   const parseCsv = (csvText) => {
-    const lines = csvText.split('\n').filter(line => line.trim() !== '');
+    // strip BOM if present (Excel/Numbers export)
+    let text = String(csvText || '').replace(/^\uFEFF/, '');
+    const lines = text.split(/\r\n|\n|\r/).filter(l => l.trim() !== '');
     if (lines.length <= 1) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setError('CSV file is empty or contains only headers.');
