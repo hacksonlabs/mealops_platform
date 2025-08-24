@@ -427,14 +427,14 @@ const TeamMembersManagement = () => {
           <div className="flex items-center justify-between mb-8">
             <div className="flex-1"> {/* Added flex-1 to allow it to take available space */}
               <h1 className="text-4xl font-extrabold text-foreground mb-3 leading-tight"> {/* Larger, bolder title */}
-                The {teamInfo?.name || 'Team'} Members
+                {teamInfo?.name || 'Team'} {toTitleCase(teamInfo?.gender) || ''} {teamInfo?.sport || ''}
               </h1>
               <p className="text-lg text-muted-foreground mb-4"> {/* Slightly larger description */}
                 Manage members, roles, and contact information for the <span className="font-semibold text-foreground">{teamInfo?.name || 'team'}</span>.
               </p>
               {teamInfo && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-6">
-                  {teamInfo.sport && (
+                  {/* {teamInfo.sport && (
                     <div className="bg-gradient-to-br from-blue-500/10 to-blue-700/10 border border-blue-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
                       <Icon name="Dumbbell" size={20} className="text-blue-500 flex-shrink-0" />
                       <div>
@@ -442,7 +442,7 @@ const TeamMembersManagement = () => {
                         <strong className="text-base text-foreground font-semibold">{teamInfo.sport}</strong>
                       </div>
                     </div>
-                  )}
+                  )} */}
                   {teamInfo.conference_name && (
                     <div className="bg-gradient-to-br from-purple-500/10 to-purple-700/10 border border-purple-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
                       <Icon name="ClipboardList" size={20} className="text-purple-500 flex-shrink-0" />
@@ -452,7 +452,7 @@ const TeamMembersManagement = () => {
                       </div>
                     </div>
                   )}
-                  {teamInfo.gender && (
+                  {/* {teamInfo.gender && (
                     <div className="bg-gradient-to-br from-green-500/10 to-green-700/10 border border-green-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
                       <Icon name={teamInfo.gender === 'mens' ? 'UsersRound' : (teamInfo.gender === 'womens' ? 'UserRound' : 'Users')} size={20} className="text-green-500 flex-shrink-0" />
                       <div>
@@ -460,7 +460,7 @@ const TeamMembersManagement = () => {
                         <strong className="text-base text-foreground font-semibold">{toTitleCase(teamInfo.gender)}</strong>
                       </div>
                     </div>
-                  )}
+                  )} */}
                 </div>
               )}
               {/* <h1 className="text-3xl font-bold text-foreground mb-2">Team Members</h1>
