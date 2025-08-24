@@ -47,7 +47,7 @@ const TeamMembersManagement = () => {
 
   const [showTeamMenu, setShowTeamMenu] = useState(false);
   const teamMenuRef = useRef(null);
-
+  const canDelete = Boolean(user?.id && teamInfo?.coach_id === user.id);
 
   useEffect(() => {
     const onClickAway = (e) => {
@@ -66,7 +66,7 @@ const TeamMembersManagement = () => {
       try {
         const { data: teamList, error } = await supabase
           .from('teams')
-          .select('id, name, sport, conference_name, gender')
+          .select('id, name, sport, conference_name, gender, coach_id')
           .eq('coach_id', user.id)
           .order('created_at', { ascending: false });
 
@@ -181,7 +181,7 @@ const TeamMembersManagement = () => {
       // refresh teams + teamInfo
       const { data: teamList, error: listErr } = await supabase
         .from('teams')
-        .select('id, name, sport, conference_name, gender')
+        .select('id, name, sport, conference_name, gender, coach_id')
         .eq('coach_id', user.id)
         .order('created_at', { ascending: false });
 
@@ -389,6 +389,50 @@ const TeamMembersManagement = () => {
     }
   };
 
+  const handleDeleteTeam = async (team) => {
+    try {
+      if (!teamId) {
+        return { success: false, error: 'Missing team id.' };
+      }
+
+      // Delete the team (RLS allows only the coach to do this)
+      const { error: delErr } = await supabase
+        .from('teams')
+        .delete()
+        .eq('id', team.id);
+
+      if (delErr) {
+        return { success: false, error: delErr.message || 'Unable to delete team.' };
+      }
+
+      // Reload coach’s teams (include coach_id)
+      const { data: otherTeams, error: selErr } = await supabase
+        .from('teams')
+        .select('id, name, sport, conference_name, gender, coach_id')
+        .eq('coach_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (selErr) {
+        return { success: true };
+      }
+
+      if (!otherTeams || otherTeams.length === 0) {
+        // No remaining teams => send user to setup
+        navigate('/team-setup', { replace: true });
+      } else {
+        // Update local state so UI shows remaining team(s)
+        setTeams(otherTeams);
+        const nextId = otherTeams[0].id;
+        setTeamId(nextId);
+        setTeamInfo(otherTeams[0]);
+      }
+
+      return { success: true, remainingTeams: otherTeams?.length || 0 };
+    } catch (err) {
+      return { success: false, error: err?.message || 'Failed to delete team.' };
+    }
+  };
+
   const memberStats = {
     total: members?.length || 0,
     active: members?.filter(m => m?.is_active)?.length || 0,
@@ -411,7 +455,7 @@ const TeamMembersManagement = () => {
                 {teamInfo?.name || 'Team'} {toTitleCase(teamInfo?.gender) || ''} {teamInfo?.sport || ''}
               </h1>
               <p className="text-lg text-muted-foreground mb-4">
-                Manage members, roles, and contact information for{' '}
+                Manage members, roles, and contact information for the{' '}
                 <span className="font-semibold text-foreground">{teamInfo?.name || 'team'}</span>.
               </p>
 
@@ -475,8 +519,8 @@ const TeamMembersManagement = () => {
                 </div>
               )}
 
-              {/* If they only have one team, show a highlighted “New Team” button */}
-              {teams.length === 1 && (
+              {/* show a highlighted “New Team” button */}
+              {teams.length > 0 && (
                 <Button onClick={handleCreateTeam} iconName="Plus" iconPosition="left" variant="outline">
                   New Team
                 </Button>
@@ -668,6 +712,8 @@ const TeamMembersManagement = () => {
           {showEditTeamModal && teamInfo && (
             <EditTeamModal
               team={teamInfo}
+              canDelete={Boolean(canDelete)}
+              onDeleteTeam={handleDeleteTeam}
               onClose={() => setShowEditTeamModal(false)}
               onUpdate={handleUpdateTeam}
               loading={loading}
