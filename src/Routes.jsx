@@ -38,9 +38,9 @@ const Routes = () => {
         <Route path="/payment-methods-billing" element={<PaymentMethodsBilling />} />
         <Route path="/terms-and-conditions" element={<TermsConditoins />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-        <Route path="//awaiting-email-verification" element={<AwaitingEmailVerificationPage />} />
-        <Route path="*" element={<NotFound />} />
+        <Route path="/awaiting-email-verification" element={<AwaitingEmailVerificationPage />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>
     </BrowserRouter>
