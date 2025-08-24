@@ -46,6 +46,8 @@ export default function TeamSetup() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, userProfile?.phone]);
 
+  const toNullIfEmpty = (v) => (typeof v === 'string' && v.trim() === '' ? null : v);
+
   const normalizeMemberField = (field, value) => {
     const v = String(value ?? '');
     switch (field) {
@@ -257,18 +259,9 @@ export default function TeamSetup() {
   };
 
   // Build a de-duplication key for a member.
-  // Priority: email (lowercased) -> normalized phone -> Name+Birthday -> Name
   const dedupKeyFor = (m) => {
     const email = String(m?.email || '').trim().toLowerCase();
-    if (email) return `e:${email}`;
-    const phoneRaw = m?.phoneNumber ?? m?.phone ?? '';
-    const phone = normalizePhoneNumber(phoneRaw || '');
-    if (phone) return `p:${phone}`;
-    const name = toTitleCase(m?.name || '');
-    const bday = normalizeBirthday(m?.birthday || '');
-    if (name && bday) return `nb:${name}|${bday}`;
-    if (name) return `n:${name}`;
-    return null; // nothing to dedupe on (shouldn't happen if CSV requires email/phone)
+    return email ? `e:${email}` : null;
   };
 
   // Finds duplicates *within* a list (e.g., your current roster before submit).
@@ -337,13 +330,9 @@ export default function TeamSetup() {
     const rosterDupGroups = findIntraListDuplicates(members);
     if (rosterDupGroups.length) {
       const preview = rosterDupGroups
-        .map(group => {
-          const labels = group.map(({ m }) => m.email || m.phoneNumber || m.name).join(', ');
-          return `- ${labels}`;
-        })
+        .map(group => ` ${group.map(({ m }) => m.email).join(', ')}`)
         .join('\n');
-
-      setError(`You have duplicate roster entries. Please resolve before continuing:\n${preview}`);
+      setError(`You have duplicate emails. Please resolve before continuing:\n${preview}`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setLoading(false);
       return;
@@ -357,7 +346,7 @@ export default function TeamSetup() {
         .update({ 
           phone: normalizePhoneNumber(phoneNumber),
           allergies: toTitleCase(userCoachRecord?.allergies || ''),
-          birthday: userCoachRecord?.birthday,
+          birthday: toNullIfEmpty(userCoachRecord?.birthday),
          })
         .eq('id', user.id);
       
@@ -398,7 +387,7 @@ export default function TeamSetup() {
         email: member.email.toLowerCase(),
         phone_number: normalizePhoneNumber(member.phoneNumber),
         allergies: toTitleCase(member.allergies),
-        birthday: member.birthday, // yyyy-MM-dd format
+        birthday: toNullIfEmpty(member.birthday), // yyyy-MM-dd format
       }));
 
       const isCoachInList = membersToInsert.some(m => m.email === user.email);
