@@ -8,6 +8,7 @@ import {
   normalizePhoneNumber,
   normalizeBirthday,
 } from '../../../utils/stringUtils';
+import { findIntraListDuplicates, duplicatesMessage } from '../../../utils/addingTeamMembersUtils';
 
 const emptyRow = () => ({
   name: '',
@@ -24,12 +25,18 @@ const memberRolesOptions = [
   { value: 'staff',  label: 'Staff'  },
 ];
 
-const AddMemberModal = ({ onClose, onAdd }) => {
+const AddMemberModal = ({ onClose, onAdd, existingMembers = [] }) => {
   const [rows, setRows] = useState([emptyRow()]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const overlayRef = useRef(null);
 
+  // Normal closable error banner (validation/save issues)
+  const [error, setError] = useState('');
+
+  // Duplicate-only state (non-closable; auto-clears when fixed)
+  const [hasDupes, setHasDupes] = useState(false);
+  const [dupMsg, setDupMsg] = useState('');
+
+  const overlayRef = useRef(null);
   const roleOptions = useMemo(() => memberRolesOptions, []);
 
   const handleClearError = () => setError('');
@@ -48,23 +55,61 @@ const AddMemberModal = ({ onClose, onAdd }) => {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Duplicate detection (intra-modal + against existing team members)
+  useEffect(() => {
+    if (!rows || rows.length === 0) {
+      setHasDupes(false);
+      setDupMsg('');
+      return;
+    }
+
+    const messages = [];
+    let anyDupes = false;
+
+    // Intra-list duplicates (rows vs rows)
+    const intraGroups = findIntraListDuplicates(rows);
+    if (intraGroups.length) {
+      messages.push(duplicatesMessage(intraGroups));
+      anyDupes = true;
+    }
+
+    // Against existing team members from DB
+    const existingEmailSet = new Set(
+      (existingMembers || [])
+        .map(m => String(m?.email || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+
+    const collisions = [];
+    rows.forEach((r, idx) => {
+      const email = String(r?.email || '').trim().toLowerCase();
+      if (email && existingEmailSet.has(email)) {
+        collisions.push({ idx, email });
+      }
+    });
+
+    if (collisions.length) {
+      const list = collisions
+        .map(c => `${c.email}${rows.length > 1 ? ` (row ${c.idx + 1})` : ''}`)
+        .join(', ');
+      messages.push(`Already on your team: ${list}.`);
+      anyDupes = true;
+    }
+
+    setHasDupes(anyDupes);
+    setDupMsg(messages.join('\n'));
+  }, [rows, existingMembers]);
+
   // Normalize per-field for controlled editing
   const normalizeFieldValue = (field, value) => {
     switch (field) {
-      case 'name':
-        return toTitleCase(value || '');
-      case 'email':
-        return String(value || '').trim().toLowerCase();
-      case 'phone':
-        return normalizePhoneNumber(value || '');
-      case 'role':
-        return String(value || 'player').toLowerCase();
-      case 'allergies':
-        return toTitleCase(value || '');
-      case 'birthday':
-        return normalizeBirthday(value || '');
-      default:
-        return value;
+      case 'name':       return toTitleCase(value || '');
+      case 'email':      return String(value || '').trim().toLowerCase();
+      case 'phone':      return normalizePhoneNumber(value || '');
+      case 'role':       return String(value || 'player').toLowerCase();
+      case 'allergies':  return toTitleCase(value || '');
+      case 'birthday':   return normalizeBirthday(value || '');
+      default:           return value;
     }
   };
 
@@ -103,6 +148,11 @@ const AddMemberModal = ({ onClose, onAdd }) => {
     e?.preventDefault();
     setLoading(true);
     setError('');
+
+    if (hasDupes) {
+      setLoading(false);
+      return;
+    }
 
     // Re-normalize everything once more before submit (defensive)
     const normalizedRows = rows.map((r) => ({
@@ -192,6 +242,15 @@ const AddMemberModal = ({ onClose, onAdd }) => {
                 </Button>
               </div>
             </div>
+
+            {/* Duplicate-only banner (non-closable; auto-clears when fixed) */}
+            {dupMsg && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-red-800 flex items-center whitespace-pre-line text-sm">
+                  <Icon name="AlertTriangle" size={20} className="mr-2" /> {dupMsg}
+                </p>
+              </div>
+            )}
 
             {rows.length > 0 && (
               <div>
@@ -317,7 +376,7 @@ const AddMemberModal = ({ onClose, onAdd }) => {
             </Button>
             <Button
               type="submit"
-              disabled={loading}
+              disabled={loading || hasDupes}
               iconName={loading ? 'Loader2' : 'Plus'}
               iconPosition="left"
               className={loading ? 'animate-spin' : ''}

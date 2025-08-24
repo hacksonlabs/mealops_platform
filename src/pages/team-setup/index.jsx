@@ -8,6 +8,7 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Icon from '../../components/AppIcon';
 import { toTitleCase, normalizePhoneNumber, normalizeBirthday } from '../../utils/stringUtils'
+import { parseMembersCsv, findIntraListDuplicates, duplicatesMessage } from '../../utils/addingTeamMembersUtils';
 
 export default function TeamSetup() {
   const navigate = useNavigate();
@@ -26,6 +27,8 @@ export default function TeamSetup() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [warning, setWarning] = useState('');
+  const [hasDupes, setHasDupes] = useState(false);
+  const [dupMsg, setDupMsg] = useState('');
   const [csvFile, setCsvFile] = useState(null);
   const memberRolesOptions = useMemo(() => ['player', 'coach', 'staff'].map(role => ({
     label: role.charAt(0).toUpperCase() + role.slice(1),
@@ -36,6 +39,19 @@ export default function TeamSetup() {
     { label: 'Mens', value: 'mens' },
     { label: 'Coed', value: 'coed' },
   ];
+
+  // Reactively detect duplicate emails in the on-screen roster.
+  useEffect(() => {
+    if (!members || members.length === 0) {
+      setHasDupes(false);
+      setDupMsg('');
+      return;
+    }
+    const groups = findIntraListDuplicates(members);
+    const msg = groups.length ? duplicatesMessage(groups) : '';
+    setHasDupes(groups.length > 0);
+    setDupMsg(msg);
+  }, [members]);
 
   // Prefill phone number from user profile (once)
   useEffect(() => {
@@ -124,181 +140,25 @@ export default function TeamSetup() {
   };
 
   const handleCsvUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setCsvFile(file);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const text = event.target.result;
-        parseCsv(text);
-      };
-      reader.readAsText(file);
-    }
-  };
-
-  const parseCsv = (csvText) => {
-    // strip BOM
-    let text = String(csvText || '').replace(/^\uFEFF/, '');
-    const lines = text.split(/\r\n|\n|\r/).filter(l => l.trim() !== '');
-    if (lines.length <= 1) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      setError('CSV file is empty or contains only headers.');
-      return;
-    }
-
-    // header normalization
-    const headerMap = {
-      'name': 'name',
-      'Name': 'name',
-      'email': 'email',
-      'Email': 'email',
-      'Phone Number': 'phoneNumber',
-      'phone #': 'phoneNumber',
-      'Phone #': 'phoneNumber',
-      'phone number': 'phoneNumber',
-      'phone_number': 'phoneNumber',
-      'phone': 'phoneNumber',
-      'role': 'role',
-      'Role': 'role',
-      'allergies': 'allergies',
-      'Allergies': 'allergies',
-      'birthday': 'birthday',
-      'Birthday': 'birthday',
-      'bday': 'birthday',
-      'Bday': 'birthday',
-    };
-
-    const rawHeaders = splitCsvLine(lines[0]);
-    const headers = rawHeaders.map(h => String(h || '').trim().toLowerCase());
-
-    const requiredHeaders = ['name', 'email', 'phone number'];
-    const hasRequiredHeaders = requiredHeaders.every(req =>
-      headers.some(h => headerMap[h] === headerMap[req])
-    );
-    if (!hasRequiredHeaders) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      setError(`CSV is missing required headers: ${requiredHeaders.join(', ')}`);
-      return;
-    }
-
-    // Parse rows
-    const parsedMembers = [];
-    for (let i = 1; i < lines.length; i++) {
-      const values = splitCsvLine(lines[i]);
-      const row = {};
-      headers.forEach((h, idx) => {
-        const key = headerMap[h] || h;
-        let v = values[idx] ?? '';
-        switch (key) {
-          case 'name':        v = toTitleCase(v); break;
-          case 'email':       v = String(v).toLowerCase().trim(); break;
-          case 'phoneNumber': v = normalizePhoneNumber(v); break;
-          case 'birthday':    v = normalizeBirthday(v); break; // yyyy-MM-dd
-          case 'allergies':   v = toTitleCase(v); break;
-          case 'role':        v = String(v || 'player').toLowerCase(); break;
-          default: break;
-        }
-        row[key] = v;
-      });
-
-      if (!['player','coach','staff'].includes(row.role)) row.role = 'player';
-      parsedMembers.push(row);
-    }
-
-    // Ensure coach in CSV becomes 'coach'
-    if (user?.email) {
-      const coachIdx = parsedMembers.findIndex(m => (m.email || '').toLowerCase() === user.email.toLowerCase());
-      if (coachIdx !== -1) parsedMembers[coachIdx].role = 'coach';
-    }
-
-    if (!parsedMembers.length) {
-      setWarning('CSV file does not contain any valid member data rows.');
-      return;
-    }
-
-    // --- De-duplication ---
-    // Start with keys from what's already on the page
-    const existingKeys = new Set(
-      members.map(m => dedupKeyFor(m)).filter(Boolean)
-    );
-
-    const uniqueNew = [];
-    const duplicates = [];
-
-    for (const m of parsedMembers) {
-      const key = dedupKeyFor(m);
-      if (!key) continue; // skip rows we can't identify
-      if (existingKeys.has(key)) {
-        duplicates.push(m);
-      } else {
-        existingKeys.add(key); // important: add now so later rows in the same CSV are compared
-        uniqueNew.push(m);
-      }
-    }
-
-    if (!uniqueNew.length) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      setWarning('All rows in the CSV were duplicates of existing entries.');
-      return;
-    }
-
-    setMembers(prev => [...prev, ...uniqueNew]);
-
-    const dupMsg = duplicates.length
-      ? ` (${duplicates.length} duplicate ${duplicates.length === 1 ? 'row was' : 'rows were'} skipped)`
-      : '';
-    if (dupMsg) {
-      setSuccess('');
-      setError('');
-      setWarning(`CSV members loaded. Review and save below.${dupMsg}`);
-    } else {
-      setSuccess(`CSV members loaded. Review and save below.${dupMsg}`);
-      setError('');
-      setWarning('');
-    }
-  };
-
-
-  // Robust CSV line splitter (handles quoted commas, escaped quotes)
-  const splitCsvLine = (line) => {
-    const out = [];
-    let cur = '', inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
-        else inQuotes = !inQuotes;
-      } else if (ch === ',' && !inQuotes) {
-        out.push(cur.trim()); cur = '';
-      } else cur += ch;
-    }
-    out.push(cur.trim());
-    return out;
-  };
-
-  // Build a de-duplication key for a member.
-  const dedupKeyFor = (m) => {
-    const email = String(m?.email || '').trim().toLowerCase();
-    return email ? `e:${email}` : null;
-  };
-
-  // Finds duplicates *within* a list (e.g., your current roster before submit).
-  // Returns an array of arrays (duplicate groups).
-  const findIntraListDuplicates = (arr) => {
-    const map = new Map();
-    const groups = [];
-    arr.forEach((m, idx) => {
-      const key = dedupKeyFor(m);
-      if (!key) return;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push({ idx, m });
-    });
-    for (const [, list] of map) {
-      if (list.length > 1) groups.push(list);
-    }
-    return groups;
-  };
-
+   const file = e.target.files[0];
+   if (!file) return;
+   setCsvFile(file);
+   const reader = new FileReader();
+   reader.onload = (event) => {
+     const text = event.target.result;
+     const { rows, errors, warnings } = parseMembersCsv(text, {
+       existingMembers: members,   // de-dupe against screen
+       currentUser: user,          // make coach role if present
+     });
+     if (errors?.length) setError(errors.join('\n'));
+     else setError('');
+     if (warnings?.length) setWarning(warnings.join('\n'));
+     else setWarning('');
+     if (rows?.length) setMembers(prev => [...prev, ...rows]);
+   };
+   reader.onerror = () => setError('Failed to read file.');
+   reader.readAsText(file);
+ };
 
   const handleSubmit = async (e) => {
     e?.preventDefault();
@@ -309,6 +169,10 @@ export default function TeamSetup() {
     setValidationErrors({});
 
     // --- Start Validation Logic ---
+    if (hasDupes) {
+      setLoading(false);
+      return;
+    }
     const newErrors = {};
 
     if (!phoneNumber) {
@@ -342,18 +206,6 @@ export default function TeamSetup() {
       setLoading(false);
       setError('Please fix the errors in your form.');
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-
-    // Check for duplicates among the on-screen members before saving
-    const rosterDupGroups = findIntraListDuplicates(members);
-    if (rosterDupGroups.length) {
-      const preview = rosterDupGroups
-        .map(group => ` ${group.map(({ m }) => m.email).join(', ')}`)
-        .join('\n');
-      setWarning(`You have duplicate emails. Please resolve before continuing:\n${preview}`);
-      window.scrollTo({ bottom: 0, behavior: 'smooth' });
-      setLoading(false);
       return;
     }
 
@@ -721,11 +573,19 @@ export default function TeamSetup() {
               {members.length === 0 && (
                 <p className="text-center text-gray-500 py-4">No members added yet. Use "Add Member" or "Import CSV" to get started.</p>
               )}
+              {/* Duplicate-only banner (auto-clears when fixed) */}
+              {dupMsg && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
+                  <p className="text-red-800 flex items-center whitespace-pre-line text-sm">
+                  <Icon name="XCircle" size={20} className="mr-2" /> {dupMsg}
+                  </p>
+                </div>
+              )}
               {/* Warning Banner */}
               {warning && (
                 <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-md relative pr-10">
-                  <p className="text-amber-800 flex items-center">
-                    {warning}
+                  <p className="text-sm text-amber-800 flex items-center">
+                  <Icon name="AlertTriangle" size={20} className="mr-2" />  {warning}
                   </p>
                   <Button
                     type="button"
@@ -759,7 +619,7 @@ export default function TeamSetup() {
               </Button>
               <Button
                 type="submit"
-                disabled={loading || !teamData.name.trim()}
+                disabled={loading || !teamData.name.trim() || hasDupes}
               >
                 {loading ? 'Creating Team...' : 'Create Team'}
               </Button>

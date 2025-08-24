@@ -1,16 +1,20 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
 import { toTitleCase, normalizePhoneNumber, normalizeBirthday, formatDateToMMDDYYYY } from '../../../utils/stringUtils';
+import { parseMembersCsv, findIntraListDuplicates, duplicatesMessage } from '../../../utils/addingTeamMembersUtils';
 
 const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser = null }) => {
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState('');       // parse/fatal messages (closable)
   const [previewData, setPreviewData] = useState(null);
+  const [hasDupes, setHasDupes] = useState(false);
+  const [dupMsg, setDupMsg] = useState('');     // duplicate-only message (separate banner)
+  
   const fileInputRef = useRef(null);
 
   const memberRolesOptions = [
@@ -18,20 +22,36 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
     { value: 'coach', label: 'Coach' },
     { value: 'staff', label: 'Staff' },
   ];
-  const canonicalOrder = ['name', 'email', 'phoneNumber', 'role', 'allergies', 'birthday'];
 
-  const prettyLabelFor = (k) => ({
-        name: 'Name',
-        email: 'Email',
-        phoneNumber: 'Phone Number',
-        role: 'Role',
-        allergies: 'Allergies',
-        birthday: 'Birthday',
-      }[k] || toTitleCase(k));
+  // whenever previewData.rows changes, check for intra-list duplicates
+  useEffect(() => {
+    if (!previewData?.rows) {
+      setHasDupes(false);
+      setDupMsg('');
+      return;
+    }
+    const groups = findIntraListDuplicates(previewData.rows);
+    const msg = groups.length ? duplicatesMessage(groups) : '';
+    setHasDupes(groups.length > 0);
+    setDupMsg(msg);
+  }, [previewData?.rows]);
 
-  const handleClearError = () => {
-    setError('');
-  };
+    // Close if user clicks the backdrop (not inside the modal) or presses Escape
+    const handleBackdropMouseDown = (e) => {
+      if (e.target === e.currentTarget && !loading) {
+        onClose();
+      }
+    };
+
+    useEffect(() => {
+      const onKeyDown = (e) => {
+        if (e.key === 'Escape' && !loading) onClose();
+      };
+      window.addEventListener('keydown', onKeyDown);
+      return () => window.removeEventListener('keydown', onKeyDown);
+    }, [onClose, loading]);
+
+  const handleClearError = () => setError('');
 
   const handleDrag = (e) => {
     e?.preventDefault();
@@ -81,7 +101,15 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
     reader.onload = (e) => {
       try {
         const csvText = e.target.result;
-        parseCsvText(csvText);
+        // parseCsvText(csvText);
+        const { rows, errors, warnings } = parseMembersCsv(csvText, {
+          existingMembers,
+          currentUser,
+        });
+        // surface any messages
+        const msg = [...(errors || []), ...(warnings || [])].join('\n');
+        setError(msg);
+        setPreviewData(rows && rows.length ? { rows, totalRows: rows.length, fullParsedData: rows } : null);
       } catch (err) {
         console.error("Error reading or initiating CSV parsing:", err);
         setError('Failed to read or parse CSV file. Please check the format.');
@@ -91,212 +119,6 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
       setError('Failed to read file.');
     };
     reader.readAsText(selectedFile);
-  };
-
-
-
-  const splitCsvLine = (line) => {
-    const out = [];
-    let cur = '', inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
-        else inQuotes = !inQuotes;
-      } else if (ch === ',' && !inQuotes) {
-        out.push(cur.trim()); cur = '';
-      } else cur += ch;
-    }
-    out.push(cur.trim());
-    return out;
-  };
-
-  const headerMap = {
-    'name': 'name',
-    'Name': 'name',
-    'email': 'email',
-    'Email': 'email',
-    'Phone Number': 'phoneNumber',
-    'phone #': 'phoneNumber',
-    'Phone #': 'phoneNumber',
-    'phone number': 'phoneNumber',
-    'phone_number': 'phoneNumber',
-    'phone': 'phoneNumber',
-    'role': 'role',
-    'Role': 'role',
-    'allergies': 'allergies',
-    'Allergies': 'allergies',
-    'birthday': 'birthday',
-    'Birthday': 'birthday',
-    'bday': 'birthday',
-    'Bday': 'birthday',
-  };
-  
-  const normalizeHeader = (h) => headerMap[h.toLowerCase()] || h.toLowerCase();
-
-  const parseCsvText = (csvText) => {
-    try {
-      // strip BOM if present (Excel/Numbers export)
-      let text = String(csvText || '').replace(/^\uFEFF/, '');
-      const lines = text.split(/\r\n|\n|\r/).filter(l => l.trim() !== '');
-      if (lines.length <= 1) {
-        window.scrollTo?.({ top: 0, behavior: 'smooth' });
-        setError('CSV file is empty or contains only headers.');
-        setPreviewData(null);
-        return;
-      }
-
-      // --- headers (skip empty header cells) ---
-      const rawHeaders = splitCsvLine(lines[0]).map(h => h.trim());
-      const headerMeta = rawHeaders
-        .map((raw, idx) => ({ raw, canon: normalizeHeader(raw), idx }))
-        .filter(h => h.raw.length > 0 && h.canon.length > 0);
-      
-      const headers = headerMeta.map(h => h.canon);
-
-      // required
-      const requiredKeys = ['name', 'email', 'phoneNumber'];
-      const missing = requiredKeys.filter(k => !headers.includes(k));
-      if (missing.length) {
-        window.scrollTo?.({ top: 0, behavior: 'smooth' });
-        const pretty = missing.map(prettyLabelFor).join(', ');
-        setError(`CSV is missing required headers: ${pretty}.`);
-        setPreviewData(null);
-        return;
-      }
-
-       // unknown headers
-      const allowedCanonicalKeys = new Set(canonicalOrder);
-      const unknownOriginalHeaders = headerMeta
-        .filter(h => !allowedCanonicalKeys.has(h.canon))
-        .map(h => h.raw);
-      if (unknownOriginalHeaders.length) {
-        window.scrollTo?.({ top: 0, behavior: 'smooth' });
-        const allowedPretty = canonicalOrder.map(prettyLabelFor).join(', ');
-        setError(
-          `Unrecognized header${unknownOriginalHeaders.length > 1 ? 's' : ''}: ` +
-          `${unknownOriginalHeaders.join(', ')}. Allowed headers are: ${allowedPretty}.`
-        );
-        setPreviewData(null);
-        return;
-      }
-
-      // existing team emails
-      const existingEmailsLower = new Set(
-        (existingMembers || [])
-          .map(m => (m?.email || '').toString().toLowerCase())
-          .filter(Boolean)
-      );
-
-      const parsedMembers = [];
-      const csvEmailsSeen = new Set();
-      const duplicateCsvEmails = new Set();
-      const existingAlready = new Set();
-
-      // --- rows ---
-      lines.slice(1).forEach((line, rowIdx) => {
-        const values = splitCsvLine(line);
-        if (values.every(v => v === '')) return; // blank row
-
-        // build member from kept headers, using original column index
-        const member = {};
-        headerMeta.forEach(({ canon, idx }) => {
-          let value = values[idx] ?? '';
-          switch (canon) {
-            case 'name':        value = toTitleCase(value); break;
-            case 'email':       value = String(value).toLowerCase(); break;
-            case 'phoneNumber': value = normalizePhoneNumber(value); break;
-            case 'birthday':    value = normalizeBirthday(value); break; // keep YYYY-MM-DD
-            case 'allergies':   value = toTitleCase(value); break;
-            default: break;
-          }
-          member[canon] = value;
-        });
-
-        // ensure all canonical fields exist
-        canonicalOrder.forEach((k) => {
-          if (member[k] == null) member[k] = k === 'role' ? 'player' : '';
-        });
-      
-        // required per-row validation
-        if (!member.name || !member.email || !member.phoneNumber) {
-          console.warn(`Skipping row ${rowIdx + 2}: missing required data.`);
-          return;
-        }
-
-        const emailLower = member.email.toLowerCase();
-        // block if already on team (collect message; do not count as CSV duplicate)
-        if (existingEmailsLower.has(emailLower)) {
-          existingAlready.add(emailLower);
-          return;
-        }
-
-        // de-dupe within CSV (only among not-already-on-team rows)
-        if (csvEmailsSeen.has(emailLower)) {
-          duplicateCsvEmails.add(emailLower);
-          return;
-        }
-        csvEmailsSeen.add(emailLower);
-
-        // normalize role
-        const roleLower = String(member.role || '').toLowerCase();
-        member.role = ['player', 'coach', 'staff'].includes(roleLower) ? roleLower : 'player';
-
-        parsedMembers.push(member);
-      });
-
-      if (!parsedMembers.length) {
-        window.scrollTo?.({ top: 0, behavior: 'smooth' });
-        setError('CSV file does not contain any valid member data rows.');
-        setPreviewData(null);
-        return;
-      }
-
-      if (currentUser?.email) {
-        const idx = parsedMembers.findIndex(
-          m => m.email?.toLowerCase() === currentUser.email.toLowerCase()
-        );
-        if (idx !== -1) parsedMembers[idx].role = 'coach';
-      }
-
-      // build payload for preview/editor
-      const payload = {
-        rows: parsedMembers,
-        totalRows: parsedMembers.length,
-        fullParsedData: parsedMembers,
-      };
-
-      setPreviewData(payload);
-
-      // --- friendly messages (existing first, then CSV dupes) ---
-      const msgs = [];
-
-      if (existingAlready.size) {
-        const list = [...existingAlready].join(', ');
-        msgs.push(
-          `${existingAlready.size === 1
-            ? 'User with email'
-            : 'Users with emails'} ${list} ${existingAlready.size === 1
-            ? 'is'
-            : 'are'} already part of your team — skipping ${existingAlready.size === 1 ? 'entry' : 'entries'}.`
-        );
-      }
-      if (duplicateCsvEmails.size) {
-        const list = [...duplicateCsvEmails].join(', ');
-        msgs.push(
-          `Ignored ${duplicateCsvEmails.size} duplicate entr${duplicateCsvEmails.size > 1 ? 'ies' : 'y'} with email: ${list}. Only the first occurrence was kept.`
-        );
-      }
-      if (msgs.length) {
-        setError(msgs.join('\n'));
-      } else {
-        setError('');
-      }
-    } catch (err) {
-      console.error('Error parsing CSV:', err);
-      setError('Failed to parse CSV file. Please check the format and try again.');
-      setPreviewData(null);
-    }
   };
 
 
@@ -373,7 +195,7 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onMouseDown={handleBackdropMouseDown} role="dialog" aria-modal="true">
       <div className="bg-card border border-border rounded-lg shadow-athletic-lg w-full max-w-5xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border">
@@ -573,7 +395,7 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
             </>
           )}
 
-          {/* Error Message */}
+          {/* Existing parse/fatal error banner (closable) */}
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md relative pr-20">
               <p className="text-red-800 flex items-center text-sm whitespace-pre-line">
@@ -591,6 +413,15 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
             </div>
           )}
 
+          {/* Duplicate-only banner (non-closable so it persists until fixed) */}
+          {dupMsg && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
+              <p className="text-red-800 flex items-center text-sm whitespace-pre-line">
+                <Icon name="XCircle" size={20} className="mr-2" /> {dupMsg}
+              </p>
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex items-center justify-end space-x-3 pt-6 border-t border-border">
             <Button
@@ -603,7 +434,7 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
             {file && (
               <Button
                 onClick={handleImport}
-                disabled={loading || !previewData}
+                disabled={loading || !previewData || hasDupes}
                 iconName={loading ? "Loader2" : "Upload"}
                 iconPosition="left"
                 className={loading ? "animate-spin" : ""}
