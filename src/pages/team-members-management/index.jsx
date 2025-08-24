@@ -15,6 +15,7 @@ import CSVImportModal from './components/CSVImportModal';
 import MemberDetailModal from './components/MemberDetailModal';
 import EditTeamModal from './components/EditTeamModal';
 import { toTitleCase, normalizePhoneNumber } from '../../utils/stringUtils';
+import { membersToExportRows, downloadCsv, buildMembersFilename } from '../../utils/addingTeamMembersUtils';
 
 const TeamMembersManagement = () => {
   const navigate = useNavigate();
@@ -358,54 +359,17 @@ const TeamMembersManagement = () => {
   });
 
   const handleExportMembers = (onlySelected = false) => {
-    const rowsToExport = onlySelected
-      ? members.filter((m) => selectedMembers.includes(m.id))
-      : filteredMembers;
-
-    const csvContent = [
-      ['Name', 'Email', 'Role', 'Phone', 'Allergies', 'Status', 'Joined Date'],
-      ...rowsToExport.map((m) => [
-        m.full_name || '',
-        m.email || '',
-        m.role || '',
-        m.phone_number || '',
-        m.allergies || '',
-        m.is_active ? 'Active' : 'Inactive',
-        new Date(m.created_at || m.joined_at || Date.now()).toLocaleDateString() || '',
-      ]),
-    ];
-
-    const csv = csvContent
-      .map((row) =>
-        row
-          .map((cell) => {
-            const s = String(cell ?? '');
-            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-          })
-          .join(',')
-      )
-      .join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-
-    // Build descriptive filename: team-sport-gender + date + (selected)
-    const date = new Date().toISOString().split('T')[0];
-    const namePart = slug(teamInfo?.name) || 'team';
-    const sportPart = slug(teamInfo?.sport);
-    const genderPart = slug(teamInfo?.gender);
-    const pieces = [namePart, sportPart, genderPart].filter(Boolean).join('_');
-
-    const count = rowsToExport.length;
-    const scope = onlySelected ? `-selected-${count}`: "";
-    const filename = `${pieces || 'team'}-members-${date}${scope}.csv`;
-
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+   const source = onlySelected
+     ? members.filter(m => selectedMembers.includes(m.id))
+     : filteredMembers;
+   const rows = membersToExportRows(source);
+   const filename = buildMembersFilename(teamInfo, {
+     selectedCount: onlySelected ? rows.length : null,
+     totalCount: onlySelected ? null : rows.length,
+     ext: 'csv',
+   });
+   downloadCsv({ rows, filename });
+ };
 
   const handleCSVImport = async (csvData) => {
     if (!teamId) return;
@@ -426,7 +390,6 @@ const TeamMembersManagement = () => {
 
       const { data, error } = await supabase.from('team_members').insert(rows).select();
       if (error) throw error;
-
       setMembers(prev => [...data, ...prev]);
     } catch (e) {
       console.error('Import failed:', e);
@@ -677,6 +640,7 @@ const TeamMembersManagement = () => {
             <AddMemberModal
               onClose={() => setShowAddModal(false)}
               onAdd={handleAddMember}
+              existingMembers={members}
             />
           )}
 
