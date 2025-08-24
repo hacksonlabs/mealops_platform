@@ -29,7 +29,6 @@ export default function TeamSetup() {
   const [warning, setWarning] = useState('');
   const [hasDupes, setHasDupes] = useState(false);
   const [dupMsg, setDupMsg] = useState('');
-  const [csvFile, setCsvFile] = useState(null);
   const memberRolesOptions = useMemo(() => ['player', 'coach', 'staff'].map(role => ({
     label: role.charAt(0).toUpperCase() + role.slice(1),
     value: role
@@ -142,7 +141,6 @@ export default function TeamSetup() {
   const handleCsvUpload = (e) => {
    const file = e.target.files[0];
    if (!file) return;
-   setCsvFile(file);
    const reader = new FileReader();
    reader.onload = (event) => {
      const text = event.target.result;

@@ -3,6 +3,7 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import { formatDateToMMDDYYYY } from '../../../utils/stringUtils'
+import { ROLE_CONFIG } from '../../../utils/addingTeamMembersUtils';
 
 const MembersTable = ({ 
   members, 
@@ -32,14 +33,7 @@ const MembersTable = ({
   };
 
   const getRoleBadge = (role) => {
-    const roleConfig = {
-      coach: { bg: 'bg-purple-100', text: 'text-purple-800', label: 'Coach' },
-      player: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Player' },
-      admin: { bg: 'bg-amber-100', text: 'text-amber-800', label: 'Admin' },
-      staff: { bg: 'bg-gray-100', text: 'text-gray-800', label: 'Staff' }
-    };
-
-    const config = roleConfig?.[role] || roleConfig?.player;
+    const config = ROLE_CONFIG?.[role] || ROLE_CONFIG?.player;
     return (
       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config?.bg} ${config?.text}`}>
         {config?.label}
