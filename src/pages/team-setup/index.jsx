@@ -612,6 +612,18 @@ export default function TeamSetup() {
                   </Button>
                 </div>
               </div>
+              {members.length === 0 && (
+                <p className="text-center text-gray-500 py-4">No members added yet. Use "Add Member" or "Import CSV" to get started.</p>
+              )}
+              {/* CSV Format Guide */}
+              <div className="mt-6 p-4 bg-muted rounded-lg">
+                <h4 className="font-medium text-foreground mb-2">CSV Format Requirements</h4>
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>• Required columns: <strong>name, email, phone number</strong></p>
+                  <p>• Optional columns: role, allergies, birthday</p>
+                  <p>• Role values: player, coach, staff</p>
+                </div>
+              </div>
 
               {members.length > 0 && (
                 <div className="">
@@ -698,9 +710,6 @@ export default function TeamSetup() {
                     </tbody>
                   </table>
                 </div>
-              )}
-              {members.length === 0 && (
-                <p className="text-center text-gray-500 py-4">No members added yet. Use "Add Member" or "Import CSV" to get started.</p>
               )}
             </div>
 
