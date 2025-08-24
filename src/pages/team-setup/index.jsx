@@ -25,6 +25,7 @@ export default function TeamSetup() {
   const [members, setMembers] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [warning, setWarning] = useState('');
   const [csvFile, setCsvFile] = useState(null);
   const memberRolesOptions = useMemo(() => ['player', 'coach', 'staff'].map(role => ({
     label: role.charAt(0).toUpperCase() + role.slice(1),
@@ -103,6 +104,9 @@ export default function TeamSetup() {
   const handleClearSuccess = () => {
     setSuccess('');
   };
+  const handleClearWarning = () => {
+    setWarning('');
+  };
 
   const handleMemberChange = (index, field, value) => {
     const formatted = normalizeMemberField(field, value);
@@ -145,15 +149,23 @@ export default function TeamSetup() {
     // header normalization
     const headerMap = {
       'name': 'name',
+      'Name': 'name',
       'email': 'email',
-      'phone number': 'phoneNumber',
+      'Email': 'email',
+      'Phone Number': 'phoneNumber',
       'phone #': 'phoneNumber',
+      'Phone #': 'phoneNumber',
+      'phone number': 'phoneNumber',
       'phone_number': 'phoneNumber',
       'phone': 'phoneNumber',
       'role': 'role',
+      'Role': 'role',
       'allergies': 'allergies',
+      'Allergies': 'allergies',
       'birthday': 'birthday',
+      'Birthday': 'birthday',
       'bday': 'birthday',
+      'Bday': 'birthday',
     };
 
     const rawHeaders = splitCsvLine(lines[0]);
@@ -200,8 +212,7 @@ export default function TeamSetup() {
     }
 
     if (!parsedMembers.length) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      setError('CSV file does not contain any valid member data rows.');
+      setWarning('CSV file does not contain any valid member data rows.');
       return;
     }
 
@@ -227,7 +238,7 @@ export default function TeamSetup() {
 
     if (!uniqueNew.length) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      setError('All rows in the CSV were duplicates of existing entries.');
+      setWarning('All rows in the CSV were duplicates of existing entries.');
       return;
     }
 
@@ -236,8 +247,15 @@ export default function TeamSetup() {
     const dupMsg = duplicates.length
       ? ` (${duplicates.length} duplicate ${duplicates.length === 1 ? 'row was' : 'rows were'} skipped)`
       : '';
-    setSuccess(`CSV members loaded. Review and save below.${dupMsg}`);
-    setError('');
+    if (dupMsg) {
+      setSuccess('');
+      setError('');
+      setWarning(`CSV members loaded. Review and save below.${dupMsg}`);
+    } else {
+      setSuccess(`CSV members loaded. Review and save below.${dupMsg}`);
+      setError('');
+      setWarning('');
+    }
   };
 
 
@@ -287,6 +305,7 @@ export default function TeamSetup() {
     setLoading(true);
     setError('');
     setSuccess('');
+    setWarning('');
     setValidationErrors({});
 
     // --- Start Validation Logic ---
@@ -332,8 +351,8 @@ export default function TeamSetup() {
       const preview = rosterDupGroups
         .map(group => ` ${group.map(({ m }) => m.email).join(', ')}`)
         .join('\n');
-      setError(`You have duplicate emails. Please resolve before continuing:\n${preview}`);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setWarning(`You have duplicate emails. Please resolve before continuing:\n${preview}`);
+      window.scrollTo({ bottom: 0, behavior: 'smooth' });
       setLoading(false);
       return;
     }
@@ -432,6 +451,7 @@ export default function TeamSetup() {
     } catch (err) {
       setError(err.message || 'An unexpected error occurred.');
       setSuccess('');
+      setWarning('');
     } finally {
       setLoading(false);
     }
@@ -612,19 +632,6 @@ export default function TeamSetup() {
                   </Button>
                 </div>
               </div>
-              {members.length === 0 && (
-                <p className="text-center text-gray-500 py-4">No members added yet. Use "Add Member" or "Import CSV" to get started.</p>
-              )}
-              {/* CSV Format Guide */}
-              <div className="mt-6 p-4 bg-muted rounded-lg">
-                <h4 className="font-medium text-foreground mb-2">CSV Format Requirements</h4>
-                <div className="text-sm text-muted-foreground space-y-1">
-                  <p>• Required columns: <strong>name, email, phone number</strong></p>
-                  <p>• Optional columns: role, allergies, birthday</p>
-                  <p>• Role values: player, coach, staff</p>
-                </div>
-              </div>
-
               {members.length > 0 && (
                 <div className="">
                   <table className="min-w-full divide-y divide-gray-200">
@@ -711,6 +718,35 @@ export default function TeamSetup() {
                   </table>
                 </div>
               )}
+              {members.length === 0 && (
+                <p className="text-center text-gray-500 py-4">No members added yet. Use "Add Member" or "Import CSV" to get started.</p>
+              )}
+              {/* Warning Banner */}
+              {warning && (
+                <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-md relative pr-10">
+                  <p className="text-amber-800 flex items-center">
+                    {warning}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearWarning}
+                    className="absolute top-1 right-1 text-amber-600 hover:text-amber-700 p-1"
+                  >
+                    <Icon name="X" size={16} />
+                  </Button>
+                </div>
+              )}
+              {/* CSV Format Guide */}
+              <div className="mt-6 p-4 bg-muted rounded-lg">
+                <h4 className="font-medium text-foreground mb-2">CSV Format Requirements</h4>
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>• Required columns: <strong>name, email, phone number</strong></p>
+                  <p>• Optional columns: role, allergies, birthday</p>
+                  <p>• Role values: player, coach, staff</p>
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end space-x-4 pt-6">
