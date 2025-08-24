@@ -301,30 +301,33 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
 
 
   const handlePreviewEdit = (rowIndex, key, value) => {
-    setPreviewData(prev => {
-      if (!prev) return prev;
-      const rows = [...prev.rows];
-      const updated = { ...rows[rowIndex] };
+  setPreviewData(prev => {
+    if (!prev) return prev;
+    const rows = [...prev.rows];
+    const updated = { ...rows[rowIndex] };
 
-      let v = value;
-      switch (key) {
-        case 'name':        v = toTitleCase(value); break;
-        case 'email':       v = String(value).toLowerCase(); break;
-        case 'phoneNumber': v = normalizePhoneNumber(value); break;
-        case 'birthday':    v = normalizeBirthday(value);   break; // keep YYYY-MM-DD for <input type="date">
-        case 'allergies':   v = toTitleCase(value);         break;
-        default: break;
-      }
-      updated[key] = v;
+    let v = value;
+    switch (key) {
+      case 'name':        v = toTitleCase(value); break;
+      case 'email':       v = String(value).toLowerCase(); break;
+      case 'phoneNumber': v = normalizePhoneNumber(value); break;
+      case 'allergies':   v = toTitleCase(value); break;
+      case 'birthday':
+        // accept only ISO yyyy-mm-dd on change; avoid reformatting here
+        v = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+        break;
+      default: break;
+    }
+    updated[key] = v;
 
-      if (key === 'role' && !['player','coach','staff'].includes(String(v).toLowerCase())) {
-        updated.role = 'player';
-      }
+    if (key === 'role' && !['player','coach','staff'].includes(String(v).toLowerCase())) {
+      updated.role = 'player';
+    }
 
-      rows[rowIndex] = updated;
-      return { ...prev, rows, fullParsedData: rows, totalRows: rows.length };
-    });
-  };
+    rows[rowIndex] = updated;
+    return { ...prev, rows, fullParsedData: rows, totalRows: rows.length };
+  });
+};
 
   const addPreviewRow = () => {
     setPreviewData(prev => {
@@ -541,7 +544,7 @@ const CSVImportModal = ({ onClose, onImport, existingMembers = [], currentUser =
                                   type="date"
                                   value={member.birthday || ''}
                                   onChange={(e) => handlePreviewEdit(index, 'birthday', e.target.value)}
-                                  className="!border-none !ring-0 !shadow-none !p-0 italic"
+                                  className="!border-none !ring-0 !shadow-none !p-0"
                                 />
                               </td>
                               <td className="px-0.5 py-0.5 whitespace-nowrap text-right text-sm font-medium">

@@ -120,10 +120,19 @@ const MembersTable = ({
                 </button>
               </th>
               <th className="px-4 py-3 text-left">
-                <span className="text-sm font-medium text-foreground">Dietary Restrictions</span>
+                <span className="text-sm font-medium text-foreground">Allergies</span>
               </th>
               <th className="px-4 py-3 text-left">
                 <span className="text-sm font-medium text-foreground">Birthday</span>
+              </th>
+              <th className="px-4 py-3 text-left">
+                <button
+                  onClick={() => handleSort('status')}
+                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
+                >
+                  <span>Status</span>
+                  <Icon name={getSortIcon('status')} size={14} />
+                </button>
               </th>
               <th className="px-4 py-3 text-right">
                 <span className="text-sm font-medium text-foreground">Actions</span>
@@ -169,7 +178,7 @@ const MembersTable = ({
                         <p className="text-foreground line-clamp-2">{member?.allergies}</p>
                       </div>
                     ) : (
-                      <span className="text-muted-foreground">None specified</span>
+                      <span className="text-muted-foreground">-</span>
                     )}
                   </div>
                 </td>
@@ -180,9 +189,12 @@ const MembersTable = ({
                         <p className="text-foreground line-clamp-2">{formatDateToMMDDYYYY(member.birthday)}</p>
                       </div>
                     ) : (
-                      <span className="text-muted-foreground">None specified</span>
+                      <span className="text-muted-foreground">-</span>
                     )}
                   </div>
+                </td>
+                <td className="px-4 py-4">
+                  {getStatusBadge(member?.is_active)}
                 </td>
                 <td className="px-4 py-4 text-right">
                   <div className="flex items-center justify-end space-x-1">
@@ -224,13 +236,13 @@ const MembersTable = ({
           <p className="text-muted-foreground mb-4">
             Get started by adding your first team member.
           </p>
-          <Button
+          {/* <Button
             onClick={() => {}} // This would trigger add member modal
             iconName="Plus"
             iconPosition="left"
           >
             Add First Member
-          </Button>
+          </Button> */}
         </div>
       )}
     </div>

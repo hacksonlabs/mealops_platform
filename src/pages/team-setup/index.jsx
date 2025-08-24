@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts';
 import { supabase } from '../../lib/supabase';
 import Header from '../../components/ui/Header';
@@ -11,6 +11,7 @@ import { toTitleCase, normalizePhoneNumber, normalizeBirthday } from '../../util
 
 export default function TeamSetup() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, userProfile, loading: authLoading } = useAuth(); // Current logged-in user
   const [loading, setLoading] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -347,7 +348,8 @@ export default function TeamSetup() {
 
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setSuccess('Team created and members added successfully!');
-      setTimeout(() => navigate('/dashboard-home'), 2000);
+      const nextPath = location.state?.next || '/team-members-management';
+      setTimeout(() => navigate(nextPath, { replace: true }), 2000);
 
     } catch (err) {
       setError(err.message || 'An unexpected error occurred.');
@@ -599,7 +601,7 @@ export default function TeamSetup() {
                                 type="date"
                                 value={member.birthday || ''}
                                 onChange={(e) => handleMemberChange(index, 'birthday', e.target.value)}
-                                className="!border-none !ring-0 !shadow-none !p-0 italic"
+                                className="!border-none !ring-0 !shadow-none !p-0"
                               />
                             </td>
                           <td className="px-0.5 py-0.5 whitespace-nowrap text-right text-sm font-medium">

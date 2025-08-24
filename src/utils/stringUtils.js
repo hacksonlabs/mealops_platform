@@ -28,15 +28,35 @@ export function normalizePhoneNumber(phone) {
 
 export function normalizeBirthday(dateStr) {
   if (!dateStr) return '';
-  const parts = dateStr.split(/[\/-]/);
-  if (parts.length === 3) {
-    // Rearrange to YYYY-MM-DD
-    const year = parts[2];
-    const month = parts[0].padStart(2, '0');
-    const day = parts[1].padStart(2, '0');
-    return `${year}-${month}-${day}`;
+
+  const s = String(dateStr).trim();
+
+  // already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // YYYY/MM/DD or YYYY-M-D
+  if (/^\d{4}[\/-]\d{1,2}[\/-]\d{1,2}$/.test(s)) {
+    const [y, m, d] = s.split(/[\/-]/);
+    return `${y.padStart(4, '0')}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
-  return dateStr; // Return original if format is not as expected
+
+  // MM/DD/YYYY or M-D-YYYY
+  if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(s)) {
+    const [m, d, y] = s.split(/[\/-]/);
+    return `${y.padStart(4, '0')}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  // Fallback: try to parse safely (use UTC to avoid TZ shifts)
+  const dt = new Date(s);
+  if (!Number.isNaN(dt.getTime())) {
+    const yyyy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // Unknown format -> empty string so the <input type="date"> stays valid
+  return '';
 }
 
 /**

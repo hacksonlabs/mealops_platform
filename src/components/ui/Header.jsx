@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
 import Icon from '../AppIcon';
 import mealLogo from '../images/meal.png';
@@ -62,7 +63,37 @@ const Header = ({ notifications = 0, className = '' }) => {
     // }
   ];
 
-  const handleNavigation = (path) => {
+  // const handleNavigation = (path) => {
+  //   navigate(path);
+  //   setIsMobileMenuOpen(false);
+  // };
+
+  const handleNavigation = async (path) => {
+    // Special handling for Team tab
+    if (path === '/team-members-management') {
+      if (!user?.id) {
+        navigate('/login-registration');
+        setIsMobileMenuOpen(false);
+        return;
+      }
+      const { data, error } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('coach_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Check team failed:', error.message);
+      }
+
+      if (!data) {
+        navigate('/team-setup', { state: { next: '/team-members-management', source: 'header' } });
+        setIsMobileMenuOpen(false);
+        return;
+      }
+    }
     navigate(path);
     setIsMobileMenuOpen(false);
   };

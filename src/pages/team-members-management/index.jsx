@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
 import Header from '../../components/ui/Header';
@@ -15,10 +16,11 @@ import CSVImportModal from './components/CSVImportModal';
 import FilterPanel from './components/FilterPanel';
 import MemberDetailModal from './components/MemberDetailModal';
 import EditTeamModal from './components/EditTeamModal';
-import { toTitleCase } from '../../utils/stringUtils';
+import { toTitleCase, normalizePhoneNumber} from '../../utils/stringUtils';
 
 
 const TeamMembersManagement = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState([]);
   const [filteredMembers, setFilteredMembers] = useState([]);
@@ -65,7 +67,9 @@ const TeamMembersManagement = () => {
         .from('teams')
         .select('id, name, sport, conference_name, gender')
         .eq('coach_id', user.id)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (teamError) {
         console.error('Error fetching team:', teamError.message);
@@ -74,10 +78,11 @@ const TeamMembersManagement = () => {
       }
 
       if (!teamData) {
-        console.log('No team found for this user.');
+        // No team yet: send them to setup, then back here when done
         setMembers([]);
-        setTeamInfo(null); 
+        setTeamInfo(null);
         setLoading(false);
+        navigate('/team-setup', { replace: true, state: { next: '/team-members-management', source: 'team-tab' } });
         return;
       }
       setTeamId(teamData.id);
@@ -167,91 +172,162 @@ const TeamMembersManagement = () => {
   }, [teamId, loadTeamData]);
 
   const handleBulkAction = async (action) => {
-    switch (action) {
-      case 'activate':
-        // Bulk activate members
-        const activatedMembers = members?.map(member => 
-          selectedMembers?.includes(member?.id) 
-            ? { ...member, team_members: { ...member?.team_members, is_active: true } }
-            : member
+    if (!teamId || selectedMembers.length === 0) return;
+
+    try {
+      setLoading(true);
+
+      if (action === 'activate' || action === 'deactivate') {
+        const makeActive = action === 'activate';
+        const { data, error } = await supabase
+          .from('team_members')
+          .update({ is_active: makeActive })
+          .eq('team_id', teamId)
+          .in('id', selectedMembers)
+          .select();
+
+        if (error) throw error;
+
+        // optimistic local update
+        setMembers(prev =>
+          prev.map(m =>
+            selectedMembers.includes(m.id) ? { ...m, is_active: makeActive } : m
+          )
         );
-        setMembers(activatedMembers);
-        break;
-      case 'deactivate':
-        // Bulk deactivate members  
-        const deactivatedMembers = members?.map(member => 
-          selectedMembers?.includes(member?.id) 
-            ? { ...member, team_members: { ...member?.team_members, is_active: false } }
-            : member
-        );
-        setMembers(deactivatedMembers);
-        break;
-      case 'delete':
-        // Bulk delete members
-        if (confirm(`Are you sure you want to delete ${selectedMembers?.length} members?`)) {
-          const remainingMembers = members?.filter(member => !selectedMembers?.includes(member?.id));
-          setMembers(remainingMembers);
-          setSelectedMembers([]);
+        setSelectedMembers([]);
+      }
+
+      if (action === 'delete') {
+        if (!confirm(`Are you sure you want to delete ${selectedMembers.length} member(s)?`)) {
+          setLoading(false);
+          return;
         }
-        break;
-      case 'export':
-        handleExportMembers();
-        break;
+
+        const { error } = await supabase
+          .from('team_members')
+          .delete()
+          .eq('team_id', teamId)
+          .in('id', selectedMembers);
+
+        if (error) throw error;
+
+        setMembers(prev => prev.filter(m => !selectedMembers.includes(m.id)));
+        setSelectedMembers([]);
+      }
+
+      if (action === 'export') {
+        handleExportMembers(true);
+      }
+    } catch (e) {
+      console.error('Bulk action failed:', e);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleAddMember = async (memberData) => {
-    const newMember = {
-      id: Date.now()?.toString(),
-      team_members: {
-        id: Date.now()?.toString(),
-        full_name: memberData?.name,
-        email: memberData?.email,
-        phone: memberData?.phone,
-        role: memberData?.role,
-        allergies: memberData?.allergies || 'None',
-        is_active: true
-      },
-      joined_at: new Date()?.toISOString()
-    };
+    if (!teamId) return { success: false, error: 'No team found.' };
+    setLoading(true);
+    try {
+      const row = {
+        team_id: teamId,
+        user_id: null,
+        role: String(memberData?.role || 'player').toLowerCase(),
+        full_name: toTitleCase(memberData?.name || ''),
+        email: String(memberData?.email || '').toLowerCase(),
+        phone_number: normalizePhoneNumber(memberData?.phone || ''),
+        allergies: toTitleCase(memberData?.allergies || ''),
+        birthday: memberData?.birthday || null,
+        is_active: true,
+      };
 
-    setMembers([...members, newMember]);
-    setShowAddModal(false);
-    return { success: true };
+      const { data, error } = await supabase
+        .from('team_members')
+        .insert(row)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setMembers(prev => [data, ...prev]);
+      setShowAddModal(false);
+      return { success: true };
+    } catch (e) {
+      console.error('Add member failed:', e);
+      return { success: false, error: e.message };
+    } finally {
+      setLoading(false);
+    }
   };
+
 
   const handleEditMember = (member) => {
     setSelectedMember(member);
     setShowEditModal(true);
   };
 
-  const handleUpdateMember = async (memberData) => {
-    const updatedMembers = members?.map(member => 
-      member?.id === selectedMember?.id 
-        ? { 
-            ...member, 
-            team_members: { 
-              ...member?.team_members, 
-              full_name: memberData?.name,
-              email: memberData?.email,
-              phone_number: memberData?.phone,
-              role: memberData?.role,
-              allergies: memberData?.allergies
-            }
-          }
-        : member
-    );
 
-    setMembers(updatedMembers);
-    setShowEditModal(false);
-    setSelectedMember(null);
-    return { success: true };
+  const handleUpdateMember = async (memberData) => {
+    if (!teamId || !selectedMember?.id) {
+      return { success: false, error: 'No member selected.' };
+    }
+    setLoading(true);
+    try {
+      const patch = {
+        role: String(memberData?.role ?? selectedMember?.role ?? 'player').toLowerCase(),
+        full_name: toTitleCase(memberData?.full_name ?? selectedMember?.full_name ?? ''),
+        email: String(memberData?.email ?? selectedMember?.email ?? '').toLowerCase(),
+        phone_number: normalizePhoneNumber(memberData?.phone_number ?? selectedMember?.phone_number ?? ''),
+        allergies: toTitleCase(memberData?.allergies ?? selectedMember?.allergies ?? ''),
+        birthday: memberData?.birthday ?? selectedMember?.birthday ?? null,
+        is_active: typeof memberData?.is_active === 'boolean'
+          ? memberData.is_active
+          : (typeof selectedMember?.is_active === 'boolean' ? selectedMember.is_active : true),
+      };
+
+      const { data, error } = await supabase
+        .from('team_members')
+        .update(patch)
+        .eq('team_id', teamId)
+        .eq('id', selectedMember.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setMembers(prev => prev.map(m => (m.id === data.id ? data : m)));
+      setShowEditModal(false);
+      setSelectedMember(null);
+      return { success: true };
+    } catch (e) {
+      console.error('Update member failed:', e);
+      return { success: false, error: e.message };
+    } finally {
+      setLoading(false);
+    }
   };
 
+
+
   const handleRemoveMember = async (member) => {
-    if (confirm(`Are you sure you want to remove ${member?.team_members?.full_name} from the team?`)) {
-      const updatedMembers = members?.filter(m => m?.id !== member?.id);
-      setMembers(updatedMembers);
+    if (!teamId || !member?.id) return;
+    if (!confirm(`Are you sure you want to remove ${member?.full_name || 'this member'} from the team?`)) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('team_members')
+        .delete()
+        .eq('team_id', teamId)
+        .eq('id', member.id);
+
+      if (error) throw error;
+
+      setMembers(prev => prev.filter(m => m.id !== member.id));
+    } catch (e) {
+      console.error('Delete member failed:', e);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -260,48 +336,78 @@ const TeamMembersManagement = () => {
     setShowDetailModal(true);
   };
 
-  const handleExportMembers = () => {
+
+  const handleExportMembers = (onlySelected = false) => {
+    // if bulk-exporting, use the selected IDs against the full members list
+    const rowsToExport = onlySelected
+      ? members.filter((m) => selectedMembers.includes(m.id))
+      : filteredMembers;
+
     const csvContent = [
-      ['Name', 'Email', 'Role', 'Phone', 'Dietary Restrictions', 'Status', 'Joined Date'],
-      ...filteredMembers?.map(member => [
-        member?.team_members?.full_name || '',
-        member?.team_members?.email || '',
-        member?.team_members?.role || '',
-        member?.team_members?.phone_number || '',
-        member?.team_members?.allergies || '',
-        member?.team_members?.is_active ? 'Active' : 'Inactive',
-        new Date(member?.joined_at)?.toLocaleDateString() || ''
+      ['Name', 'Email', 'Role', 'Phone', 'Allergies', 'Status', 'Joined Date'],
+      ...rowsToExport.map(m => [
+        m.full_name || '',
+        m.email || '',
+        m.role || '',
+        m.phone_number || '',
+        m.allergies || '',
+        m.is_active ? 'Active' : 'Inactive',
+        new Date(m.created_at || m.joined_at || Date.now()).toLocaleDateString() || ''
       ])
     ];
 
-    const csv = csvContent?.map(row => row?.join(','))?.join('\n');
+    const csv = csvContent.map(row =>
+      row
+        .map(cell => {
+          const s = String(cell ?? '');
+          // simple CSV escape for commas/quotes/newlines
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        })
+        .join(',')
+    ).join('\n');
+
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `team-members-${new Date()?.toISOString()?.split('T')?.[0]}.csv`;
-    link?.click();
+    link.download = `team-members-${new Date().toISOString().split('T')[0]}${onlySelected ? '-selected' : ''}.csv`;
+    link.click();
     URL.revokeObjectURL(url);
   };
 
-  const handleCSVImport = async (csvData) => {
-    // Process CSV data and add to members
-    const newMembers = csvData?.map((row, index) => ({
-      id: (Date.now() + index)?.toString(),
-      team_members: {
-        id: (Date.now() + index)?.toString(),
-        full_name: row?.name || row?.Name || '',
-        email: row?.email || row?.Email || '',
-        phone_number: row?.phone || row?.Phone || '',
-        role: (row?.role || row?.Role || 'player')?.toLowerCase(),
-        allergies: row?.allergies || row?.['Dietary Restrictions'] || 'None',
-        is_active: true
-      },
-      joined_at: new Date()?.toISOString()
-    }));
 
-    setMembers([...members, ...newMembers]);
+  const handleCSVImport = async (csvData) => {
+    if (!teamId) return;
+    setLoading(true);
     setShowCSVModal(false);
+
+    try {
+      // csvData rows are normalized: { name, email, phoneNumber, role, allergies, birthday }
+      const rows = csvData.map(r => ({
+        team_id: teamId,
+        user_id: null,
+        role: String(r.role || 'player').toLowerCase(),
+        full_name: toTitleCase(r.name || ''),
+        email: String(r.email || '').toLowerCase(),
+        phone_number: normalizePhoneNumber(r.phoneNumber || ''),
+        allergies: toTitleCase(r.allergies || ''),
+        birthday: r.birthday || null,
+        is_active: true,
+      }));
+
+      const { data, error } = await supabase
+        .from('team_members')
+        .insert(rows)
+        .select();
+
+      if (error) throw error;
+
+      setMembers(prev => [...data, ...prev]);
+    } catch (e) {
+      console.error('Import failed:', e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const memberStats = {
@@ -321,10 +427,10 @@ const TeamMembersManagement = () => {
           <div className="flex items-center justify-between mb-8">
             <div className="flex-1"> {/* Added flex-1 to allow it to take available space */}
               <h1 className="text-4xl font-extrabold text-foreground mb-3 leading-tight"> {/* Larger, bolder title */}
-                The {teamInfo?.name || 'Your Team'} Members
+                The {teamInfo?.name || 'Team'} Members
               </h1>
               <p className="text-lg text-muted-foreground mb-4"> {/* Slightly larger description */}
-                Manage members, roles, and contact information for the <span className="font-semibold text-foreground">{teamInfo?.name || 'your team'}</span>.
+                Manage members, roles, and contact information for the <span className="font-semibold text-foreground">{teamInfo?.name || 'team'}</span>.
               </p>
               {teamInfo && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-6">
@@ -348,7 +454,7 @@ const TeamMembersManagement = () => {
                   )}
                   {teamInfo.gender && (
                     <div className="bg-gradient-to-br from-green-500/10 to-green-700/10 border border-green-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
-                      <Icon name={teamInfo.gender === 'Male' ? 'UsersRound' : (teamInfo.gender === 'Female' ? 'UserRound' : 'Users')} size={20} className="text-green-500 flex-shrink-0" />
+                      <Icon name={teamInfo.gender === 'mens' ? 'UsersRound' : (teamInfo.gender === 'womens' ? 'UserRound' : 'Users')} size={20} className="text-green-500 flex-shrink-0" />
                       <div>
                         <p className="text-xs text-muted-foreground">Gender</p>
                         <strong className="text-base text-foreground font-semibold">{toTitleCase(teamInfo.gender)}</strong>
@@ -378,21 +484,25 @@ const TeamMembersManagement = () => {
                   Edit Team
                 </Button>
               )}
-              <Button
-                variant="outline"
-                onClick={() => setShowCSVModal(true)}
-                iconName="Upload"
-                iconPosition="left"
-              >
-                Import CSV
-              </Button>
-              <Button
-                onClick={() => setShowAddModal(true)}
-                iconName="Plus"
-                iconPosition="left"
-              >
-                Add Member
-              </Button>
+              {teamInfo && (
+                <Button
+                  variant="outline"
+                  onClick={() => setShowCSVModal(true)}
+                  iconName="Upload"
+                  iconPosition="left"
+                >
+                  Import CSV
+                </Button>
+              )}
+              {teamInfo && (
+                <Button
+                  onClick={() => setShowAddModal(true)}
+                  iconName="Plus"
+                  iconPosition="left"
+                >
+                  Add Member
+                </Button>
+              )}
             </div>
           </div>
 
@@ -422,7 +532,7 @@ const TeamMembersManagement = () => {
                   <p className="text-muted-foreground text-sm">Coaches</p>
                   <p className="text-2xl font-bold text-foreground">{memberStats?.coaches}</p>
                 </div>
-                <Icon name="Trophy" size={24} className="text-amber-600" />
+                <Icon name="Trophy" size={24} className="text-purple-600" />
               </div>
             </div>
             <div className="bg-card border border-border rounded-lg p-6 shadow-athletic">
@@ -431,7 +541,7 @@ const TeamMembersManagement = () => {
                   <p className="text-muted-foreground text-sm">Staff Members</p>
                   <p className="text-2xl font-bold text-foreground">{memberStats?.staff}</p>
                 </div>
-                <Icon name="Briefcase" size={24} className="text-green-600" />
+                <Icon name="Briefcase" size={24} className="text-gray-600" />
               </div>
             </div>
           </div>
@@ -476,7 +586,7 @@ const TeamMembersManagement = () => {
                 </Button> */}
                 <Button
                   variant="outline"
-                  onClick={handleExportMembers}
+                  onClick={() => handleExportMembers(false)}
                   iconName="Download"
                   iconPosition="left"
                 >
@@ -539,6 +649,8 @@ const TeamMembersManagement = () => {
             <CSVImportModal
               onClose={() => setShowCSVModal(false)}
               onImport={handleCSVImport}
+              existingMembers={members.map(m => ({ email: m.email }))}
+              currentUser={user}
             />
           )}
 

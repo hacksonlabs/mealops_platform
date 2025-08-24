@@ -2,9 +2,10 @@
 -- Schema Analysis: Fresh project - no existing schema
 -- Integration Type: Complete new schema creation
 -- Dependencies: None (fresh project)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- 1. Extensions & Types
-CREATE TYPE public.user_role AS ENUM ('admin', 'coach', 'player');
+CREATE TYPE public.team_role AS ENUM ('player', 'coach', 'staff');
 CREATE TYPE public.order_status AS ENUM ('draft', 'scheduled', 'confirmed', 'in_progress', 'completed', 'cancelled');
 CREATE TYPE public.poll_status AS ENUM ('active', 'completed', 'expired');
 CREATE TYPE public.payment_status AS ENUM ('pending', 'completed', 'failed', 'refunded');
@@ -40,13 +41,16 @@ CREATE TABLE public.team_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
     user_id UUID REFERENCES public.user_profiles(id) ON DELETE CASCADE,
-    role TEXT,
+    role public.team_role NOT NULL DEFAULT 'player',
     full_name TEXT NOT NULL,
     email TEXT NOT NULL,
     phone_number TEXT,
     allergies TEXT,
     birthday DATE,
+    is_active BOOLEAN NOT NULL DEFAULT true,
     joined_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(team_id, user_id)
 );
 
@@ -116,7 +120,7 @@ CREATE TABLE public.meal_polls (
     title TEXT NOT NULL,
     description TEXT,
     poll_status public.poll_status DEFAULT 'active'::public.poll_status,
-    target_roles public.user_role[] DEFAULT ARRAY['player'::public.user_role],
+    target_roles public.team_role[] DEFAULT ARRAY['player'::public.team_role],
     expires_at TIMESTAMPTZ NOT NULL,
     created_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -155,6 +159,7 @@ CREATE INDEX idx_user_profiles_email ON public.user_profiles(email);
 CREATE INDEX idx_teams_coach_id ON public.teams(coach_id);
 CREATE INDEX idx_team_members_team_id ON public.team_members(team_id);
 CREATE INDEX idx_team_members_user_id ON public.team_members(user_id);
+CREATE INDEX idx_team_members_team_id_active ON public.team_members(team_id, is_active);
 CREATE INDEX idx_saved_locations_team_id ON public.saved_locations(team_id);
 CREATE INDEX idx_restaurants_location_id ON public.restaurants(location_id);
 CREATE INDEX idx_meal_orders_team_id ON public.meal_orders(team_id);
@@ -166,6 +171,8 @@ CREATE INDEX idx_meal_polls_team_id ON public.meal_polls(team_id);
 CREATE INDEX idx_meal_polls_status ON public.meal_polls(poll_status);
 CREATE INDEX idx_poll_votes_poll_id ON public.poll_votes(poll_id);
 CREATE INDEX idx_payment_methods_team_id ON public.payment_methods(team_id);
+CREATE UNIQUE INDEX uniq_team_member_email_per_team
+    ON public.team_members (team_id, lower(email));
 
 -- 4. Functions (must be before RLS policies)
 
@@ -224,6 +231,35 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- generic updated_at helper
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END $$;
+
+-- attach to tables that have updated_at
+DROP TRIGGER IF EXISTS trg_user_profiles_updated_at ON public.user_profiles;
+CREATE TRIGGER trg_user_profiles_updated_at
+BEFORE UPDATE ON public.user_profiles
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_teams_updated_at ON public.teams;
+CREATE TRIGGER trg_teams_updated_at
+BEFORE UPDATE ON public.teams
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_meal_orders_updated_at ON public.meal_orders;
+CREATE TRIGGER trg_meal_orders_updated_at
+BEFORE UPDATE ON public.meal_orders
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_team_members_updated_at ON public.team_members;
+CREATE TRIGGER trg_team_members_updated_at
+BEFORE UPDATE ON public.team_members
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 CREATE OR REPLACE FUNCTION public.is_team_member(team_uuid UUID)
 RETURNS BOOLEAN
@@ -402,6 +438,7 @@ CREATE TRIGGER on_user_auth_change
 AFTER INSERT OR UPDATE OF email_confirmed_at, raw_user_meta_data ON auth.users
 FOR EACH ROW
 EXECUTE FUNCTION public.handle_new_user_profile();
+
 
 
 -- 8. Mock Data
