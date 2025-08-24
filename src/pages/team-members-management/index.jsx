@@ -344,6 +344,10 @@ const TeamMembersManagement = () => {
     setShowDetailModal(true);
   };
 
+  const handleCreateTeam = () =>
+    navigate('/team-setup', { state: { next: '/team-members-management', source: 'team-tab' } 
+  });
+
   const handleExportMembers = (onlySelected = false) => {
     const rowsToExport = onlySelected
       ? members.filter(m => selectedMembers.includes(m.id))
@@ -426,14 +430,13 @@ const TeamMembersManagement = () => {
 
           {/* Page Header */}
           <div className="flex items-center justify-between mb-8">
-            {/* Left: fixed title/description */}
+            {/* Left: title/description NEVER moves */}
             <div className="flex-1">
               <h1 className="text-4xl font-extrabold text-foreground leading-tight mb-3">
                 {teamInfo?.name || 'Team'} {toTitleCase(teamInfo?.gender) || ''} {teamInfo?.sport || ''}
               </h1>
-
               <p className="text-lg text-muted-foreground mb-4">
-                Manage members, roles, and contact information for the{' '}
+                Manage members, roles, and contact information for{' '}
                 <span className="font-semibold text-foreground">{teamInfo?.name || 'team'}</span>.
               </p>
 
@@ -450,24 +453,28 @@ const TeamMembersManagement = () => {
               )}
             </div>
 
-            {/* Right: team switcher button + existing actions */}
-            <div className="flex items-center space-x-3">
+            {/* Right: TEAM CONTROLS ONLY (highlighted Teams button + New Team + Edit Team) */}
+            <div className="flex items-center gap-2">
               {teams.length > 1 && (
                 <div className="relative" ref={teamMenuRef}>
-                  {/* Solid/highlighted button (not outline) */}
                   <Button
                     onClick={() => setShowTeamMenu((s) => !s)}
                     iconName="Dumbbell"
                     iconPosition="left"
-                    // default variant is solid/highlighted in your UI kit
-                    // if you need to force it: className="bg-primary text-primary-foreground hover:opacity-90"
                     aria-haspopup="menu"
                     aria-expanded={showTeamMenu}
                   >
-                    {teamInfo?.name || 'Teams'}
+                    <span className="flex items-center">
+                      {teamInfo?.name || 'Teams'}
+                      <Icon
+                        name={showTeamMenu ? 'ChevronUp' : 'ChevronDown'}
+                        size={16}
+                        className="ml-2 opacity-80"
+                      />
+                    </span>
                   </Button>
 
-                  {/* Popover menu */}
+                  {/* absolute so opening doesn't shift layout */}
                   {showTeamMenu && (
                     <div className="absolute right-0 mt-2 w-56 bg-card border border-border rounded-md shadow-lg z-20 max-h-64 overflow-auto">
                       {teams.map((t) => {
@@ -492,18 +499,17 @@ const TeamMembersManagement = () => {
                 </div>
               )}
 
+              {/* If they only have one team, show a highlighted “New Team” button */}
+              {teams.length === 1 && (
+                <Button onClick={handleCreateTeam} iconName="Plus" iconPosition="left" variant="outline">
+                  New Team
+                </Button>
+              )}
+
               {teamId && (
-                <>
-                  <Button variant="outline" onClick={() => setShowEditTeamModal(true)} iconName="Edit" iconPosition="left">
-                    Edit Team
-                  </Button>
-                  <Button variant="outline" onClick={() => setShowCSVModal(true)} iconName="Upload" iconPosition="left">
-                    Import CSV
-                  </Button>
-                  <Button onClick={() => setShowAddModal(true)} iconName="Plus" iconPosition="left">
-                    Add Member
-                  </Button>
-                </>
+                <Button variant="outline" onClick={() => setShowEditTeamModal(true)} iconName="Edit" iconPosition="left">
+                  Edit Team
+                </Button>
               )}
             </div>
           </div>
@@ -551,9 +557,14 @@ const TeamMembersManagement = () => {
           {/* Search & Filters */}
           <div className="bg-card border border-border rounded-lg p-6 shadow-athletic mb-6">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
+              {/* Left: search + role filter */}
               <div className="flex flex-1 items-center space-x-4">
                 <div className="relative flex-1">
-                  <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Icon
+                    name="Search"
+                    size={16}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
                   <Input
                     placeholder="Search members by name or email..."
                     value={searchTerm}
@@ -575,13 +586,41 @@ const TeamMembersManagement = () => {
                   />
                 </div>
               </div>
+
+              {/* Right: roster actions (separate from team controls) */}
               <div className="flex items-center space-x-3">
-                <Button variant="outline" onClick={() => handleExportMembers(false)} iconName="Download" iconPosition="left">
+                {teamId && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowCSVModal(true)}
+                      iconName="Upload"
+                      iconPosition="left"
+                    >
+                      Import CSV
+                    </Button>
+                    <Button
+                      onClick={() => setShowAddModal(true)}
+                      iconName="Plus"
+                      iconPosition="left"
+                      variant="outline"
+                    >
+                      Add Member
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => handleExportMembers(false)}
+                  iconName="Download"
+                  iconPosition="left"
+                >
                   Export
                 </Button>
               </div>
             </div>
           </div>
+
 
           {/* Bulk Actions */}
           {selectedMembers.length > 0 && (
