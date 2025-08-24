@@ -633,11 +633,18 @@ const TeamMembersManagement = () => {
                 )}
                 <Button
                   variant="outline"
-                  onClick={() => handleExportMembers(false)}
+                  onClick={() => handleExportMembers(selectedMembers.length > 0)}
                   iconName="Download"
                   iconPosition="left"
+                  aria-label={
+                    selectedMembers.length > 0
+                      ? `Export ${selectedMembers.length} selected members`
+                      : 'Export all members'
+                  }
                 >
-                  Export
+                  {selectedMembers.length > 0
+                    ? `Export (${selectedMembers.length} selected)`
+                    : 'Export All'}
                 </Button>
               </div>
             </div>
