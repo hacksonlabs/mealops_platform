@@ -57,6 +57,15 @@ const TeamMembersManagement = () => {
     return () => document.removeEventListener('mousedown', onClickAway);
   }, []);
 
+  // safe slug for filenames
+  const slug = (s) =>
+    String(s || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s/]+/g, '-')
+      .replace(/[^a-z0-9-_]/g, '');
+
+
   // --- Load all teams for this coach, then pick active team ---
   useEffect(() => {
     if (authLoading || !user?.id) return;
@@ -350,12 +359,12 @@ const TeamMembersManagement = () => {
 
   const handleExportMembers = (onlySelected = false) => {
     const rowsToExport = onlySelected
-      ? members.filter(m => selectedMembers.includes(m.id))
+      ? members.filter((m) => selectedMembers.includes(m.id))
       : filteredMembers;
 
     const csvContent = [
       ['Name', 'Email', 'Role', 'Phone', 'Allergies', 'Status', 'Joined Date'],
-      ...rowsToExport.map(m => [
+      ...rowsToExport.map((m) => [
         m.full_name || '',
         m.email || '',
         m.role || '',
@@ -367,9 +376,9 @@ const TeamMembersManagement = () => {
     ];
 
     const csv = csvContent
-      .map(row =>
+      .map((row) =>
         row
-          .map(cell => {
+          .map((cell) => {
             const s = String(cell ?? '');
             return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
           })
@@ -379,9 +388,21 @@ const TeamMembersManagement = () => {
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
+
+    // Build descriptive filename: team-sport-gender + date + (selected)
+    const date = new Date().toISOString().split('T')[0];
+    const namePart = slug(teamInfo?.name) || 'team';
+    const sportPart = slug(teamInfo?.sport);
+    const genderPart = slug(teamInfo?.gender);
+    const pieces = [namePart, sportPart, genderPart].filter(Boolean).join('_');
+
+    const count = rowsToExport.length;
+    const scope = onlySelected ? `-selected-${count}`: "";
+    const filename = `${pieces || 'team'}-members-${date}${scope}.csv`;
+
     const link = document.createElement('a');
     link.href = url;
-    link.download = `team-members-${new Date().toISOString().split('T')[0]}${onlySelected ? '-selected' : ''}.csv`;
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -491,6 +512,7 @@ const TeamMembersManagement = () => {
                           >
                             {t.name}
                             {t.sport ? <span className="ml-1 text-xs text-muted-foreground">· {t.sport}</span> : null}
+                            {t.gender ? <span className="ml-1 text-xs text-muted-foreground">· {t.gender}</span> : null}
                           </button>
                         );
                       })}
