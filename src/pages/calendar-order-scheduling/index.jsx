@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../../components/ui/Header';
 import CalendarHeader from './components/CalendarHeader';
 import CalendarGrid from './components/CalendarGrid';
-import SidebarPanel from './components/SidebarPanel';
+import TopPanel from './components/TopPanel';
 import ScheduleMealModal from './components/ScheduleMealModal';
 import OrderDetailsModal from './components/OrderDetailsModal';
 import Button from '../../components/ui/Button';
@@ -162,6 +162,30 @@ const CalendarOrderScheduling = () => {
     }
   ];
 
+  // ===== This Month (derived from currentDate + orders) =====
+  const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+  const monthEnd   = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+
+  const thisMonthOrders = orders.filter(o => {
+    const d = new Date(o.date);
+    return d >= monthStart && d <= monthEnd;
+  });
+
+  const getOrderCost = (o) =>
+    Number(
+      o.totalCost ??
+      ((o.attendees || 0) * (o.costPerAttendee ?? 12))
+    );
+
+  // Financials for this month
+  const monthStats = React.useMemo(() => {
+    const totalMeals = thisMonthOrders.length;
+    const totalSpent = thisMonthOrders.reduce((sum, o) => sum + getOrderCost(o), 0);
+    const avgPerMeal = totalMeals ? totalSpent / totalMeals : 0;
+    return { totalMeals, totalSpent, avgPerMeal };
+  }, [thisMonthOrders]);
+
+
   // Filter orders based on current filters
   const filteredOrders = orders?.filter(order => {
     if (filters?.mealType !== 'all' && order?.mealType !== filters?.mealType) {
@@ -257,7 +281,7 @@ const CalendarOrderScheduling = () => {
     <div className="min-h-screen bg-background">
       <Header user={{ name: 'Coach Johnson', email: 'coach@team.com' }} notifications={3} />
       <main className="pt-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Page Header */}
           <div className="mb-8">
             <div className="flex items-center justify-between">
@@ -282,6 +306,23 @@ const CalendarOrderScheduling = () => {
               )}
             </div>
           </div>
+          {/* Top Bar */}
+          <div className="mb-6">
+            {/* <SidebarPanel
+              orientation="horizontal"
+              selectedDate={selectedDate}
+              upcomingMeals={upcomingMeals}
+              savedTemplates={savedTemplates}
+              onTemplateUse={handleTemplateUse}
+              onScheduleNew={handleScheduleNew}
+            /> */}
+            <TopPanel
+              orientation="horizontal"
+              upcomingMeals={upcomingMeals}
+              monthStats={monthStats}
+              onScheduleNew={handleScheduleNew}
+            />
+          </div>
 
           {/* Calendar Header */}
           <div className="mb-6">
@@ -297,7 +338,7 @@ const CalendarOrderScheduling = () => {
           </div>
 
           {/* Main Content */}
-          <div className={`grid gap-6 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-4'}`}>
+          <div className={`grid gap-6 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-1'}`}>
             {/* Calendar Grid */}
             <div className={isMobile ? 'order-1' : 'lg:col-span-3'}>
               {isMobile ? (
@@ -388,19 +429,6 @@ const CalendarOrderScheduling = () => {
                 />)
               )}
             </div>
-
-            {/* Sidebar */}
-            {!isMobile && (
-              <div className="lg:col-span-1 order-2 lg:order-2">
-                <SidebarPanel
-                  selectedDate={selectedDate}
-                  upcomingMeals={upcomingMeals}
-                  savedTemplates={savedTemplates}
-                  onTemplateUse={handleTemplateUse}
-                  onScheduleNew={handleScheduleNew}
-                />
-              </div>
-            )}
           </div>
 
           {/* Mobile Floating Action Button */}
