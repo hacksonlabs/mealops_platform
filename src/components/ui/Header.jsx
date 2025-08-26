@@ -143,10 +143,10 @@ const Header = ({ notifications = 0, className = '' }) => {
                       </span>
                       <div className="flex items-center space-x-2">
                         <span className="text-xs text-muted-foreground font-medium uppercase">
-                          {activeTeam.sport}
+                          {activeTeam.gender}
                         </span>
                         <span className="text-xs text-muted-foreground font-medium uppercase">
-                          {activeTeam.gender}
+                          {activeTeam.sport}
                         </span>
                       </div>
                     </div>
@@ -173,8 +173,8 @@ const Header = ({ notifications = 0, className = '' }) => {
                           <div className="flex flex-col items-start">
                             <span className="font-semibold">{t.name}</span>
                             <div className="flex items-center space-x-1">
-                              <span className="text-xs text-muted-foreground uppercase">{t.sport}</span>
                               <span className="text-xs text-muted-foreground uppercase">{t.gender}</span>
+                              <span className="text-xs text-muted-foreground uppercase">{t.sport}</span>
                             </div>
                           </div>
                           {t.id === activeTeam?.id && <Icon name="Check" size={16} className="ml-2 text-primary" />}
