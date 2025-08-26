@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
@@ -9,8 +9,40 @@ const Header = ({ notifications = 0, className = '' }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, userProfile, signOut } = useAuth();
+  
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  
+  // New state for teams
+  const [teams, setTeams] = useState([]);
+  const [loadingTeams, setLoadingTeams] = useState(true);
+
+  useEffect(() => {
+    const fetchTeams = async () => {
+      if (user?.id) {
+        setLoadingTeams(true);
+        const { data, error } = await supabase
+          .from('teams')
+          .select('id, name, sport, gender')
+          .eq('coach_id', user.id)
+          .order('created_at', { ascending: false }); // Order to get a consistent default team
+
+        if (error) {
+          console.error('Error fetching teams:', error.message);
+          setTeams([]);
+        } else {
+          setTeams(data || []);
+        }
+        setLoadingTeams(false);
+      } else {
+        setTeams([]);
+        setLoadingTeams(false);
+      }
+    };
+
+    fetchTeams();
+  }, [user?.id]);
+
 
   const navigationItems = [
     { 
@@ -76,19 +108,9 @@ const Header = ({ notifications = 0, className = '' }) => {
         setIsMobileMenuOpen(false);
         return;
       }
-      const { data, error } = await supabase
-        .from('teams')
-        .select('id')
-        .eq('coach_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Check team failed:', error.message);
-      }
-
-      if (!data) {
+      
+      // Since we already fetched the teams, we can check the state instead of re-querying
+      if (teams.length === 0 && !loadingTeams) {
         navigate('/team-setup', { state: { next: '/team-members-management', source: 'header' } });
         setIsMobileMenuOpen(false);
         return;
@@ -104,7 +126,6 @@ const Header = ({ notifications = 0, className = '' }) => {
 
   const handleLogout = () => {
     setIsUserMenuOpen(false);
-    // Logout logic would go here
     signOut();
     navigate('/login-registration')
   };
@@ -126,12 +147,32 @@ const Header = ({ notifications = 0, className = '' }) => {
   return (
     <header className={`fixed top-0 left-0 right-0 z-50 bg-card border-b border-border shadow-athletic ${className}`}>
       <div className="flex items-center justify-between h-16 px-4 lg:px-6">
-        {/* Logo */}
+        {/* Logo and Team Info */}
         <div className="flex items-center">
           <div className="flex items-center space-x-2">
             <Link to="/" className="flex items-center space-x-2">
-              <img src={mealLogo} alt="MealOps Logo" className="h-12 max-h-24 w-auto object-contain" />
+              <img src={mealLogo} alt="MealOps Logo" className="h-12 w-auto object-contain" />
             </Link>
+            {/* Vertical Divider */}
+            {!loadingTeams && teams.length > 0 && (
+              <div className="h-10 border-l border-border mx-12" />
+            )}
+            {/* Team Info Display */}
+            {!loadingTeams && teams.length > 0 && (
+              <div className="ml-12 flex flex-col items-center justify-center">
+                <span className="text-md font-bold text-foreground">
+                  {teams[0].name}
+                </span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-muted-foreground font-medium uppercase">
+                    {teams[0].gender}
+                  </span>
+                  <span className="text-xs text-muted-foreground font-medium uppercase">
+                    {teams[0].sport}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
