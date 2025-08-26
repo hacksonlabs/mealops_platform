@@ -18,6 +18,7 @@ const buttonVariants = cva(
                 success: "bg-success text-success-foreground hover:bg-success/90",
                 warning: "bg-warning text-warning-foreground hover:bg-warning/90",
                 danger: "bg-error text-error-foreground hover:bg-error/90",
+                plain: "bg-transparent text-foreground",
             },
             size: {
                 default: "h-10 px-4 py-2",
@@ -74,7 +75,6 @@ const Button = React.forwardRef(({
     // Icon rendering
     const renderIcon = () => {
         if (!iconName) return null;
-
         return (
             <Icon
                 name={iconName}
@@ -100,9 +100,9 @@ const Button = React.forwardRef(({
             {...props}
         >
             {asChild ? (
-                children // If asChild, just pass children through
+                children
             ) : (
-                <> {/* Otherwise, render our internal loading spinner, icon, and children */}
+                <>
                     {loading && <LoadingSpinner />}
                     {iconName && iconPosition === 'left' && renderIcon()}
                     {children}

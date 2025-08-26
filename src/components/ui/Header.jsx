@@ -26,7 +26,7 @@ const Header = ({ notifications = 0, className = '' }) => {
     document.addEventListener('mousedown', onClickAway);
     return () => document.removeEventListener('mousedown', onClickAway);
   }, []);
-  
+
   const navigationItems = [
     { 
       label: 'Dashboard', 
@@ -122,29 +122,69 @@ const Header = ({ notifications = 0, className = '' }) => {
       <div className="flex items-center justify-between h-16 px-4 lg:px-6">
         {/* Logo and Team Info */}
         <div className="flex items-center">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-4">
             <Link to="/" className="flex items-center space-x-2">
               <img src={mealLogo} alt="MealOps Logo" className="h-12 w-auto object-contain" />
             </Link>
             {/* Team Info Display */}
             {!loadingTeams && activeTeam && (
-            <>
-              <div className="h-10 border-l border-border mx-12" />
-              <div className="ml-12 flex flex-col items-center justify-center">
-                <span className="text-md font-bold text-foreground">
-                  {activeTeam.name}
-                </span>
-                <div className="flex items-center space-x-2">
-                  <span className="text-xs text-muted-foreground font-medium uppercase">
-                    {activeTeam.sport}
-                  </span>
-                  <span className="text-xs text-muted-foreground font-medium uppercase">
-                    {activeTeam.gender}
-                  </span>
+              <>
+                <div className='h-10 border-l border-border' />
+                <div className="relative w-20" ref={teamMenuRef}>
+                  <button
+                    onClick={() => setShowTeamMenu((s) => !s)}
+                    className="flex items-center space-x-2 h-10 px-1 py-2 rounded-md hover:bg-muted transition-athletic"
+                    aria-haspopup="menu"
+                    aria-expanded={showTeamMenu}
+                  >
+                    <div className="flex flex-col items-center">
+                      <span className="text-md font-bold text-foreground">
+                        {activeTeam.name}
+                      </span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs text-muted-foreground font-medium uppercase">
+                          {activeTeam.sport}
+                        </span>
+                        <span className="text-xs text-muted-foreground font-medium uppercase">
+                          {activeTeam.gender}
+                        </span>
+                      </div>
+                    </div>
+                    {!loadingTeams && teams.length > 1 && (
+                      <Icon name={showTeamMenu ? 'ChevronUp' : 'ChevronDown'} size={16} className="ml-2 text-muted-foreground" />
+                    )}
+                  </button>
+
+                  {/* Dropdown Menu - only show if there are multiple teams */}
+                  {showTeamMenu && teams.length > 1 && (
+                    <div className="absolute left-0 mt-2 w-56 bg-popover border border-border rounded-md shadow-lg z-20 max-h-64 overflow-auto">
+                      {teams.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            switchActiveTeam(t.id);
+                            setShowTeamMenu(false);
+                          }}
+                          className={`w-full text-left px-4 py-2 text-sm transition-athletic flex items-center justify-between
+                            ${t.id === activeTeam?.id ? 'bg-muted text-foreground font-semibold' : 'hover:bg-muted text-muted-foreground'}
+                          `}
+                        >
+                          <div className="flex flex-col items-start">
+                            <span className="font-semibold">{t.name}</span>
+                            <div className="flex items-center space-x-1">
+                              <span className="text-xs text-muted-foreground uppercase">{t.sport}</span>
+                              <span className="text-xs text-muted-foreground uppercase">{t.gender}</span>
+                            </div>
+                          </div>
+                          {t.id === activeTeam?.id && <Icon name="Check" size={16} className="ml-2 text-primary" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            </>
-          )}
+              </>
+            )}
           </div>
         </div>
 
