@@ -472,54 +472,9 @@ const TeamMembersManagement = () => {
               )}
             </div>
 
-            {/* Right: TEAM CONTROLS ONLY (highlighted Teams button + New Team + Edit Team) */}
+            {/* Right: TEAM CONTROLS ONLY New Team + Edit Team) */}
             <div className="flex items-center gap-2">
-              {teams.length > 1 && (
-                <div className="relative" ref={teamMenuRef}>
-                  <Button
-                    onClick={() => setShowTeamMenu((s) => !s)}
-                    iconName="Dumbbell"
-                    iconPosition="left"
-                    aria-haspopup="menu"
-                    aria-expanded={showTeamMenu}
-                  >
-                    <span className="flex items-center">
-                      {teamInfo?.name || 'Teams'}
-                      <Icon
-                        name={showTeamMenu ? 'ChevronUp' : 'ChevronDown'}
-                        size={16}
-                        className="ml-2 opacity-80"
-                      />
-                    </span>
-                  </Button>
-
-                  {/* absolute so opening doesn't shift layout */}
-                  {showTeamMenu && (
-                    <div className="absolute right-0 mt-2 w-56 bg-card border border-border rounded-md shadow-lg z-20 max-h-64 overflow-auto">
-                      {teams.map((t) => {
-                        const active = t.id === teamId;
-                        return (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => { handleTeamSwitch(t.id); setShowTeamMenu(false); }}
-                            className={[
-                              'w-full text-left px-3 py-2 text-sm',
-                              active ? 'bg-primary/10 text-foreground font-semibold' : 'hover:bg-muted'
-                            ].join(' ')}
-                          >
-                            {t.name}
-                            {t.sport ? <span className="ml-1 text-xs text-muted-foreground">· {t.sport}</span> : null}
-                            {t.gender ? <span className="ml-1 text-xs text-muted-foreground">· {t.gender}</span> : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* show a highlighted “New Team” button */}
+              {/* show a “New Team” button */}
               {teams.length > 0 && (
                 <Button onClick={handleCreateTeam} iconName="Plus" iconPosition="left" variant="outline">
                   New Team
