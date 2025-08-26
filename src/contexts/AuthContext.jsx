@@ -5,11 +5,16 @@ const AuthContext = createContext({
   user: null,
   session: null,
   loading: true,
+  userProfile: null,
+  teams: [],
+  activeTeam: null,
+  loadingTeams: true,
   signUp: () => {},
   signIn: () => {},
   signOut: () => {},
   getUserProfile: () => {},
   refreshSession: () => {},
+  switchActiveTeam: () => {},
 });
 
 export function AuthProvider({ children }) {
@@ -17,6 +22,10 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState(null);
+  // state variables for teams
+  const [teams, setTeams] = useState([]);
+  const [activeTeam, setActiveTeam] = useState(null);
+  const [loadingTeams, setLoadingTeams] = useState(true);
 
   const fetchUserProfile = async (userId) => {
     if (!userId) {
@@ -39,6 +48,43 @@ export function AuthProvider({ children }) {
     } catch (err) {
       console.error("Unexpected error fetching profile:", err);
       setUserProfile(null);
+    }
+  };
+
+  const fetchUserTeams = async (userId) => {
+    if (!userId) {
+      setTeams([]);
+      setActiveTeam(null);
+      setLoadingTeams(false);
+      return;
+    }
+    setLoadingTeams(true);
+    try {
+      const { data, error } = await supabase
+        .from('teams')
+        .select('id, name, conference_name, sport, gender')
+        .eq('coach_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      setTeams(data || []);
+      const savedActiveTeamId = localStorage.getItem('activeTeamId');
+      const teamToSet = (data || []).find(t => t.id === savedActiveTeamId) || (data && data.length > 0 ? data[0] : null);
+      setActiveTeam(teamToSet);
+
+      if (teamToSet) {
+        localStorage.setItem('activeTeamId', teamToSet.id);
+      } else {
+        localStorage.removeItem('activeTeamId');
+      }
+
+    } catch (e) {
+      console.error('Error fetching user teams:', e?.message);
+      setTeams([]);
+      setActiveTeam(null);
+    } finally {
+      setLoadingTeams(false);
     }
   };
 
@@ -72,8 +118,11 @@ export function AuthProvider({ children }) {
       // Fetch profile based on the new session
       if (session?.user) {
         fetchUserProfile(session.user.id);
+        fetchUserTeams(session.user.id);
       } else {
-        setUserProfile(null); // Clear profile on sign-out
+        setUserProfile(null);
+        setTeams([]);
+        setActiveTeam(null);
       }
     });
 
@@ -82,6 +131,14 @@ export function AuthProvider({ children }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  const switchActiveTeam = (teamId) => {
+    const newActiveTeam = teams.find(team => team.id === teamId);
+    if (newActiveTeam) {
+      setActiveTeam(newActiveTeam);
+      localStorage.setItem('activeTeamId', teamId);
+    }
+  };
 
   const signUp = async (email, password, userData = {}) => {
     try {
@@ -178,13 +235,16 @@ export function AuthProvider({ children }) {
     session,
     loading,
     userProfile,
+    teams,
+    activeTeam,
+    loadingTeams,
     signUp,
     signIn,
     signOut,
     getUserProfile,
     refreshSession,
+    switchActiveTeam,
   };
-
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

@@ -1,49 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
 import Icon from '../AppIcon';
+import Button from './Button';
 import mealLogo from '../images/meal.png';
 
 const Header = ({ notifications = 0, className = '' }) => {
+  const { user, userProfile, teams, activeTeam, loadingTeams, switchActiveTeam, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, userProfile, signOut } = useAuth();
   
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  
-  // New state for teams
-  const [teams, setTeams] = useState([]);
-  const [loadingTeams, setLoadingTeams] = useState(true);
+  const [showTeamMenu, setShowTeamMenu] = useState(false);
+  const teamMenuRef = useRef(null);
 
+
+  // Close the team menu when clicking outside of it
   useEffect(() => {
-    const fetchTeams = async () => {
-      if (user?.id) {
-        setLoadingTeams(true);
-        const { data, error } = await supabase
-          .from('teams')
-          .select('id, name, sport, gender')
-          .eq('coach_id', user.id)
-          .order('created_at', { ascending: false }); // Order to get a consistent default team
-
-        if (error) {
-          console.error('Error fetching teams:', error.message);
-          setTeams([]);
-        } else {
-          setTeams(data || []);
-        }
-        setLoadingTeams(false);
-      } else {
-        setTeams([]);
-        setLoadingTeams(false);
-      }
+    const onClickAway = (e) => {
+      if (!teamMenuRef.current) return;
+      if (!teamMenuRef.current.contains(e.target)) setShowTeamMenu(false);
     };
-
-    fetchTeams();
-  }, [user?.id]);
-
-
+    document.addEventListener('mousedown', onClickAway);
+    return () => document.removeEventListener('mousedown', onClickAway);
+  }, []);
+  
   const navigationItems = [
     { 
       label: 'Dashboard', 
@@ -100,21 +83,11 @@ const Header = ({ notifications = 0, className = '' }) => {
   //   setIsMobileMenuOpen(false);
   // };
 
-  const handleNavigation = async (path) => {
-    // Special handling for Team tab
-    if (path === '/team-members-management') {
-      if (!user?.id) {
-        navigate('/login-registration');
-        setIsMobileMenuOpen(false);
-        return;
-      }
-      
-      // Since we already fetched the teams, we can check the state instead of re-querying
-      if (teams.length === 0 && !loadingTeams) {
-        navigate('/team-setup', { state: { next: '/team-members-management', source: 'header' } });
-        setIsMobileMenuOpen(false);
-        return;
-      }
+  const handleNavigation = (path) => {
+    if (path === '/team-members-management' && teams.length === 0 && !loadingTeams) {
+      navigate('/team-setup', { state: { next: '/team-members-management', source: 'header' } });
+      setIsMobileMenuOpen(false);
+      return;
     }
     navigate(path);
     setIsMobileMenuOpen(false);
@@ -153,26 +126,25 @@ const Header = ({ notifications = 0, className = '' }) => {
             <Link to="/" className="flex items-center space-x-2">
               <img src={mealLogo} alt="MealOps Logo" className="h-12 w-auto object-contain" />
             </Link>
-            {/* Vertical Divider */}
-            {!loadingTeams && teams.length > 0 && (
-              <div className="h-10 border-l border-border mx-12" />
-            )}
             {/* Team Info Display */}
-            {!loadingTeams && teams.length > 0 && (
+            {!loadingTeams && activeTeam && (
+            <>
+              <div className="h-10 border-l border-border mx-12" />
               <div className="ml-12 flex flex-col items-center justify-center">
                 <span className="text-md font-bold text-foreground">
-                  {teams[0].name}
+                  {activeTeam.name}
                 </span>
                 <div className="flex items-center space-x-2">
                   <span className="text-xs text-muted-foreground font-medium uppercase">
-                    {teams[0].gender}
+                    {activeTeam.sport}
                   </span>
                   <span className="text-xs text-muted-foreground font-medium uppercase">
-                    {teams[0].sport}
+                    {activeTeam.gender}
                   </span>
                 </div>
               </div>
-            )}
+            </>
+          )}
           </div>
         </div>
 
