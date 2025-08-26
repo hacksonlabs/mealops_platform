@@ -78,30 +78,32 @@ export function LoginForm({ onSwitchToRegister, onForgotPassword, errors, setErr
         return;
       }
 
-      // Check if the user has a team
-      const user = data?.user || null;
-      if (user) {
-        const { data: teamData, error: teamError } = await supabase
-          .from('teams')
-          .select('id')
-          .eq('coach_id', user.id)
-          .maybeSingle(); // maybeSingle returns the row or null
+    // Check if the user has a team
+    const user = data?.user;
+    if (!user) {
+      navigate('/login-registration');
+      return;
+    }
 
-        if (teamError && teamError.code !== 'PGRST116') { // PGRST116 is the "no rows found" error code
-          console.error('Error fetching team:', teamError.message);
-          // Redirect to a safe page even on error
-          navigate('/login-registration');
-          return;
-        }
+    const { data: teams, error: teamErr } = await supabase
+      .from('teams')
+      .select('id')
+      .eq('coach_id', user.id)
+      .limit(1);
 
-        if (teamData) {
-          // User is a coach with a team, redirect to dashboard
-          navigate('/dashboard-home');
-        } else {
-          // User has no team, redirect to team setup
-          navigate('/team-setup');
-        }
-      }
+    if (teamErr) {
+      console.error('Error checking teams:', teamErr?.message);
+      navigate('/team-setup');
+      return;
+    }
+
+    if (teams && teams.length > 0) {
+      const firstTeamId = teams[0].id;
+      localStorage.setItem('activeTeamId', firstTeamId);
+      navigate('/dashboard-home', { replace: true });
+    } else {
+      navigate('/team-setup', { replace: true });
+    }
     } catch (err) {
       if (err?.message?.includes('Failed to fetch') ||
       err?.message?.includes('NetworkError') ||
