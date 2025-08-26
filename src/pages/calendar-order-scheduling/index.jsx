@@ -28,14 +28,14 @@ const CalendarOrderScheduling = () => {
   const [orders, setOrders] = useState([
     {
       id: 1001,
-      date: '2025-08-29T00:00:00.000Z',
+      date: '2025-09-01T00:00:00.000Z',
       restaurant: 'Chipotle Mexican Grill',
       mealType: 'lunch',
       time: '12:30',
       attendees: 18,
       status: 'confirmed',
       notes: 'Extra guac for players, no spicy options',
-      createdAt: '2025-08-29T10:30:00.000Z',
+      createdAt: '2025-08-28T10:30:00.000Z',
       members: [
         { id: 1, name: 'Marcus Johnson', role: 'Player' },
         { id: 2, name: 'Sarah Williams', role: 'Coach' }
@@ -50,7 +50,7 @@ const CalendarOrderScheduling = () => {
       attendees: 22,
       status: 'scheduled',
       notes: 'Team meeting lunch - conference room setup needed',
-      createdAt: '2025-08-30T14:20:00.000Z',
+      createdAt: '2025-08-29T14:20:00.000Z',
       members: []
     },
     {
@@ -62,7 +62,7 @@ const CalendarOrderScheduling = () => {
       attendees: 15,
       status: 'scheduled',
       notes: 'Pre-game breakfast - light options preferred',
-      createdAt: '2025-08-28T09:15:00.000Z',
+      createdAt: '2025-08-27T09:15:00.000Z',
       members: []
     },
     {
@@ -74,7 +74,7 @@ const CalendarOrderScheduling = () => {
       attendees: 25,
       status: 'confirmed',
       notes: 'Team celebration dinner - private dining room reserved',
-      createdAt: '2025-08-20T16:45:00.000Z',
+      createdAt: '2025-08-19T16:45:00.000Z',
       members: []
     },
     {
@@ -86,7 +86,43 @@ const CalendarOrderScheduling = () => {
       attendees: 20,
       status: 'completed',
       notes: 'Post-practice recovery meal',
-      createdAt: '2025-08-26T11:30:00.000Z',
+      createdAt: '2025-08-25T11:30:00.000Z',
+      members: []
+    },
+    {
+      id: 1006,
+      date: '2025-08-28T00:00:00.000Z',
+      restaurant: 'Panda',
+      mealType: 'lunch',
+      time: '12:00',
+      attendees: 20,
+      status: 'confirmed',
+      notes: 'Post-practice recovery meal',
+      createdAt: '2025-08-25T11:30:00.000Z',
+      members: []
+    },
+    {
+      id: 1007,
+      date: '2025-08-28T00:00:00.000Z',
+      restaurant: 'Jamba',
+      mealType: 'snack',
+      time: '2:30',
+      attendees: 20,
+      status: 'confirmed',
+      notes: 'Post-practice recovery meal',
+      createdAt: '2025-08-25T11:30:00.000Z',
+      members: []
+    },
+    {
+      id: 1008,
+      date: '2025-08-28T00:00:00.000Z',
+      restaurant: 'Ikes',
+      mealType: 'lunch',
+      time: '1:00',
+      attendees: 20,
+      status: 'confirmed',
+      notes: 'Post-practice recovery meal',
+      createdAt: '2025-08-25T11:30:00.000Z',
       members: []
     }
   ]);
