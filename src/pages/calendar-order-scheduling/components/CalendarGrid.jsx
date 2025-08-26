@@ -6,7 +6,7 @@ const CalendarGrid = ({
   selectedDate, 
   onDateSelect, 
   orders = [], 
-  viewMode = 'month',
+  viewMode = '2weeks',
   onOrderClick 
 }) => {
   const [hoveredDate, setHoveredDate] = useState(null);
@@ -161,91 +161,121 @@ const CalendarGrid = ({
     );
   };
 
-  const renderWeekView = () => {
-    const startOfWeek = new Date(selectedDate || currentDate);
-    startOfWeek?.setDate(startOfWeek?.getDate() - startOfWeek?.getDay());
-    
-    const weekDays = [];
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(startOfWeek);
-      date?.setDate(startOfWeek?.getDate() + i);
-      weekDays?.push(date);
-    }
+  const renderTwoWeekView = () => {
+    const startOfWeek = (d, weekStartsOn = 0) => {
+      const date = new Date(d);
+      const day = date.getDay();
+      const diff = (day < weekStartsOn ? 7 : 0) + day - weekStartsOn;
+      date.setDate(date.getDate() - diff);
+      date.setHours(0, 0, 0, 0);
+      return date;
+    };
 
-    const timeSlots = [
-      '6:00 AM', '7:00 AM', '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM',
-      '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM',
-      '6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM'
-    ];
+    // Anchor ONLY to currentDate to prevent shifting on selection
+    const anchor = new Date(currentDate);
+    anchor.setHours(0, 0, 0, 0);
+
+    // We want "yesterday + next 13 days", but aligned to Sun..Sat columns.
+    // So take yesterday, find the Sunday of that week, and render 14 days.
+    const yesterday = new Date(anchor);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const start = startOfWeek(yesterday, 0); // 0 = Sunday first, Saturday last
+
+    const days = Array.from({ length: 14 }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      return d;
+    });
+
+    const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     return (
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
-        {/* Week header */}
-        <div className="grid grid-cols-8 border-b border-border">
-          <div className="p-3 text-sm font-medium text-muted-foreground">Time</div>
-          {weekDays?.map(date => (
-            <div 
-              key={date?.toISOString()} 
-              className={`
-                p-3 text-center border-l border-border
-                ${isToday(date) ? 'bg-primary/5' : ''}
-              `}
+      <div className="bg-card border border-border rounded-lg overflow-hidden w-full">
+        {/* Day-of-week header: Sun .. Sat */}
+        <div className="grid grid-cols-7 bg-muted/40 border-b border-border">
+          {DOW.map((name) => (
+            <div
+              key={`hdr-${name}`}
+              className="px-4 py-2 text-center text-sm font-medium text-muted-foreground uppercase tracking-wide"
             >
-              <div className="text-sm font-medium text-foreground">
-                {date?.toLocaleDateString('en-US', { weekday: 'short' })}
-              </div>
-              <div className={`
-                text-lg font-semibold
-                ${isToday(date) ? 'text-primary' : 'text-foreground'}
-              `}>
-                {date?.getDate()}
-              </div>
+              {name}
             </div>
           ))}
         </div>
-        {/* Time slots */}
-        <div className="max-h-[600px] overflow-y-auto">
-          {timeSlots?.map(time => (
-            <div key={time} className="grid grid-cols-8 border-b border-border min-h-[60px]">
-              <div className="p-3 text-sm text-muted-foreground border-r border-border">
-                {time}
-              </div>
-              {weekDays?.map(date => {
-                const dayOrders = getOrdersForDate(date)?.filter(order => 
-                  order?.time?.includes(time?.split(':')?.[0])
-                );
-                const isPast = isPastDate(date);
-                
-                return (
-                  <div 
-                    key={`${date?.toISOString()}-${time}`}
-                    className={`
-                      border-l border-border p-1 cursor-pointer hover:bg-muted/50 transition-athletic
-                      ${isPast ? 'bg-muted/30 cursor-not-allowed' : ''}
-                    `}
-                    onClick={() => !isPast && onDateSelect(date)}
-                  >
-                    {dayOrders?.map(order => (
+
+        {/* 14-day grid (2 rows x 7 cols) */}
+        <div className="grid grid-cols-7 [grid-auto-rows:minmax(260px,1fr)] lg:[grid-auto-rows:minmax(300px,1fr)]">
+          {days.map((date) => {
+            const dayOrders = getOrdersForDate(date);
+            const past = isPastDate(date);
+            const selected = selectedDate ? isSameDate(date, selectedDate) : isToday(date);
+
+            return (
+              <div
+                key={date.toDateString()}
+                aria-selected={selected}
+                className={`p-4 border-r border-b border-border bg-card
+                  ${selected ? 'ring-2 ring-primary ring-offset-1 ring-offset-background bg-primary/5' : ''}
+                  ${past ? 'opacity-90' : 'hover:bg-muted/40 cursor-pointer transition-athletic'}
+                `}
+                onClick={() => !past && onDateSelect?.(date)}
+                onMouseEnter={() => setHoveredDate(date)}
+                onMouseLeave={() => setHoveredDate(null)}
+              >
+                {/* date + DOW + quick action */}
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    {/* date bubble */}
+                    <span
+                      className={`inline-flex items-center justify-center w-9 h-9 rounded-full text-base font-bold
+                        ${selected ? 'bg-primary text-primary-foreground shadow' : isToday(date) ? 'text-primary' : 'text-foreground'}
+                      `}
+                    >
+                      {date.getDate()}
+                    </span>
+                  </div>
+
+                  {!past && (
+                    <button
+                      type="button"
+                      className="text-xs px-3 py-1 rounded-full border border-border bg-card shadow-sm inline-flex items-center gap-1"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onNewOrder?.(date);
+                      }}
+                    >
+                      <span>+</span> New Order
+                    </button>
+                  )}
+                </div>
+
+                {/* orders */}
+                {dayOrders?.length > 0 && (
+                  <div className="space-y-2">
+                    {dayOrders.slice(0, 3).map((order) => (
                       <div
-                        key={order?.id}
-                        className={`
-                          text-xs p-1 rounded mb-1 cursor-pointer
-                          ${getOrderStatusColor(order?.status)}
-                        `}
+                        key={order.id}
+                        className={`text-xs px-2 py-1 rounded border ${getOrderStatusColor(order.status)} cursor-pointer`}
                         onClick={(e) => {
-                          e?.stopPropagation();
-                          onOrderClick && onOrderClick(order);
+                          e.stopPropagation();
+                          onOrderClick?.(order);
                         }}
                       >
-                        <div className="font-medium truncate">{order?.restaurant}</div>
-                        <div className="opacity-75">{order?.attendees} people</div>
+                        <div className="font-medium truncate">{order.restaurant}</div>
+                        <div className="opacity-75">{order.time}</div>
                       </div>
                     ))}
+                    {dayOrders.length > 3 && (
+                      <div className="text-xs text-muted-foreground px-2">
+                        +{dayOrders.length - 3} more
+                      </div>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          ))}
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -253,7 +283,7 @@ const CalendarGrid = ({
 
   return (
     <div className="space-y-4">
-      {viewMode === 'month' ? renderMonthView() : renderWeekView()}
+      {viewMode === 'month' ? renderMonthView() : renderTwoWeekView()}
     </div>
   );
 };

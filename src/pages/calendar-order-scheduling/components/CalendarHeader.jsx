@@ -16,25 +16,33 @@ const CalendarHeader = ({
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
+  const formatRange = (start, end) => {
+    const sameMonth = start.getMonth() === end.getMonth();
+    const opts = { month: 'short', day: 'numeric' };
+    return sameMonth
+      ? `${start.toLocaleDateString('en-US', opts)} – ${end.getDate()}`
+      : `${start.toLocaleDateString('en-US', opts)} – ${end.toLocaleDateString('en-US', opts)}`;
+  };
+
   const handlePrevious = () => {
     const newDate = new Date(currentDate);
-    if (viewMode === 'month') {
-      newDate?.setMonth(newDate?.getMonth() - 1);
-    } else {
-      newDate?.setDate(newDate?.getDate() - 7);
-    }
+    if (viewMode === 'month') newDate.setMonth(newDate.getMonth() - 1);
+    else if (viewMode === 'twoWeeks') newDate.setDate(newDate.getDate() - 14);
     onDateChange(newDate);
   };
 
   const handleNext = () => {
     const newDate = new Date(currentDate);
-    if (viewMode === 'month') {
-      newDate?.setMonth(newDate?.getMonth() + 1);
-    } else {
-      newDate?.setDate(newDate?.getDate() + 7);
-    }
+    if (viewMode === 'month') newDate.setMonth(newDate.getMonth() + 1);
+    else if (viewMode === 'twoWeeks') newDate.setDate(newDate.getDate() + 14);
     onDateChange(newDate);
   };
+  const twoWeekLabel = (() => {
+    if (viewMode !== 'twoWeeks') return '';
+    const start = new Date(currentDate); start.setDate(start.getDate() - 1);
+    const end = new Date(start); end.setDate(start.getDate() + 13);
+    return formatRange(start, end);
+  })();
 
   const mealTypes = [
     { value: 'all', label: 'All Meals' },
@@ -60,75 +68,35 @@ const CalendarHeader = ({
         <div className="flex items-center space-x-4">
           {/* Date Navigation */}
           <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handlePrevious}
-              iconName="ChevronLeft"
-              iconSize={16}
-            >
-              Previous
-            </Button>
-            
+            <Button variant="outline" size="sm" onClick={handlePrevious} iconName="ChevronLeft" iconSize={16}>Previous</Button>
             <div className="text-center min-w-[200px]">
               <h2 className="text-xl font-heading font-semibold text-foreground">
-                {monthNames?.[currentDate?.getMonth()]} {currentDate?.getFullYear()}
+                {viewMode === 'month' ? `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}` : twoWeekLabel}
               </h2>
-              {viewMode === 'week' && (
-                <p className="text-sm text-muted-foreground">
-                  Week of {currentDate?.toLocaleDateString('en-US', { 
-                    month: 'short', 
-                    day: 'numeric' 
-                  })}
-                </p>
-              )}
             </div>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleNext}
-              iconName="ChevronRight"
-              iconPosition="right"
-              iconSize={16}
-            >
-              Next
-            </Button>
+            <Button variant="outline" size="sm" onClick={handleNext} iconName="ChevronRight" iconPosition="right" iconSize={16}>Next</Button>
           </div>
-
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onTodayClick}
-            iconName="Calendar"
-            iconSize={16}
-          >
-            Today
-          </Button>
+          <Button variant="secondary" size="sm" onClick={onTodayClick} iconName="Calendar" iconSize={16}>Today</Button>
         </div>
 
-        {/* View Mode Toggle */}
+        {/* View toggle */}
         <div className="flex items-center space-x-2">
           <div className="flex bg-muted rounded-md p-1">
             <button
               onClick={() => onViewModeChange('month')}
-              className={`
-                px-3 py-1 text-sm font-medium rounded transition-athletic
-                ${viewMode === 'month' ?'bg-card text-foreground shadow-athletic' :'text-muted-foreground hover:text-foreground'
-                }
-              `}
+              className={`px-3 py-1 text-sm font-medium rounded transition-athletic ${
+                viewMode === 'month' ? 'bg-card text-foreground shadow-athletic' : 'text-muted-foreground hover:text-foreground'
+              }`}
             >
               Month
             </button>
             <button
-              onClick={() => onViewModeChange('week')}
-              className={`
-                px-3 py-1 text-sm font-medium rounded transition-athletic
-                ${viewMode === 'week' ?'bg-card text-foreground shadow-athletic' :'text-muted-foreground hover:text-foreground'
-                }
-              `}
+              onClick={() => onViewModeChange('twoWeeks')}
+              className={`px-3 py-1 text-sm font-medium rounded transition-athletic ${
+                viewMode === 'twoWeeks' ? 'bg-card text-foreground shadow-athletic' : 'text-muted-foreground hover:text-foreground'
+              }`}
             >
-              Week
+              2 Weeks
             </button>
           </div>
         </div>

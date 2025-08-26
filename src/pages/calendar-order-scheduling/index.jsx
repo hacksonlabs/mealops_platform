@@ -10,8 +10,7 @@ import Icon from '../../components/AppIcon';
 
 const CalendarOrderScheduling = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(null);
-  const [viewMode, setViewMode] = useState('month');
+  const [viewMode, setViewMode] = useState('twoWeeks');
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -19,19 +18,24 @@ const CalendarOrderScheduling = () => {
     mealType: 'all',
     restaurant: 'all'
   });
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0); // normalize so comparisons work
+    return d;
+  });
 
   // Mock data for orders
   const [orders, setOrders] = useState([
     {
       id: 1001,
-      date: '2025-01-15T00:00:00.000Z',
+      date: '2025-08-29T00:00:00.000Z',
       restaurant: 'Chipotle Mexican Grill',
       mealType: 'lunch',
       time: '12:30',
       attendees: 18,
       status: 'confirmed',
       notes: 'Extra guac for players, no spicy options',
-      createdAt: '2025-01-10T10:30:00.000Z',
+      createdAt: '2025-08-29T10:30:00.000Z',
       members: [
         { id: 1, name: 'Marcus Johnson', role: 'Player' },
         { id: 2, name: 'Sarah Williams', role: 'Coach' }
@@ -39,50 +43,50 @@ const CalendarOrderScheduling = () => {
     },
     {
       id: 1002,
-      date: '2025-01-18T00:00:00.000Z',
+      date: '2025-08-30T00:00:00.000Z',
       restaurant: 'Subway',
       mealType: 'lunch',
       time: '13:00',
       attendees: 22,
       status: 'scheduled',
       notes: 'Team meeting lunch - conference room setup needed',
-      createdAt: '2025-01-12T14:20:00.000Z',
+      createdAt: '2025-08-30T14:20:00.000Z',
       members: []
     },
     {
       id: 1003,
-      date: '2025-01-20T00:00:00.000Z',
+      date: '2025-08-28T00:00:00.000Z',
       restaurant: 'Panera Bread',
       mealType: 'breakfast',
       time: '08:00',
       attendees: 15,
       status: 'scheduled',
       notes: 'Pre-game breakfast - light options preferred',
-      createdAt: '2025-01-13T09:15:00.000Z',
+      createdAt: '2025-08-28T09:15:00.000Z',
       members: []
     },
     {
       id: 1004,
-      date: '2025-01-22T00:00:00.000Z',
+      date: '2025-08-20T00:00:00.000Z',
       restaurant: 'Olive Garden',
       mealType: 'dinner',
       time: '18:30',
       attendees: 25,
       status: 'confirmed',
       notes: 'Team celebration dinner - private dining room reserved',
-      createdAt: '2025-01-14T16:45:00.000Z',
+      createdAt: '2025-08-20T16:45:00.000Z',
       members: []
     },
     {
       id: 1005,
-      date: '2025-01-08T00:00:00.000Z',
+      date: '2025-08-26T00:00:00.000Z',
       restaurant: 'Local Deli & Catering',
       mealType: 'lunch',
       time: '12:00',
       attendees: 20,
       status: 'completed',
       notes: 'Post-practice recovery meal',
-      createdAt: '2025-01-05T11:30:00.000Z',
+      createdAt: '2025-08-26T11:30:00.000Z',
       members: []
     }
   ]);
@@ -236,6 +240,13 @@ const CalendarOrderScheduling = () => {
   const handleOrderClick = (order) => {
     setSelectedOrder(order);
     setIsOrderDetailsModalOpen(true);
+  };
+
+  const handleQuickNewOrder = (date) => {
+    const d = new Date(date);
+    d.setHours(0,0,0,0);
+    setSelectedDate(d);
+    setIsScheduleModalOpen(true);
   };
 
   const handleEditOrder = (order) => {
@@ -426,6 +437,7 @@ const CalendarOrderScheduling = () => {
                   orders={filteredOrders}
                   viewMode={viewMode}
                   onOrderClick={handleOrderClick}
+                  onNewOrder={handleQuickNewOrder}
                 />)
               )}
             </div>
