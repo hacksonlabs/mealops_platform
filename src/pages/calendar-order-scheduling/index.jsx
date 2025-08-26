@@ -364,10 +364,10 @@ const CalendarOrderScheduling = () => {
               onScheduleNew={handleScheduleNew}
             /> */}
             <TopPanel
-              orientation="horizontal"
               upcomingMeals={upcomingMeals}
               monthStats={monthStats}
               onScheduleNew={handleScheduleNew}
+              onOrderClick={handleOrderClick}
             />
           </div>
 
