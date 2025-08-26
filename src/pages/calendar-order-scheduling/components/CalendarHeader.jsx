@@ -9,12 +9,21 @@ const CalendarHeader = ({
   onViewModeChange,
   onTodayClick,
   filters,
-  onFiltersChange 
+  onFiltersChange,
+  attached = false, 
 }) => {
   const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
+    'January','February','March','April','May','June',
+    'July','August','September','October','November','December'
   ];
+
+  // const wrapper = attached
+  //   ? 'p-4 space-y-4 border-b border-border'
+  //   : 'bg-card border border-border rounded-lg p-4 space-y-4';
+
+   const wrapper = attached
+    ? 'p-4 space-y-4'
+    : 'bg-card border border-border rounded-lg p-4 space-y-4';
 
   const formatRange = (start, end) => {
     const sameMonth = start.getMonth() === end.getMonth();
@@ -25,18 +34,19 @@ const CalendarHeader = ({
   };
 
   const handlePrevious = () => {
-    const newDate = new Date(currentDate);
-    if (viewMode === 'month') newDate.setMonth(newDate.getMonth() - 1);
-    else if (viewMode === 'twoWeeks') newDate.setDate(newDate.getDate() - 14);
-    onDateChange(newDate);
+    const d = new Date(currentDate);
+    if (viewMode === 'month') d.setMonth(d.getMonth() - 1);
+    else if (viewMode === 'twoWeeks') d.setDate(d.getDate() - 14);
+    onDateChange(d);
   };
 
   const handleNext = () => {
-    const newDate = new Date(currentDate);
-    if (viewMode === 'month') newDate.setMonth(newDate.getMonth() + 1);
-    else if (viewMode === 'twoWeeks') newDate.setDate(newDate.getDate() + 14);
-    onDateChange(newDate);
+    const d = new Date(currentDate);
+    if (viewMode === 'month') d.setMonth(d.getMonth() + 1);
+    else if (viewMode === 'twoWeeks') d.setDate(d.getDate() + 14);
+    onDateChange(d);
   };
+
   const twoWeekLabel = (() => {
     if (viewMode !== 'twoWeeks') return '';
     const start = new Date(currentDate); start.setDate(start.getDate() - 1);
@@ -62,22 +72,45 @@ const CalendarHeader = ({
   ];
 
   return (
-    <div className="bg-card border border-border rounded-lg p-4 space-y-4">
+    <div className={wrapper}>
       {/* Main Navigation */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           {/* Date Navigation */}
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={handlePrevious} iconName="ChevronLeft" iconSize={16}>Previous</Button>
+            <Button variant="outline" size="sm" onClick={handlePrevious} iconName="ChevronLeft" iconSize={16}>
+              Previous
+            </Button>
             <div className="text-center min-w-[200px]">
               <h2 className="text-xl font-heading font-semibold text-foreground">
-                {viewMode === 'month' ? `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}` : twoWeekLabel}
+                {viewMode === 'month'
+                  ? `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`
+                  : twoWeekLabel}
               </h2>
             </div>
-            <Button variant="outline" size="sm" onClick={handleNext} iconName="ChevronRight" iconPosition="right" iconSize={16}>Next</Button>
+            <Button variant="outline" size="sm" onClick={handleNext} iconName="ChevronRight" iconPosition="right" iconSize={16}>
+              Next
+            </Button>
           </div>
-          <Button variant="secondary" size="sm" onClick={onTodayClick} iconName="Calendar" iconSize={16}>Today</Button>
+          <Button variant="secondary" size="sm" onClick={onTodayClick} iconName="Calendar" iconSize={16}>
+            Today
+          </Button>
         </div>
+        {/* Legend */}
+        {/* <div className="flex items-center space-x-4 text-xs">
+          <div className="flex items-center space-x-1">
+            <div className="w-3 h-3 bg-blue-100 border border-blue-200 rounded"></div>
+            <span className="text-muted-foreground">Scheduled</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <div className="w-3 h-3 bg-green-100 border border-green-200 rounded"></div>
+            <span className="text-muted-foreground">Confirmed</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <div className="w-3 h-3 bg-gray-100 border border-gray-200 rounded"></div>
+            <span className="text-muted-foreground">Completed</span>
+          </div>
+        </div> */}
 
         {/* View toggle */}
         <div className="flex items-center space-x-2">
@@ -98,58 +131,6 @@ const CalendarHeader = ({
             >
               2 Weeks
             </button>
-          </div>
-        </div>
-      </div>
-      {/* Filters */}
-      <div className="flex items-center justify-between pt-4 border-t border-border">
-        <div className="flex items-center space-x-4">
-          {/* Meal Type Filter */}
-          <div className="flex items-center space-x-2">
-            <Icon name="Utensils" size={16} className="text-muted-foreground" />
-            <select
-              value={filters?.mealType || 'all'}
-              onChange={(e) => onFiltersChange({ ...filters, mealType: e?.target?.value })}
-              className="text-sm border border-border rounded-md px-3 py-1 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              {mealTypes?.map(type => (
-                <option key={type?.value} value={type?.value}>
-                  {type?.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Restaurant Filter */}
-          <div className="flex items-center space-x-2">
-            <Icon name="MapPin" size={16} className="text-muted-foreground" />
-            <select
-              value={filters?.restaurant || 'all'}
-              onChange={(e) => onFiltersChange({ ...filters, restaurant: e?.target?.value })}
-              className="text-sm border border-border rounded-md px-3 py-1 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              {restaurants?.map(restaurant => (
-                <option key={restaurant?.value} value={restaurant?.value}>
-                  {restaurant?.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Legend */}
-        <div className="flex items-center space-x-4 text-xs">
-          <div className="flex items-center space-x-1">
-            <div className="w-3 h-3 bg-blue-100 border border-blue-200 rounded"></div>
-            <span className="text-muted-foreground">Scheduled</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <div className="w-3 h-3 bg-green-100 border border-green-200 rounded"></div>
-            <span className="text-muted-foreground">Confirmed</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <div className="w-3 h-3 bg-gray-100 border border-gray-200 rounded"></div>
-            <span className="text-muted-foreground">Completed</span>
           </div>
         </div>
       </div>

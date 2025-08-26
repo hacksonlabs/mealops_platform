@@ -225,7 +225,6 @@ const CalendarOrderScheduling = () => {
     return { totalMeals, totalSpent, avgPerMeal };
   }, [thisMonthOrders]);
 
-
   // Filter orders based on current filters
   const filteredOrders = orders?.filter(order => {
     if (filters?.mealType !== 'all' && order?.mealType !== filters?.mealType) {
@@ -286,7 +285,6 @@ const CalendarOrderScheduling = () => {
   };
 
   const handleEditOrder = (order) => {
-    // In a real app, this would open the edit modal with pre-filled data
     console.log('Edit order:', order);
   };
 
@@ -301,7 +299,6 @@ const CalendarOrderScheduling = () => {
   };
 
   const handleRepeatOrder = (order) => {
-    // In a real app, this would open the schedule modal with pre-filled data
     setSelectedDate(new Date());
     setIsScheduleModalOpen(true);
   };
@@ -353,16 +350,9 @@ const CalendarOrderScheduling = () => {
               )}
             </div>
           </div>
+
           {/* Top Bar */}
           <div className="mb-6">
-            {/* <SidebarPanel
-              orientation="horizontal"
-              selectedDate={selectedDate}
-              upcomingMeals={upcomingMeals}
-              savedTemplates={savedTemplates}
-              onTemplateUse={handleTemplateUse}
-              onScheduleNew={handleScheduleNew}
-            /> */}
             <TopPanel
               upcomingMeals={upcomingMeals}
               monthStats={monthStats}
@@ -371,18 +361,20 @@ const CalendarOrderScheduling = () => {
             />
           </div>
 
-          {/* Calendar Header */}
-          <div className="mb-6">
-            <CalendarHeader
-              currentDate={currentDate}
-              onDateChange={setCurrentDate}
-              viewMode={viewMode}
-              onViewModeChange={setViewMode}
-              onTodayClick={handleTodayClick}
-              filters={filters}
-              onFiltersChange={setFilters}
-            />
-          </div>
+          {/* Calendar Header (mobile keeps standalone card) */}
+          {isMobile && (
+            <div className="mb-6">
+              <CalendarHeader
+                currentDate={currentDate}
+                onDateChange={setCurrentDate}
+                viewMode={viewMode}
+                onViewModeChange={setViewMode}
+                onTodayClick={handleTodayClick}
+                filters={filters}
+                onFiltersChange={setFilters}
+              />
+            </div>
+          )}
 
           {/* Main Content */}
           <div className={`grid gap-6 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-1'}`}>
@@ -390,7 +382,7 @@ const CalendarOrderScheduling = () => {
             <div className={isMobile ? 'order-1' : 'lg:col-span-3'}>
               {isMobile ? (
                 // Mobile Agenda View
-                (<div className="space-y-4">
+                <div className="space-y-4">
                   <div className="bg-card border border-border rounded-lg p-4">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-lg font-heading font-semibold text-foreground">
@@ -463,18 +455,31 @@ const CalendarOrderScheduling = () => {
                       </div>
                     )}
                   </div>
-                </div>)
+                </div>
               ) : (
-                // Desktop Calendar View
-                (<CalendarGrid
-                  currentDate={currentDate}
-                  selectedDate={selectedDate}
-                  onDateSelect={handleDateSelect}
-                  orders={filteredOrders}
-                  viewMode={viewMode}
-                  onOrderClick={handleOrderClick}
-                  onNewOrder={handleQuickNewOrder}
-                />)
+                // Desktop: Header + Grid in one continuous card
+                <div className="bg-card border border-border rounded-lg overflow-hidden">
+                  <CalendarHeader
+                    currentDate={currentDate}
+                    onDateChange={setCurrentDate}
+                    viewMode={viewMode}
+                    onViewModeChange={setViewMode}
+                    onTodayClick={handleTodayClick}
+                    filters={filters}
+                    onFiltersChange={setFilters}
+                    attached
+                  />
+                  <CalendarGrid
+                    currentDate={currentDate}
+                    selectedDate={selectedDate}
+                    onDateSelect={handleDateSelect}
+                    orders={filteredOrders}
+                    viewMode={viewMode}
+                    onOrderClick={handleOrderClick}
+                    onNewOrder={handleQuickNewOrder}
+                    attached
+                  />
+                </div>
               )}
             </div>
           </div>
@@ -493,6 +498,7 @@ const CalendarOrderScheduling = () => {
           )}
         </div>
       </main>
+
       {/* Modals */}
       <ScheduleMealModal
         isOpen={isScheduleModalOpen}
