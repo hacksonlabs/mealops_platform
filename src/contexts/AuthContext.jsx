@@ -62,7 +62,7 @@ export function AuthProvider({ children }) {
     try {
       const { data, error } = await supabase
         .from('teams')
-        .select('id, name, conference_name, sport, gender')
+        .select('id, name, conference_name, sport, gender, coach_id')
         .eq('coach_id', userId)
         .order('created_at', { ascending: false });
 
@@ -230,6 +230,12 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const refreshTeams = async (preferTeamId) => {
+    if (!user?.id) return;
+    if (preferTeamId) localStorage.setItem('activeTeamId', preferTeamId);
+    await fetchUserTeams(user.id);
+  }
+
   const value = {
     user,
     session,
@@ -244,6 +250,7 @@ export function AuthProvider({ children }) {
     getUserProfile,
     refreshSession,
     switchActiveTeam,
+    refreshTeams
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

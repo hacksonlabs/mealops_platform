@@ -13,7 +13,7 @@ import { parseMembersCsv, findIntraListDuplicates, duplicatesMessage } from '../
 export default function TeamSetup() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, userProfile, loading: authLoading } = useAuth(); // Current logged-in user
+  const { user, userProfile, loading: authLoading, refreshTeams } = useAuth(); // Current logged-in user
   const [loading, setLoading] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [validationErrors, setValidationErrors] = useState({});
@@ -295,8 +295,9 @@ export default function TeamSetup() {
 
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setSuccess('Team created and members added successfully!');
+      await refreshTeams(createdTeam.id);
       const nextPath = location.state?.next || '/team-members-management';
-      setTimeout(() => navigate(nextPath, { replace: true }), 2000);
+      navigate(nextPath, { replace: true });
 
     } catch (err) {
       setError(err.message || 'An unexpected error occurred.');

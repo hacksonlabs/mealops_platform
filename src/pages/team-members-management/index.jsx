@@ -19,14 +19,8 @@ import { membersToExportRows, downloadCsv, buildMembersFilename } from '../../ut
 
 const TeamMembersManagement = () => {
   const navigate = useNavigate();
-  const { user, userProfile, loading: authLoading } = useAuth();
-
+  const { user, userProfile, loading: authLoading, teams, activeTeam, loadingTeams, refreshTeams } = useAuth();
   const [loading, setLoading] = useState(false);
-
-  // --- Multi-team state ---
-  const [teams, setTeams] = useState([]);                 // [{id, name, sport, conference_name, gender}]
-  const [teamId, setTeamId] = useState(null);             // active team id
-  const [teamInfo, setTeamInfo] = useState(null);         // active team object
 
   // Members state
   const [members, setMembers] = useState([]);
@@ -45,59 +39,19 @@ const TeamMembersManagement = () => {
   const [showEditTeamModal, setShowEditTeamModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
 
-  const [showTeamMenu, setShowTeamMenu] = useState(false);
-  const teamMenuRef = useRef(null);
-  const canDelete = Boolean(user?.id && teamInfo?.coach_id === user.id);
+  const canDelete = Boolean(user?.id && activeTeam?.coach_id === user.id);
 
+  // If done loading and there are no teams, send user to team setup.
   useEffect(() => {
-    const onClickAway = (e) => {
-      if (!teamMenuRef.current) return;
-      if (!teamMenuRef.current.contains(e.target)) setShowTeamMenu(false);
-    };
-    document.addEventListener('mousedown', onClickAway);
-    return () => document.removeEventListener('mousedown', onClickAway);
-  }, []);
+    if (authLoading || loadingTeams) return;
+    if (!teams || teams.length === 0) {
+      navigate('/team-setup', {
+        replace: true,
+        state: { next: '/team-members-management', source: 'team-tab' },
+      });
+    }
+  }, [authLoading, loadingTeams, teams, navigate]);
 
-  // --- Load all teams for this coach, then pick active team ---
-  useEffect(() => {
-    if (authLoading || !user?.id) return;
-    (async () => {
-      setLoading(true);
-      try {
-        const { data: teamList, error } = await supabase
-          .from('teams')
-          .select('id, name, sport, conference_name, gender, coach_id')
-          .eq('coach_id', user.id)
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
-
-        if (!teamList || teamList.length === 0) {
-          setTeams([]);
-          setTeamId(null);
-          setTeamInfo(null);
-          navigate('/team-setup', {
-            replace: true,
-            state: { next: '/team-members-management', source: 'team-tab' },
-          });
-          return;
-        }
-
-        setTeams(teamList);
-
-        // restore last active team if possible
-        const saved = localStorage.getItem('activeTeamId');
-        const initialId = teamList.find(t => t.id === saved)?.id || teamList[0].id;
-
-        setTeamId(initialId);
-        setTeamInfo(teamList.find(t => t.id === initialId) || null);
-      } catch (e) {
-        console.error('Error fetching teams:', e?.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [authLoading, user?.id, navigate]);
 
   // --- Load members whenever active team changes ---
   const loadMembers = useCallback(async (tid) => {
@@ -121,13 +75,9 @@ const TeamMembersManagement = () => {
   }, []);
 
   useEffect(() => {
-    if (!teamId) return;
-    // update info + persist choice + fetch members
-    const info = teams.find(t => t.id === teamId) || null;
-    setTeamInfo(info);
-    localStorage.setItem('activeTeamId', teamId);
-    loadMembers(teamId);
-  }, [teamId, teams, loadMembers]);
+    if (!activeTeam?.id) return;
+    loadMembers(activeTeam.id);
+  }, [activeTeam?.id, loadMembers]);
 
   // --- Filtering ---
   useEffect(() => {
@@ -145,21 +95,6 @@ const TeamMembersManagement = () => {
     setFilteredMembers(filtered);
   }, [members, searchTerm, roleFilter]);
 
-  // --- Team switch handler (Select) ---
-  const teamOptions = useMemo(
-    () => teams.map(t => ({ value: t.id, label: t.name })),
-    [teams]
-  );
-
-  const handleTeamSwitch = (newTeamId) => {
-    if (!newTeamId || newTeamId === teamId) return;
-    setTeamId(newTeamId);
-    setMembers([]);
-    setFilteredMembers([]);
-    setSelectedMembers([]);
-    // loadMembers(newTeamId) will run via effect
-  };
-
   // --- Bulk + CRUD ---
   const handleMemberSelect = (memberId, checked) => {
     setSelectedMembers(prev =>
@@ -172,33 +107,21 @@ const TeamMembersManagement = () => {
   };
 
   const handleUpdateTeam = useCallback(async (updatedTeamData) => {
-    if (!teamId) return;
+    if (!activeTeam?.id) return;
     setLoading(true);
     try {
-      const { error } = await supabase.from('teams').update(updatedTeamData).eq('id', teamId);
+      const { error } = await supabase.from('teams').update(updatedTeamData).eq('id', activeTeam?.id);
       if (error) throw error;
-
-      // refresh teams + teamInfo
-      const { data: teamList, error: listErr } = await supabase
-        .from('teams')
-        .select('id, name, sport, conference_name, gender, coach_id')
-        .eq('coach_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (!listErr && teamList) {
-        setTeams(teamList);
-        setTeamInfo(teamList.find(t => t.id === teamId) || null);
-      }
-      console.log('Team information updated successfully!');
+      await refreshTeams();
     } catch (error) {
       console.error('Error updating team information:', error.message);
     } finally {
       setLoading(false);
     }
-  }, [teamId, user?.id]);
+  }, [activeTeam?.id, refreshTeams]);
 
   const handleBulkAction = async (action) => {
-    if (!teamId || selectedMembers.length === 0) return;
+    if (!activeTeam?.id || selectedMembers.length === 0) return;
     try {
       setLoading(true);
 
@@ -207,7 +130,7 @@ const TeamMembersManagement = () => {
         const { error } = await supabase
           .from('team_members')
           .update({ is_active: makeActive })
-          .eq('team_id', teamId)
+          .eq('team_id', activeTeam?.id)
           .in('id', selectedMembers);
 
         if (error) throw error;
@@ -226,7 +149,7 @@ const TeamMembersManagement = () => {
         const { error } = await supabase
           .from('team_members')
           .delete()
-          .eq('team_id', teamId)
+          .eq('team_id', activeTeam?.id)
           .in('id', selectedMembers);
 
         if (error) throw error;
@@ -246,11 +169,11 @@ const TeamMembersManagement = () => {
   };
 
   const handleAddMember = async (memberData) => {
-    if (!teamId) return { success: false, error: 'No team found.' };
+    if (!activeTeam?.id) return { success: false, error: 'No team found.' };
     setLoading(true);
     try {
       const row = {
-        team_id: teamId,
+        team_id: activeTeam?.id,
         user_id: null,
         role: String(memberData?.role || 'player').toLowerCase(),
         full_name: toTitleCase(memberData?.name || ''),
@@ -281,7 +204,7 @@ const TeamMembersManagement = () => {
   };
 
   const handleUpdateMember = async (memberData) => {
-    if (!teamId || !selectedMember?.id) return { success: false, error: 'No member selected.' };
+    if (!activeTeam?.id || !selectedMember?.id) return { success: false, error: 'No member selected.' };
     setLoading(true);
     try {
       const patch = {
@@ -299,7 +222,7 @@ const TeamMembersManagement = () => {
       const { data, error } = await supabase
         .from('team_members')
         .update(patch)
-        .eq('team_id', teamId)
+        .eq('team_id', activeTeam?.id)
         .eq('id', selectedMember.id)
         .select()
         .single();
@@ -319,7 +242,7 @@ const TeamMembersManagement = () => {
   };
 
   const handleRemoveMember = async (member) => {
-    if (!teamId || !member?.id) return;
+    if (!activeTeam?.id || !member?.id) return;
     if (!confirm(`Are you sure you want to remove ${member?.full_name || 'this member'} from the team?`)) return;
 
     setLoading(true);
@@ -327,7 +250,7 @@ const TeamMembersManagement = () => {
       const { error } = await supabase
         .from('team_members')
         .delete()
-        .eq('team_id', teamId)
+        .eq('team_id', activeTeam?.id)
         .eq('id', member.id);
 
       if (error) throw error;
@@ -354,7 +277,7 @@ const TeamMembersManagement = () => {
      ? members.filter(m => selectedMembers.includes(m.id))
      : filteredMembers;
    const rows = membersToExportRows(source);
-   const filename = buildMembersFilename(teamInfo, {
+   const filename = buildMembersFilename(activeTeam, {
      selectedCount: onlySelected ? rows.length : null,
      totalCount: onlySelected ? null : rows.length,
      ext: 'csv',
@@ -363,12 +286,12 @@ const TeamMembersManagement = () => {
  };
 
   const handleCSVImport = async (csvData) => {
-    if (!teamId) return;
+    if (!activeTeam?.id) return;
     setLoading(true);
     setShowCSVModal(false);
     try {
       const rows = csvData.map(r => ({
-        team_id: teamId,
+        team_id: activeTeam?.id,
         user_id: null,
         role: String(r.role || 'player').toLowerCase(),
         full_name: toTitleCase(r.name || ''),
@@ -391,10 +314,9 @@ const TeamMembersManagement = () => {
 
   const handleDeleteTeam = async (team) => {
     try {
-      if (!teamId) {
+      if (!activeTeam?.id) {
         return { success: false, error: 'Missing team id.' };
       }
-
       // Delete the team (RLS allows only the coach to do this)
       const { error: delErr } = await supabase
         .from('teams')
@@ -405,29 +327,8 @@ const TeamMembersManagement = () => {
         return { success: false, error: delErr.message || 'Unable to delete team.' };
       }
 
-      // Reload coach’s teams (include coach_id)
-      const { data: otherTeams, error: selErr } = await supabase
-        .from('teams')
-        .select('id, name, sport, conference_name, gender, coach_id')
-        .eq('coach_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (selErr) {
-        return { success: true };
-      }
-
-      if (!otherTeams || otherTeams.length === 0) {
-        // No remaining teams => send user to setup
-        navigate('/team-setup', { replace: true });
-      } else {
-        // Update local state so UI shows remaining team(s)
-        setTeams(otherTeams);
-        const nextId = otherTeams[0].id;
-        setTeamId(nextId);
-        setTeamInfo(otherTeams[0]);
-      }
-
-      return { success: true, remainingTeams: otherTeams?.length || 0 };
+      await refreshTeams();
+      return { success: true };
     } catch (err) {
       return { success: false, error: err?.message || 'Failed to delete team.' };
     }
@@ -452,20 +353,20 @@ const TeamMembersManagement = () => {
             {/* Left: title/description NEVER moves */}
             <div className="flex-1">
               <h1 className="text-4xl font-extrabold text-foreground leading-tight mb-3">
-                {teamInfo?.name || 'Team'} {toTitleCase(teamInfo?.gender) || ''} {teamInfo?.sport || ''}
+                {activeTeam?.name || 'Team'} {toTitleCase(activeTeam?.gender) || ''} {activeTeam?.sport || ''}
               </h1>
               <p className="text-lg text-muted-foreground mb-4">
                 Manage members, roles, and contact information for the{' '}
-                <span className="font-semibold text-foreground">{teamInfo?.name || 'team'}</span>.
+                <span className="font-semibold text-foreground">{activeTeam?.name || 'team'}</span>.
               </p>
 
-              {teamInfo?.conference_name && (
+              {activeTeam?.conference_name && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-6">
                   <div className="bg-gradient-to-br from-purple-500/10 to-purple-700/10 border border-purple-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
                     <Icon name="ClipboardList" size={20} className="text-purple-500 flex-shrink-0" />
                     <div>
                       <p className="text-xs text-muted-foreground">Conference</p>
-                      <strong className="text-base text-foreground font-semibold">{teamInfo.conference_name}</strong>
+                      <strong className="text-base text-foreground font-semibold">{activeTeam.conference_name}</strong>
                     </div>
                   </div>
                 </div>
@@ -481,7 +382,7 @@ const TeamMembersManagement = () => {
                 </Button>
               )}
 
-              {teamId && (
+              {activeTeam?.id && (
                 <Button variant="outline" onClick={() => setShowEditTeamModal(true)} iconName="Edit" iconPosition="left">
                   Edit Team
                 </Button>
@@ -564,7 +465,7 @@ const TeamMembersManagement = () => {
 
               {/* Right: roster actions (separate from team controls) */}
               <div className="flex items-center space-x-3">
-                {teamId && (
+                {activeTeam?.id && (
                   <>
                     <Button
                       variant="outline"
@@ -664,9 +565,9 @@ const TeamMembersManagement = () => {
             />
           )}
 
-          {showEditTeamModal && teamInfo && (
+          {showEditTeamModal && activeTeam && (
             <EditTeamModal
-              team={teamInfo}
+              team={activeTeam}
               canDelete={Boolean(canDelete)}
               onDeleteTeam={handleDeleteTeam}
               onClose={() => setShowEditTeamModal(false)}
