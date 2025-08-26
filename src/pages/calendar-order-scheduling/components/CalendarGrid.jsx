@@ -191,7 +191,6 @@ const CalendarGrid = ({
   yesterday.setDate(yesterday.getDate() - 1);
 
   const start = startOfWeek(yesterday, 0); // Sun-first, Sat last
-
   const days = Array.from({ length: 14 }, (_, i) => {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
@@ -201,7 +200,7 @@ const CalendarGrid = ({
   const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   return (
-    <div className="bg-card border border-border rounded-lg overflow-hidden w-full">
+    <div className="relative isolate bg-card border border-border rounded-lg overflow-visible w-full">
       {/* DOW header */}
       <div className="grid grid-cols-7 bg-muted/40 border-b border-border">
         {DOW.map((name) => (
@@ -216,17 +215,27 @@ const CalendarGrid = ({
 
       {/* 14-day grid */}
       <div className="grid grid-cols-7 [grid-auto-rows:minmax(260px,1fr)] lg:[grid-auto-rows:minmax(300px,1fr)]">
-        {days.map((date) => {
+        {days.map((date, i) => {
           const dayOrders = getOrdersForDate(date);
           const past = isPastDate(date);
           const selected = selectedDate ? isSameDate(date, selectedDate) : isToday(date);
+          const inBottomRow = i >= 7;
+          const col = i % 7;
+          const isLeftEdge = col < 1;          // Sun
+          const isRightEdge = col > 5;         // Sat
+          const tooltipY = inBottomRow ? 'mt-2' : 'mt-2';
+          const tooltipX = isLeftEdge
+            ? 'left-4'
+            : isRightEdge
+            ? 'right-4'
+            : 'left-1/2 -translate-x-1/2';
 
           return (
             <div
               key={date.toDateString()}
               aria-selected={selected}
-              className={`relative p-4 border-r border-b border-border bg-card
-                ${selected ? 'ring-2 ring-primary ring-offset-1 ring-offset-background bg-primary/5' : ''}
+              className={`relative overflow-visible p-4 border-r border-b border-border bg-card
+                ${selected ? 'z-10 ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/5' : ''}
                 ${past ? 'opacity-90' : 'hover:bg-muted/40 cursor-pointer transition-athletic'}
               `}
               onClick={() => !past && onDateSelect?.(date)}
@@ -271,9 +280,7 @@ const CalendarGrid = ({
                         onOrderClick?.(order);
                       }}
                     >
-                      <div className="font-medium truncate">
-                        <EventLabel order={order} />
-                      </div>
+                      <div className="font-medium truncate">{labelFor(order)}</div>
                     </div>
                   ))}
                   {dayOrders.length > 3 && (
@@ -284,28 +291,27 @@ const CalendarGrid = ({
                 </div>
               )}
 
-              {/* Hover tooltip — matches month view */}
+              {/* Hover tooltip — open down on row 1, up on row 2; no clipping */}
               {hoveredDate && isSameDate(hoveredDate, date) && dayOrders?.length > 0 && (
-                <div className="absolute z-10 mt-2 p-3 bg-popover border border-border rounded-md shadow-athletic-lg min-w-[200px]">
-                  <div className="font-medium text-sm mb-2">
-                    {date.toLocaleDateString('en-US', {
-                      weekday: 'long',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
+                <div
+                  className={`overflow-visible absolute ${tooltipY} ${tooltipX} z-40 pointer-events-none p-3 bg-popover border border-border rounded-md shadow-athletic-lg w-max max-w-[260px]`}>
+                  <div className="font-semibold text-sm mb-2">
+                    {date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
                   </div>
                   {dayOrders.map((order) => (
-                    <div key={order.id} className="text-xs mb-1">
-                      <div className="text-xs mb-1">
-                        <EventLabel order={order} />
-                        <div className="text-muted-foreground text-center mt-0.5">
-                          {order?.attendees} attendees
-                        </div>
+                    <div key={order.id} className="mb-1">
+                      <div className="font-semibold text-[13px] leading-5 whitespace-normal break-words">
+                        {(order.time ?? '') + ' - ' + (order.restaurant ?? '')}
+                      </div>
+                      <div className="text-muted-foreground text-xs text-center">
+                        {order.attendees} attendees
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+
+
             </div>
           );
         })}
@@ -313,6 +319,7 @@ const CalendarGrid = ({
     </div>
   );
 };
+
 
   return (
     <div className="space-y-4">

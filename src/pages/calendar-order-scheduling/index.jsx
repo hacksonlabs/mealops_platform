@@ -43,7 +43,7 @@ const CalendarOrderScheduling = () => {
     },
     {
       id: 1002,
-      date: '2025-08-30T00:00:00.000Z',
+      date: '2025-08-31T00:00:00.000Z',
       restaurant: 'Subway',
       mealType: 'lunch',
       time: '13:00',
@@ -72,7 +72,7 @@ const CalendarOrderScheduling = () => {
       mealType: 'dinner',
       time: '18:30',
       attendees: 25,
-      status: 'confirmed',
+      status: 'completed',
       notes: 'Team celebration dinner - private dining room reserved',
       createdAt: '2025-08-19T16:45:00.000Z',
       members: []
@@ -327,8 +327,8 @@ const CalendarOrderScheduling = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header user={{ name: 'Coach Johnson', email: 'coach@team.com' }} notifications={3} />
-      <main className="pt-16">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="pt-16 pb-20 lg:pb-20">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-20">
           {/* Page Header */}
           <div className="mb-8">
             <div className="flex items-center justify-between">
