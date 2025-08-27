@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts';
 import Header from '../../components/ui/Header';
 import MetricsCard from './components/MetricsCard';
@@ -185,8 +185,7 @@ const DashboardHome = () => {
 
   // Fallback if userProfile is null (e.g., not logged in)
   if (!userProfile) {
-    navigate('/login-registration');
-    return null;
+    return <Navigate to="/login-registration" replace />;
   }
 
   return (
