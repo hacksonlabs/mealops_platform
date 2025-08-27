@@ -4,34 +4,51 @@ const CalendarGrid = ({
   currentDate,
   selectedDate,
   onDateSelect,
-  orders = [],
+  orders = [],          // orders + birthday events
   viewMode = '2weeks',
-  onOrderClick,
-  onNewOrder,           // used in 2-week view
-  attached = false,     // when true, no outer border/rounding
+  onOrderClick,         
+  onNewOrder,
+  attached = false,
+  loading = false,
 }) => {
   const [hoveredDate, setHoveredDate] = useState(null);
 
-  const labelFor = (o) => `${o?.time ?? ''} - ${o?.restaurant ?? ''}`;
-  const getDaysInMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0)?.getDate();
-  const getFirstDayOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1)?.getDay();
-  const isToday = (date) => date?.toDateString() === new Date().toDateString();
+  const labelFor = (o) =>
+    o?.type === 'birthday'
+      ? `🎂 ${o?.label ?? ''}`
+      : `${o?.time ?? ''} - ${o?.restaurant ?? o?.label ?? ''}`;
+
+  const getDaysInMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const getFirstDayOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  const isToday = (date) => date.toDateString() === new Date().toDateString();
   const isPastDate = (date) => { const t = new Date(); t.setHours(0,0,0,0); return date < t; };
   const isSameDate = (a, b) => a?.toDateString() === b?.toDateString();
-  const getOrdersForDate = (d) => orders?.filter(o => isSameDate(new Date(o.date), d));
-  const getOrderStatusColor = (s) =>
-    s === 'scheduled' ? 'bg-blue-100 text-blue-800 border-blue-200'
-    : s === 'confirmed' ? 'bg-green-100 text-green-800 border-green-200'
-    : 'bg-gray-100 text-gray-800 border-gray-200';
+  const getEventsForDate = (d) => orders?.filter(o => isSameDate(new Date(o.date), d));
 
-  const EventLabel = ({ order }) => (
+  const badgeFor = (evt) => {
+    if (evt?.type === 'birthday') return 'bg-rose-100 text-rose-800 border-rose-200';
+    const s = evt?.status;
+    return s === 'scheduled' ? 'bg-blue-100 text-blue-800 border-blue-200'
+         : s === 'confirmed' ? 'bg-green-100 text-green-800 border-green-200'
+         : 'bg-gray-100 text-gray-800 border-gray-200';
+  };
+
+  const EventLabel = ({ evt }) => (
     <div className="truncate">
-      <span className="text-[11px] sm:text-xs text-muted-foreground">{order?.time} - </span>
-      <span className="text-sm sm:text-[13px] font-semibold text-foreground">{order?.restaurant}</span>
+      {evt?.type === 'birthday' ? (
+        <span className="text-sm sm:text-[13px] font-semibold text-foreground">{labelFor(evt)}</span>
+      ) : (
+        <>
+          <span className="text-[11px] sm:text-xs text-muted-foreground">{evt?.time} - </span>
+          <span className="text-sm sm:text-[13px] font-semibold text-foreground">
+            {evt?.restaurant ?? evt?.label}
+          </span>
+        </>
+      )}
     </div>
   );
 
-  // ---------- Month ----------
+  // ----- Month view -----
   const renderMonthView = () => {
     const daysInMonth = getDaysInMonth(currentDate);
     const firstDay = getFirstDayOfMonth(currentDate);
@@ -50,7 +67,7 @@ const CalendarGrid = ({
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
-      const dayOrders = getOrdersForDate(date);
+      const dayEvents = getEventsForDate(date);
       const isSelected = selectedDate && isSameDate(date, selectedDate);
       const isCurrentDay = isToday(date);
       const isPast = isPastDate(date);
@@ -61,7 +78,7 @@ const CalendarGrid = ({
           className={`min-h-[120px] border-b border-r border-border cursor-pointer transition-athletic
             ${isSelected ? 'bg-primary/10 ring-2 ring-primary' : 'hover:bg-muted/50'}
             ${isPast ? 'bg-muted/30 cursor-not-allowed' : ''}`}
-          onClick={() => !isPast && onDateSelect(date)}
+          onClick={() => !isPast && onDateSelect?.(date)}
           onMouseEnter={() => setHoveredDate(date)}
           onMouseLeave={() => setHoveredDate(null)}
         >
@@ -72,32 +89,34 @@ const CalendarGrid = ({
               {day}
             </div>
 
-            {dayOrders?.length > 0 && (
+            {dayEvents?.length > 0 && (
               <div className="space-y-1">
-                {dayOrders.slice(0, 2).map((order) => (
+                {dayEvents.slice(0, 2).map((evt) => (
                   <div
-                    key={order?.id}
-                    className={`text-xs px-2 py-1 rounded border cursor-pointer ${getOrderStatusColor(order?.status)}`}
-                    onClick={(e) => { e.stopPropagation(); onOrderClick?.(order); }}
+                    key={evt?.id}
+                    className={`text-xs px-2 py-1 rounded border ${badgeFor(evt)} ${evt?.type === 'birthday' ? 'cursor-pointer ring-1 ring-rose-200/60' : 'cursor-pointer'}`}
+                    onClick={(e) => { e.stopPropagation(); onOrderClick?.(evt); }}
                   >
-                    <div className="font-medium truncate"><EventLabel order={order} /></div>
+                    <div className="font-medium truncate"><EventLabel evt={evt} /></div>
                   </div>
                 ))}
-                {dayOrders.length > 2 && (
-                  <div className="text-xs text-muted-foreground px-2">+{dayOrders.length - 2} more</div>
+                {dayEvents.length > 2 && (
+                  <div className="text-xs text-muted-foreground px-2">+{dayEvents.length - 2} more</div>
                 )}
               </div>
             )}
 
-            {hoveredDate && isSameDate(hoveredDate, date) && dayOrders?.length > 0 && (
-              <div className="absolute z-10 mt-2 p-3 bg-popover border border-border rounded-md shadow-athletic-lg min-w-[200px]">
+            {hoveredDate && isSameDate(hoveredDate, date) && dayEvents?.length > 0 && (
+              <div className="absolute z-10 mt-2 p-3 bg-popover border border-border rounded-md shadow-athletic-lg min-w-[220px]">
                 <div className="font-medium text-sm mb-2">
                   {date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' })}
                 </div>
-                {dayOrders.map((order) => (
-                  <div key={order?.id} className="text-xs mb-1">
-                    <EventLabel order={order} />
-                    <div className="text-muted-foreground text-center mt-0.5">{order?.attendees} attendees</div>
+                {dayEvents.map((evt) => (
+                  <div key={evt?.id} className="text-xs mb-1">
+                    <EventLabel evt={evt} />
+                    {evt?.type !== 'birthday' && (
+                      <div className="text-muted-foreground text-center mt-0.5">{evt?.attendees} attendees</div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -119,12 +138,15 @@ const CalendarGrid = ({
     );
   };
 
-  // ---------- 2 Weeks ----------
+  // ----- Two-week view -----
   const renderTwoWeekView = () => {
     const startOfWeek = (d, weekStartsOn = 0) => {
-      const date = new Date(d); const day = date.getDay();
+      const date = new Date(d);
+      const day = date.getDay();
       const diff = (day < weekStartsOn ? 7 : 0) + day - weekStartsOn;
-      date.setDate(date.getDate() - diff); date.setHours(0,0,0,0); return date;
+      date.setDate(date.getDate() - diff);
+      date.setHours(0,0,0,0);
+      return date;
     };
 
     const anchor = new Date(currentDate); anchor.setHours(0,0,0,0);
@@ -150,7 +172,7 @@ const CalendarGrid = ({
 
         <div className="grid grid-cols-7 [grid-auto-rows:minmax(260px,1fr)] lg:[grid-auto-rows:minmax(300px,1fr)]">
           {days.map((date, i) => {
-            const dayOrders = getOrdersForDate(date);
+            const dayEvents = getEventsForDate(date);
             const past = isPastDate(date);
             const selected = selectedDate ? isSameDate(date, selectedDate) : isToday(date);
             const col = i % 7;
@@ -169,7 +191,6 @@ const CalendarGrid = ({
                 onMouseEnter={() => setHoveredDate(date)}
                 onMouseLeave={() => setHoveredDate(null)}
               >
-                {/* date + quick action */}
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <span className={`inline-flex items-center justify-center w-9 h-9 rounded-full text-base font-bold
@@ -189,36 +210,36 @@ const CalendarGrid = ({
                   )}
                 </div>
 
-                {/* orders */}
-                {dayOrders?.length > 0 && (
+                {dayEvents?.length > 0 && (
                   <div className="space-y-2">
-                    {dayOrders.slice(0, 3).map((order) => (
+                    {dayEvents.slice(0, 3).map((evt) => (
                       <div
-                        key={order.id}
-                        className={`text-xs px-2 py-1 rounded border ${getOrderStatusColor(order.status)} cursor-pointer`}
-                        onClick={(e) => { e.stopPropagation(); onOrderClick?.(order); }}
+                        key={evt.id}
+                        className={`text-xs px-2 py-1 rounded border ${badgeFor(evt)} cursor-pointer ${evt?.type === 'birthday' ? 'ring-1 ring-rose-200/60' : ''}`}
+                        onClick={(e) => { e.stopPropagation(); onOrderClick?.(evt); }}
                       >
-                        <div className="font-medium truncate">{labelFor(order)}</div>
+                        <div className="font-medium truncate">{labelFor(evt)}</div>
                       </div>
                     ))}
-                    {dayOrders.length > 3 && (
-                      <div className="text-xs text-muted-foreground px-2">+{dayOrders.length - 3} more</div>
+                    {dayEvents.length > 3 && (
+                      <div className="text-xs text-muted-foreground px-2">+{dayEvents.length - 3} more</div>
                     )}
                   </div>
                 )}
 
-                {/* Hover tooltip */}
-                {hoveredDate && isSameDate(hoveredDate, date) && dayOrders?.length > 0 && (
+                {hoveredDate && isSameDate(hoveredDate, date) && dayEvents?.length > 0 && (
                   <div className={`overflow-visible absolute mt-2 ${tooltipX} z-40 pointer-events-none p-3 bg-popover border border-border rounded-md shadow-athletic-lg w-max max-w-[260px]`}>
                     <div className="font-semibold text-sm mb-2">
                       {date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' })}
                     </div>
-                    {dayOrders.map((order) => (
-                      <div key={order.id} className="mb-1">
+                    {dayEvents.map((evt) => (
+                      <div key={evt.id} className="mb-1">
                         <div className="font-semibold text-[13px] leading-5 whitespace-normal break-words">
-                          {(order.time ?? '') + ' - ' + (order.restaurant ?? '')}
+                          {labelFor(evt)}
                         </div>
-                        <div className="text-muted-foreground text-xs text-center">{order.attendees} attendees</div>
+                        {evt?.type !== 'birthday' && (
+                          <div className="text-muted-foreground text-xs text-center">{evt.attendees} attendees</div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -231,17 +252,10 @@ const CalendarGrid = ({
     );
   };
 
-  // ---------- Return ----------
-  if (attached) {
-    return viewMode === 'month' ? renderMonthView() : renderTwoWeekView();
-  }
-
-  return (
-    <div className="space-y-4">
-      {viewMode === 'month' ? renderMonthView() : renderTwoWeekView()}
-    </div>
-  );
+  if (attached) return viewMode === 'month' ? renderMonthView() : renderTwoWeekView();
+  return <div className="space-y-4">{viewMode === 'month' ? renderMonthView() : renderTwoWeekView()}</div>;
 };
 
 export default CalendarGrid;
+
 

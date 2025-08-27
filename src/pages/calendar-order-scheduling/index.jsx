@@ -9,6 +9,8 @@ import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
+import BirthdayDetailsModal from './components/BirthdayDetailsModal';
+
 
 function getRangeForView(currentDate, viewMode) {
   const start = new Date(currentDate);
@@ -37,6 +39,18 @@ function fmtTime(iso) {
   return `${hh}:${mm}`;
 }
 
+function mkBirthdayDateForYear(birthdayISO, year) {
+  const b = new Date(birthdayISO);
+  const m = b.getMonth();
+  const d = b.getDate();
+  const candidate = new Date(year, m, d);
+  // If JS rolls the date to next month (e.g., Feb 29 -> Mar 1), fallback to previous day
+  if (candidate.getMonth() !== m) {
+    return new Date(year, m, d - 1);
+  }
+  return candidate;
+}
+
 const CalendarOrderScheduling = () => {
   const { activeTeam } = useAuth();
 
@@ -44,6 +58,8 @@ const CalendarOrderScheduling = () => {
   const [viewMode, setViewMode] = useState('twoWeeks');
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
+  const [isBirthdayModalOpen, setIsBirthdayModalOpen] = useState(false);
+  const [selectedBirthday, setSelectedBirthday] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [filters, setFilters] = useState({ mealType: 'all', restaurant: 'all' });
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -55,6 +71,7 @@ const CalendarOrderScheduling = () => {
   // Loaded from DB
   const [orders, setOrders] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [birthdayEvents, setBirthdayEvents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState('');
 
@@ -72,6 +89,7 @@ const CalendarOrderScheduling = () => {
       if (!activeTeam?.id) {
         setOrders([]);
         setTeamMembers([]);
+        setBirthdayEvents([]);
         return;
       }
 
@@ -125,7 +143,7 @@ const CalendarOrderScheduling = () => {
         // team members for the modal
         const { data: memberRows, error: membersErr } = await supabase
           .from('team_members')
-          .select('id, user_id, full_name, role, email, allergies')
+          .select('id, user_id, full_name, role, email, allergies, birthday')
           .eq('team_id', activeTeam.id)
           .eq('is_active', true);
 
@@ -134,6 +152,7 @@ const CalendarOrderScheduling = () => {
         // map DB rows -> UI shape your grid/cards expect
         const mapped = orderRows.map(row => ({
           id: row.id,
+          type: 'order',
           date: row.scheduled_date,                                   
           restaurant: row.restaurants?.name || 'Unknown Restaurant',
           mealType: 'lunch',                                           // not in schema; set a default or add a column later
@@ -146,15 +165,39 @@ const CalendarOrderScheduling = () => {
         }));
 
         setOrders(mapped);
-        setTeamMembers(
-          (memberRows ?? []).map(m => ({
-            id: m.id,
-            name: m.full_name,
-            role: m.role,
-            email: m.email,
-            allergies: m.allergies || null
-          }))
-        );
+        const simplifiedMembers = (memberRows ?? []).map(m => ({
+          id: m.id,
+          name: m.full_name,
+          role: m.role,
+          email: m.email,
+          allergies: m.allergies || null,
+          birthday: m.birthday || null
+        }));
+        setTeamMembers(simplifiedMembers);
+
+        // Build birthday events inside current range
+        const years = new Set([start.getFullYear(), end.getFullYear()]);
+        const bdayEvents = [];
+
+        simplifiedMembers.forEach((m) => {
+          if (!m.birthday) return;
+          years.forEach((yr) => {
+            const d = mkBirthdayDateForYear(m.birthday, yr);
+            if (d >= start && d <= end) {
+              bdayEvents.push({
+                id: `bday-${m.id}-${yr}`,
+                type: 'birthday',
+                date: d.toISOString(),
+                label: `${m.name}'s Bday!`,
+                memberId: m.id,
+                memberName: m.name,
+                dob: m.birthday,  // original DOB to compute age
+                status: 'birthday'
+              });
+            }
+          });
+        });
+        setBirthdayEvents(bdayEvents);
       } catch (e) {
         console.error('Load calendar orders failed:', e);
         setLoadErr(e?.message || 'Failed to load orders');
@@ -167,7 +210,7 @@ const CalendarOrderScheduling = () => {
     run();
   }, [activeTeam?.id, currentDate, viewMode]);
 
-  // ===== This Month (derived from currentDate + orders) =====
+  // ===== This Month (derived from currentDate + orders) ===== orders only (not birthdays)
   const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
   const monthEnd   = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
@@ -202,6 +245,12 @@ const CalendarOrderScheduling = () => {
     return true;
   });
 
+  // FINAL event list rendered on the grid (orders + birthdays)
+  const calendarEvents = useMemo(
+    () => [...filteredOrders, ...birthdayEvents],
+    [filteredOrders, birthdayEvents]
+  );
+
   // Next 7 days
   const upcomingMeals = orders
     .filter(order => {
@@ -231,8 +280,80 @@ const CalendarOrderScheduling = () => {
   const handleCancelOrder = (orderId) => setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'cancelled' } : o));
   const handleRepeatOrder = () => { setSelectedDate(new Date()); setIsScheduleModalOpen(true); };
   const handleTemplateUse = () => { setSelectedDate(new Date()); setIsScheduleModalOpen(true); };
-
   const [isMobile, setIsMobile] = useState(false);
+  const handleEventClick = (evt) => {
+    if (evt?.type === 'birthday') {
+      setSelectedBirthday(evt);
+      setIsBirthdayModalOpen(true);
+    } else {
+      setSelectedOrder(evt);
+      setIsOrderDetailsModalOpen(true);
+    }
+  };
+
+  async function handleRemindCoaches(bdayEvt) {
+    if (!activeTeam?.id) return;
+
+    // pull coaches
+    const { data: coaches, error: coachErr } = await supabase
+      .from('team_members')
+      .select('email, full_name')
+      .eq('team_id', activeTeam.id)
+      .eq('is_active', true)
+      .in('role', ['coach', 'assistant_coach', 'head_coach']);
+
+    if (coachErr) {
+      alert('Could not load coaches: ' + coachErr.message);
+      return;
+    }
+
+    const emails = (coaches ?? []).map(c => c.email).filter(Boolean);
+
+    // try to insert an app notification
+    const message = `${bdayEvt.memberName} has a birthday today!`;
+    const payload = {
+      memberId: bdayEvt.memberId,
+      memberName: bdayEvt.memberName,
+      dob: bdayEvt.dob,
+      date: bdayEvt.date,
+      type: 'birthday_reminder'
+    };
+
+    let inserted = false;
+    try {
+      const { error: notifErr } = await supabase.from('notifications').insert({
+        team_id: activeTeam.id,
+        type: 'birthday_reminder',
+        message,
+        payload
+      });
+      if (!notifErr) inserted = true;
+    } catch (_) {}
+
+    if (inserted) {
+      alert('Reminder created for all coaches.');
+      return;
+    }
+
+    // fallback: open an email draft to all coaches
+    if (emails.length) {
+      const subject = encodeURIComponent(`Birthday reminder: ${bdayEvt.memberName}`);
+      const body = encodeURIComponent(
+        `${bdayEvt.memberName} turns ${(() => {
+          const d = new Date(bdayEvt.date);
+          const dob = new Date(bdayEvt.dob);
+          let age = d.getFullYear() - dob.getFullYear();
+          const m = d.getMonth() - dob.getMonth();
+          if (m < 0 || (m === 0 && d.getDate() < dob.getDate())) age--;
+          return age;
+        })()} today! 🎉`
+      );
+      window.location.href = `mailto:${emails.join(',')}?subject=${subject}&body=${body}`;
+    } else {
+      alert('No coach emails found to remind.');
+    }
+  }
+
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 1024);
     checkMobile();
@@ -260,9 +381,7 @@ const CalendarOrderScheduling = () => {
           </div>
 
           {loadErr && (
-            <div className="mb-4 text-sm text-red-600">
-              {loadErr}
-            </div>
+            <div className="mb-4 text-sm text-red-600">{loadErr}</div>
           )}
 
           <div className="mb-6">
@@ -367,9 +486,9 @@ const CalendarOrderScheduling = () => {
                     currentDate={currentDate}
                     selectedDate={selectedDate}
                     onDateSelect={setSelectedDate}
-                    orders={filteredOrders}
+                    orders={calendarEvents}
                     viewMode={viewMode}
-                    onOrderClick={handleOrderClick}
+                    onOrderClick={handleEventClick}
                     onNewOrder={(d) => { const dd = new Date(d); dd.setHours(0,0,0,0); setSelectedDate(dd); setIsScheduleModalOpen(true); }}
                     attached
                     loading={loading}
@@ -397,7 +516,7 @@ const CalendarOrderScheduling = () => {
         isOpen={isScheduleModalOpen}
         onClose={() => setIsScheduleModalOpen(false)}
         selectedDate={selectedDate}
-        onSchedule={handleScheduleMeal}    // swap to DB insert later
+        onSchedule={handleScheduleMeal}
         teamMembers={teamMembers}
         savedTemplates={savedTemplates}
       />
@@ -408,6 +527,12 @@ const CalendarOrderScheduling = () => {
         onEdit={handleEditOrder}
         onCancel={handleCancelOrder}
         onRepeat={handleRepeatOrder}
+      />
+      <BirthdayDetailsModal
+        isOpen={isBirthdayModalOpen}
+        onClose={() => setIsBirthdayModalOpen(false)}
+        event={selectedBirthday}
+        onRemindCoaches={handleRemindCoaches}
       />
     </div>
   );
