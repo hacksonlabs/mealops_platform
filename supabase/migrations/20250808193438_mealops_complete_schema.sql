@@ -332,6 +332,16 @@ CREATE TABLE public.api_integrations (
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+create table if not exists public.notifications (
+  id          uuid primary key default gen_random_uuid(),
+  team_id     uuid not null references public.teams(id) on delete cascade,
+  created_by  uuid references auth.users(id),
+  type        text not null check (type in ('birthday_reminder','order_update','poll', 'order_reminder', 'order_review', 'system')),
+  message     text not null,
+  payload     jsonb not null default '{}'::jsonb,
+  created_at  timestamptz not null default now(),
+  read_at     timestamptz
+);
 
 -- 3. Essential Indexes
 CREATE INDEX idx_user_profiles_email ON public.user_profiles(email);
@@ -373,6 +383,8 @@ CREATE INDEX idx_poll_votes_poll_id ON public.poll_votes(poll_id);
 CREATE INDEX idx_payment_methods_team_id ON public.payment_methods(team_id);
 CREATE UNIQUE INDEX uniq_team_member_email_per_team
     ON public.team_members (team_id, lower(email));
+
+CREATE INDEX notifications_team_id_created_at_idx ON public.notifications(team_id, created_at desc);
 
 -- 4. Functions (must be before RLS policies)
 
@@ -437,14 +449,24 @@ BEGIN
   RETURN NEW;
 END $$;
 
-CREATE OR REPLACE FUNCTION public.ensure_created_by()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF NEW.created_by IS NULL THEN
-    NEW.created_by := auth.uid();
-  END IF;
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
+create or replace function public.ensure_created_by()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.created_by is null then
+    new.created_by := auth.uid();
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_notifications_set_created_by on public.notifications;
+create trigger trg_notifications_set_created_by
+before insert on public.notifications
+for each row execute function public.ensure_created_by();
 
 DROP TRIGGER IF EXISTS trg_meal_orders_set_creator ON public.meal_orders;
 CREATE TRIGGER trg_meal_orders_set_creator
@@ -532,6 +554,23 @@ SELECT EXISTS (
 );
 $$;
 
+create or replace function public.is_a_coach(team uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.team_members tm
+    where tm.team_id = team
+      and tm.user_id = auth.uid()
+      and tm.is_active = true
+      and tm.role = 'coach'
+  );
+$$;
+
 CREATE OR REPLACE FUNCTION public.get_user_team_id()
 RETURNS UUID
 LANGUAGE sql
@@ -563,6 +602,7 @@ ALTER TABLE public.meal_order_item_customizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.meal_order_item_options ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.menu_items DROP CONSTRAINT IF EXISTS menu_items_api_id_key;
 ALTER TABLE public.menu_items ADD CONSTRAINT uq_menu_items_restaurant_api UNIQUE (restaurant_id, api_id);
+ALTER TABLE public.notifications enable row level security;
 
 ALTER FUNCTION public.is_team_member(UUID)    SET search_path = public;
 ALTER FUNCTION public.is_team_admin(UUID)     SET search_path = public;
@@ -587,6 +627,15 @@ ALTER TABLE public.poll_votes
   FOREIGN KEY (poll_id, option_id)
   REFERENCES public.poll_options (poll_id, id)
   ON DELETE CASCADE;
+
+
+-- Base grants so PostgREST (and the 'authenticated' role) can see/insert
+grant usage on schema public to authenticated;
+grant select, insert on table public.notifications to authenticated;
+
+-- If your table uses identity/sequence, this helps avoid permission errors
+grant usage, select on all sequences in schema public to authenticated;
+
 
 -- 6. RLS Policies (UPDATED)
 -- Pattern 1: Core user table (user_profiles)
@@ -1178,6 +1227,36 @@ CREATE POLICY "service_role_manage_api_integrations"
 ON public.api_integrations
 FOR ALL TO service_role
 USING (true) WITH CHECK (true);
+
+-- RLS NOTIFICATIONS
+-- Allow team members to read notifications for their team
+create policy "team_members_can_select_notifications"
+on public.notifications
+for select
+to authenticated
+using (
+  -- must be an active member of the team
+  exists (
+    select 1
+    from public.team_members tm
+    where tm.team_id = notifications.team_id
+      and tm.user_id = auth.uid()
+      and tm.is_active = true
+  )
+  -- and if it's a birthday reminder, don't show it to the sender
+  and not (
+    notifications.type = 'birthday_reminder'
+    and notifications.created_by is not distinct from auth.uid()
+  )
+);
+
+-- Allow coaches to insert birthday reminders for their team
+-- (adjust roles if you only use 'coach')
+create policy "coach can insert notification"
+on public.notifications
+for insert
+to authenticated
+with check ( public.is_a_coach(team_id) );
 
 
 -- 7. Triggers

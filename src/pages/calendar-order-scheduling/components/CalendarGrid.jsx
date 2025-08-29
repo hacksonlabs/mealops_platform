@@ -6,7 +6,7 @@ const CalendarGrid = ({
   onDateSelect,
   orders = [],          // orders + birthday events
   viewMode = '2weeks',
-  onOrderClick,         
+  onOrderClick,
   onNewOrder,
   attached = false,
   loading = false,
@@ -24,6 +24,21 @@ const CalendarGrid = ({
   const isPastDate = (date) => { const t = new Date(); t.setHours(0,0,0,0); return date < t; };
   const isSameDate = (a, b) => a?.toDateString() === b?.toDateString();
   const getEventsForDate = (d) => orders?.filter(o => isSameDate(new Date(o.date), d));
+
+  // consistent ordering — birthdays first, then by time, then label
+  const eventSort = (a, b) => {
+    const aB = a?.type === 'birthday';
+    const bB = b?.type === 'birthday';
+    if (aB !== bB) return aB ? -1 : 1; // birthdays on top
+
+    const at = new Date(a?.date).getTime();
+    const bt = new Date(b?.date).getTime();
+    if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return at - bt;
+
+    const aLabel = (a?.restaurant ?? a?.label ?? '').toString();
+    const bLabel = (b?.restaurant ?? b?.label ?? '').toString();
+    return aLabel.localeCompare(bLabel);
+  };
 
   const badgeFor = (evt) => {
     if (evt?.type === 'birthday') return 'bg-rose-100 text-rose-800 border-rose-200';
@@ -67,7 +82,7 @@ const CalendarGrid = ({
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
-      const dayEvents = getEventsForDate(date);
+      const dayEvents = getEventsForDate(date).slice().sort(eventSort); // <<< SORT HERE
       const isSelected = selectedDate && isSameDate(date, selectedDate);
       const isCurrentDay = isToday(date);
       const isPast = isPastDate(date);
@@ -111,7 +126,7 @@ const CalendarGrid = ({
                 <div className="font-medium text-sm mb-2">
                   {date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' })}
                 </div>
-                {dayEvents.map((evt) => (
+                {dayEvents.map((evt) => ( // already sorted
                   <div key={evt?.id} className="text-xs mb-1">
                     <EventLabel evt={evt} />
                     {evt?.type !== 'birthday' && (
@@ -172,7 +187,7 @@ const CalendarGrid = ({
 
         <div className="grid grid-cols-7 [grid-auto-rows:minmax(260px,1fr)] lg:[grid-auto-rows:minmax(300px,1fr)]">
           {days.map((date, i) => {
-            const dayEvents = getEventsForDate(date);
+            const dayEvents = getEventsForDate(date).slice().sort(eventSort); // <<< SORT HERE
             const past = isPastDate(date);
             const selected = selectedDate ? isSameDate(date, selectedDate) : isToday(date);
             const col = i % 7;
@@ -232,7 +247,7 @@ const CalendarGrid = ({
                     <div className="font-semibold text-sm mb-2">
                       {date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' })}
                     </div>
-                    {dayEvents.map((evt) => (
+                    {dayEvents.map((evt) => ( // already sorted
                       <div key={evt.id} className="mb-1">
                         <div className="font-semibold text-[13px] leading-5 whitespace-normal break-words">
                           {labelFor(evt)}

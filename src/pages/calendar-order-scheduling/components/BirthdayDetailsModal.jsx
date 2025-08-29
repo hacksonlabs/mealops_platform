@@ -42,7 +42,7 @@ export default function BirthdayDetailsModal({ isOpen, onClose, event, onRemindC
           Celebrate {event.memberName} with a quick team shout-out or a special treat.
         </p>
 
-        <div className="flex items-center justify-end gap-2">
+        {/* <div className="flex items-center justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Close</Button>
           <Button
             iconName="BellRing"
@@ -50,7 +50,7 @@ export default function BirthdayDetailsModal({ isOpen, onClose, event, onRemindC
           >
             Remind all coaches
           </Button>
-        </div>
+        </div> */}
       </div>
     </div>
   );

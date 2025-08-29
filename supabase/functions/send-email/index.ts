@@ -8,16 +8,15 @@ declare const Deno: {
 };
 
 serve(async (req) => {
-  // ✅ CORS preflight
-  if (req?.method === "OPTIONS") {
-    return new Response("ok", {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization"
-      }
-    });
-  }
+  // CORS preflight
+  const cors = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers':
+      'Content-Type, Authorization, apikey, x-client-info, x-supabase-auth',
+  };
+
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   
   try {
     const { to, subject, html, text } = await req?.json();
@@ -48,14 +47,8 @@ serve(async (req) => {
       throw new Error(result.message || 'Failed to send email');
     }
 
-    return new Response(JSON.stringify({
-      success: true,
-      data: result
-    }), {
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*"
-      }
+    return new Response(JSON.stringify({ success: true, data: result }), {
+      headers: { 'Content-Type': 'application/json', ...cors },
     });
     
   } catch (error) {

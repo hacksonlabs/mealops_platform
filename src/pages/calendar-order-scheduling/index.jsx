@@ -11,6 +11,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
 import BirthdayDetailsModal from './components/BirthdayDetailsModal';
 
+/* ----------------- helpers ----------------- */
 
 function getRangeForView(currentDate, viewMode) {
   const start = new Date(currentDate);
@@ -51,8 +52,30 @@ function mkBirthdayDateForYear(birthdayISO, year) {
   return candidate;
 }
 
+function computeAge(onDateISO, dobISO) {
+  const d = new Date(onDateISO);
+  const dob = new Date(dobISO);
+  let age = d.getFullYear() - dob.getFullYear();
+  const m = d.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && d.getDate() < dob.getDate())) age--;
+  return age;
+}
+
+// normalize US phone numbers like "(xxx) xxx-xxxx" to E.164 +1XXXXXXXXXX
+function toE164US(raw) {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  if (trimmed.startsWith('+')) return trimmed;
+  const d = trimmed.replace(/\D/g, '');
+  if (d.length === 11 && d.startsWith('1')) return `+${d}`;
+  if (d.length === 10) return `+1${d}`;
+  return null;
+}
+
+/* --------------- component ---------------- */
+
 const CalendarOrderScheduling = () => {
-  const { activeTeam } = useAuth();
+  const { activeTeam, user } = useAuth();
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('twoWeeks');
@@ -98,7 +121,6 @@ const CalendarOrderScheduling = () => {
         const { start, end } = getRangeForView(currentDate, viewMode);
 
         // orders with restaurant name
-        // NOTE: the implicit relation should be available via FK restaurant_id -> restaurants.id
         const { data: orderRows, error: orderErr } = await supabase
           .from('meal_orders')
           .select(`
@@ -153,18 +175,19 @@ const CalendarOrderScheduling = () => {
         const mapped = orderRows.map(row => ({
           id: row.id,
           type: 'order',
-          date: row.scheduled_date,                                   
+          date: row.scheduled_date,
           restaurant: row.restaurants?.name || 'Unknown Restaurant',
-          mealType: 'lunch',                                           // not in schema; set a default or add a column later
+          mealType: 'lunch', // not in schema; set a default or add a column later
           time: fmtTime(row.scheduled_date),
           attendees: attendeesByOrder[row.id] ?? 0,
           status: row.order_status,
           notes: row.description ?? '',
           createdAt: row.created_at,
-          members: []                                                 
+          members: []
         }));
 
         setOrders(mapped);
+
         const simplifiedMembers = (memberRows ?? []).map(m => ({
           id: m.id,
           name: m.full_name,
@@ -191,7 +214,7 @@ const CalendarOrderScheduling = () => {
                 label: `${m.name}'s Bday!`,
                 memberId: m.id,
                 memberName: m.name,
-                dob: m.birthday,  // original DOB to compute age
+                dob: m.birthday, // original DOB to compute age
                 status: 'birthday'
               });
             }
@@ -246,10 +269,25 @@ const CalendarOrderScheduling = () => {
   });
 
   // FINAL event list rendered on the grid (orders + birthdays)
-  const calendarEvents = useMemo(
-    () => [...filteredOrders, ...birthdayEvents],
-    [filteredOrders, birthdayEvents]
-  );
+  // Sorted by (1) day asc, (2) birthdays first, (3) time asc
+  const calendarEvents = useMemo(() => {
+    const events = [...filteredOrders, ...birthdayEvents];
+    events.sort((a, b) => {
+      const da = new Date(a.date);
+      const db = new Date(b.date);
+      const dayA = new Date(da.getFullYear(), da.getMonth(), da.getDate()).getTime();
+      const dayB = new Date(db.getFullYear(), db.getMonth(), db.getDate()).getTime();
+      if (dayA !== dayB) return dayA - dayB;
+      const pa = a.type === 'birthday' ? 0 : 1;
+      const pb = b.type === 'birthday' ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      if (a.type === 'birthday' && b.type === 'birthday') return 0;
+      const ta = da.getHours() * 60 + da.getMinutes();
+      const tb = db.getHours() * 60 + db.getMinutes();
+      return ta - tb;
+    });
+    return events;
+  }, [filteredOrders, birthdayEvents]);
 
   // Next 7 days
   const upcomingMeals = orders
@@ -263,7 +301,6 @@ const CalendarOrderScheduling = () => {
     })
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  const handleDateSelect = (date) => setSelectedDate(date);
   const handleTodayClick = () => {
     const today = new Date();
     setCurrentDate(today);
@@ -275,7 +312,6 @@ const CalendarOrderScheduling = () => {
   // client-side updates for now
   const handleScheduleMeal = (orderData) => setOrders(prev => [...prev, orderData]);
   const handleOrderClick = (order) => { setSelectedOrder(order); setIsOrderDetailsModalOpen(true); };
-  const handleQuickNewOrder = (date) => { const d = new Date(date); d.setHours(0,0,0,0); setSelectedDate(d); setIsScheduleModalOpen(true); };
   const handleEditOrder = (order) => console.log('Edit order:', order);
   const handleCancelOrder = (orderId) => setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'cancelled' } : o));
   const handleRepeatOrder = () => { setSelectedDate(new Date()); setIsScheduleModalOpen(true); };
@@ -291,67 +327,111 @@ const CalendarOrderScheduling = () => {
     }
   };
 
+  // Send birthday reminder:
+  // - SMS first (to coaches except the sender), using numbers normalized to E.164
+  // - Email only as fallback (missing phone / failed SMS)
+  // - Create in-app notification (best-effort)
   async function handleRemindCoaches(bdayEvt) {
     if (!activeTeam?.id) return;
 
-    // pull coaches
+    // 1) Load coaches (include user_id & phone_number)
     const { data: coaches, error: coachErr } = await supabase
       .from('team_members')
-      .select('email, full_name')
+      .select('user_id, full_name, email, phone_number')
       .eq('team_id', activeTeam.id)
       .eq('is_active', true)
-      .in('role', ['coach', 'assistant_coach', 'head_coach']);
+      .eq('role', 'coach');
 
     if (coachErr) {
       alert('Could not load coaches: ' + coachErr.message);
       return;
     }
 
-    const emails = (coaches ?? []).map(c => c.email).filter(Boolean);
+    // 2) Exclude the sender (by user_id or email match)
+    const recipients = (coaches ?? []).filter(c =>
+      (user?.id ? c.user_id !== user.id : true) &&
+      (user?.email ? c.email !== user.email : true)
+    );
 
-    // try to insert an app notification
+    if (recipients.length === 0) {
+      alert('No other coaches to notify.');
+      return;
+    }
+
+    const age = computeAge(bdayEvt.date, bdayEvt.dob);
+    const smsText = `🎂 ${bdayEvt.memberName} turns ${age} today!`;
+
+    // Normalize phones
+    const recWithPhones = recipients.map(r => ({
+      ...r,
+      phone_e164: toE164US(r.phone_number),
+    }));
+    const smsTargets = recWithPhones.filter(r => !!r.phone_e164).map(r => r.phone_e164);
+
+    let failedE164 = new Set();
+    let invalidE164 = new Set();
+
+    // 3) Try SMS first
+    if (smsTargets.length) {
+      const { data: smsRes, error: smsErr } = await supabase.functions.invoke('send-sms', {
+        body: { to: smsTargets, text: smsText },
+      });
+
+      if (smsErr) {
+        console.error('send-sms error', smsErr);
+        // service issue => email everyone
+        smsTargets.forEach(n => failedE164.add(n));
+      } else {
+        const toValue = (x) => (typeof x === 'string' ? x : x?.to);
+        (smsRes?.failed  ?? []).map(toValue).filter(Boolean).forEach(n => failedE164.add(n));
+        (smsRes?.invalid ?? []).map(toValue).filter(Boolean).forEach(n => invalidE164.add(n));
+      }
+    }
+
+    // 4) Email fallback: no phone OR SMS failed OR invalid format
+    const emailFallback = recWithPhones
+      .filter(r => !r.phone_e164 || failedE164.has(r.phone_e164) || invalidE164.has(r.phone_e164))
+      .map(r => r.email)
+      .filter(Boolean);
+
+    if (emailFallback.length) {
+      const subject = `Birthday reminder: ${bdayEvt.memberName}`;
+      const { error: emailErr } = await supabase.functions.invoke('send-email', {
+        body: {
+          to: emailFallback,
+          subject,
+          html: `<h2>${bdayEvt.memberName} turns ${age} today! 🎉</h2>`,
+          text: `${bdayEvt.memberName} turns ${age} today! 🎉`,
+        },
+      });
+      if (emailErr) console.error('send-email error', emailErr);
+    }
+
+    // 5) In-app notification (RLS allows a coach to insert for their team)
     const message = `${bdayEvt.memberName} has a birthday today!`;
     const payload = {
       memberId: bdayEvt.memberId,
       memberName: bdayEvt.memberName,
       dob: bdayEvt.dob,
       date: bdayEvt.date,
-      type: 'birthday_reminder'
+      type: 'birthday_reminder',
     };
 
-    let inserted = false;
-    try {
-      const { error: notifErr } = await supabase.from('notifications').insert({
-        team_id: activeTeam.id,
-        type: 'birthday_reminder',
-        message,
-        payload
-      });
-      if (!notifErr) inserted = true;
-    } catch (_) {}
-
-    if (inserted) {
-      alert('Reminder created for all coaches.');
-      return;
+    const { error: notifErr } = await supabase.from('notifications').insert({
+      team_id: activeTeam.id,
+      type: 'birthday_reminder',
+      message,
+      payload,
+    });
+    if (notifErr) {
+      // Don’t block the UX—just log it
+      console.warn('notifications insert failed:', notifErr.message);
     }
 
-    // fallback: open an email draft to all coaches
-    if (emails.length) {
-      const subject = encodeURIComponent(`Birthday reminder: ${bdayEvt.memberName}`);
-      const body = encodeURIComponent(
-        `${bdayEvt.memberName} turns ${(() => {
-          const d = new Date(bdayEvt.date);
-          const dob = new Date(bdayEvt.dob);
-          let age = d.getFullYear() - dob.getFullYear();
-          const m = d.getMonth() - dob.getMonth();
-          if (m < 0 || (m === 0 && d.getDate() < dob.getDate())) age--;
-          return age;
-        })()} today! 🎉`
-      );
-      window.location.href = `mailto:${emails.join(',')}?subject=${subject}&body=${body}`;
-    } else {
-      alert('No coach emails found to remind.');
-    }
+    // 6) UX feedback
+    const deliveredSms = smsTargets.length - failedE164.size - invalidE164.size;
+    const deliveredEmail = emailFallback.length;
+    alert(`Reminder sent.\nSMS: ${Math.max(deliveredSms, 0)}/${smsTargets.length}\nEmail fallback: ${deliveredEmail}`);
   }
 
   useEffect(() => {
