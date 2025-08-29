@@ -343,6 +343,23 @@ create table if not exists public.notifications (
   read_at     timestamptz
 );
 
+-- member_groups
+create table if not exists public.member_groups (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references public.teams(id) on delete cascade,
+  name text not null,
+  created_by uuid references public.user_profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- member_group_members
+create table if not exists public.member_group_members (
+  group_id uuid not null references public.member_groups(id) on delete cascade,
+  member_id uuid not null references public.team_members(id) on delete cascade,
+  primary key (group_id, member_id)
+);
+
 -- 3. Essential Indexes
 CREATE INDEX idx_user_profiles_email ON public.user_profiles(email);
 CREATE INDEX idx_teams_coach_id ON public.teams(coach_id);
@@ -385,6 +402,14 @@ CREATE UNIQUE INDEX uniq_team_member_email_per_team
     ON public.team_members (team_id, lower(email));
 
 CREATE INDEX notifications_team_id_created_at_idx ON public.notifications(team_id, created_at desc);
+CREATE INDEX IF NOT EXISTS idx_member_groups_team_id ON public.member_groups(team_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_member_groups_team_name
+  ON public.member_groups (team_id, lower(name));
+
+CREATE INDEX IF NOT EXISTS idx_mgm_group_id  ON public.member_group_members(group_id);
+CREATE INDEX IF NOT EXISTS idx_mgm_member_id ON public.member_group_members(member_id);
+CREATE INDEX IF NOT EXISTS idx_member_groups_created_by ON public.member_groups(created_by);
+
 
 -- 4. Functions (must be before RLS policies)
 
@@ -603,6 +628,8 @@ ALTER TABLE public.meal_order_item_options ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.menu_items DROP CONSTRAINT IF EXISTS menu_items_api_id_key;
 ALTER TABLE public.menu_items ADD CONSTRAINT uq_menu_items_restaurant_api UNIQUE (restaurant_id, api_id);
 ALTER TABLE public.notifications enable row level security;
+ALTER TABLE public.member_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.member_group_members ENABLE ROW LEVEL SECURITY;
 
 ALTER FUNCTION public.is_team_member(UUID)    SET search_path = public;
 ALTER FUNCTION public.is_team_admin(UUID)     SET search_path = public;
@@ -711,6 +738,95 @@ FOR DELETE TO authenticated
 USING (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
 
 
+DROP POLICY IF EXISTS "member_groups_team_read"    ON public.member_groups;
+CREATE POLICY "member_groups_team_read"
+ON public.member_groups
+FOR SELECT TO authenticated
+USING (public.is_team_member(team_id));
+
+DROP POLICY IF EXISTS "member_groups_coach_insert" ON public.member_groups;
+DROP POLICY IF EXISTS "member_groups_coach_update" ON public.member_groups;
+DROP POLICY IF EXISTS "member_groups_coach_delete" ON public.member_groups;
+
+CREATE POLICY "member_groups_coach_insert"
+ON public.member_groups
+FOR INSERT TO authenticated
+WITH CHECK (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
+
+CREATE POLICY "member_groups_coach_update"
+ON public.member_groups
+FOR UPDATE TO authenticated
+USING     (public.is_team_coach(team_id) OR public.is_team_admin(team_id))
+WITH CHECK(public.is_team_coach(team_id) OR public.is_team_admin(team_id));
+
+CREATE POLICY "member_groups_coach_delete"
+ON public.member_groups
+FOR DELETE TO authenticated
+USING (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
+
+-- Membership table:
+-- Read: any member of the team the group belongs to
+-- Write: coach/admin of that team
+DROP POLICY IF EXISTS "mgm_team_read"    ON public.member_group_members;
+DROP POLICY IF EXISTS "mgm_coach_insert" ON public.member_group_members;
+DROP POLICY IF EXISTS "mgm_coach_update" ON public.member_group_members;
+DROP POLICY IF EXISTS "mgm_coach_delete" ON public.member_group_members;
+
+CREATE POLICY "mgm_team_read"
+ON public.member_group_members
+FOR SELECT TO authenticated
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.member_groups g
+    WHERE g.id = member_group_members.group_id
+      AND public.is_team_member(g.team_id)
+  )
+);
+
+CREATE POLICY "mgm_coach_insert"
+ON public.member_group_members
+FOR INSERT TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+    FROM public.member_groups g
+    WHERE g.id = member_group_members.group_id
+      AND (public.is_team_coach(g.team_id) OR public.is_team_admin(g.team_id))
+  )
+);
+
+CREATE POLICY "mgm_coach_update"
+ON public.member_group_members
+FOR UPDATE TO authenticated
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.member_groups g
+    WHERE g.id = member_group_members.group_id
+      AND (public.is_team_coach(g.team_id) OR public.is_team_admin(g.team_id))
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+    FROM public.member_groups g
+    WHERE g.id = member_group_members.group_id
+      AND (public.is_team_coach(g.team_id) OR public.is_team_admin(g.team_id))
+  )
+);
+
+CREATE POLICY "mgm_coach_delete"
+ON public.member_group_members
+FOR DELETE TO authenticated
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.member_groups g
+    WHERE g.id = member_group_members.group_id
+      AND (public.is_team_coach(g.team_id) OR public.is_team_admin(g.team_id))
+  )
+);
 
 -- ------------------------------
 -- RESTAURANTS (RLS)
@@ -1271,8 +1387,17 @@ CREATE TRIGGER trg_meal_polls_set_creator
 BEFORE INSERT ON public.meal_polls
 FOR EACH ROW EXECUTE FUNCTION public.ensure_created_by();
 
+DROP TRIGGER IF EXISTS trg_member_groups_set_creator ON public.member_groups;
+CREATE TRIGGER trg_member_groups_set_creator
+BEFORE INSERT ON public.member_groups
+FOR EACH ROW EXECUTE FUNCTION public.ensure_created_by();
 
--- 8. Mock Data (UPDATED)
+DROP TRIGGER IF EXISTS trg_member_groups_updated_at ON public.member_groups;
+CREATE TRIGGER trg_member_groups_updated_at
+BEFORE UPDATE ON public.member_groups
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- 8. Mock Data
 DO $$
 DECLARE
     coach_uuid UUID := gen_random_uuid();
@@ -1299,14 +1424,20 @@ DECLARE
     option2_uuid UUID := gen_random_uuid();
     api_integration_ubereats_uuid UUID := gen_random_uuid();
 
-    coach_name TEXT;
-    coach_email TEXT;
-    player1_name TEXT;
-    player1_email TEXT;
-    player2_name TEXT;
-    player2_email TEXT;
+    grp_players_uuid UUID := gen_random_uuid();
+    grp_coaches_uuid UUID := gen_random_uuid();
+    coach_tm_id UUID;
+    player1_tm_id UUID;
+    player2_tm_id UUID;
+
+    coach_name TEXT := 'Coach Johnson';
+    coach_email TEXT := 'coach@team.edu';
+    player1_name TEXT := 'Alex Smith';
+    player1_email TEXT := 'player1@team.edu';
+    player2_name TEXT := 'Taylor Davis';
+    player2_email TEXT := 'player2@team.edu';
 BEGIN
-    -- Create auth users (IMPORTANT: include role = 'authenticated')
+    -- Create auth users (bcrypt via pgcrypto). Keep role/aud='authenticated'
     INSERT INTO auth.users (
         id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
         created_at, updated_at, raw_user_meta_data,
@@ -1317,43 +1448,74 @@ BEGIN
         phone_change_token, phone_change_sent_at
     ) VALUES
         (coach_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-         'coach@team.edu', crypt('password123', gen_salt('bf', 10)), now(),
+         coach_email, crypt('password123', gen_salt('bf', 10)), now(),
          now(), now(),
-         '{"data": {"firstName": "Coach", "lastName": "Johnson", "schoolName": "University A", "allergies": ""}, "email": "coach@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
+         jsonb_build_object('data', jsonb_build_object('firstName','Coach','lastName','Johnson','schoolName','University A','allergies',''), 'email', coach_email, 'email_verified', true, 'phone_verified', false),
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null),
         (player1_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-         'player1@team.edu', crypt('password123', gen_salt('bf', 10)), now(),
+         player1_email, crypt('password123', gen_salt('bf', 10)), now(),
          now(), now(),
-         '{"data": {"firstName": "Alex", "lastName": "Smith", "schoolName": "University A", "allergies": "Peanuts"}, "email": "player1@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
+         jsonb_build_object('data', jsonb_build_object('firstName','Alex','lastName','Smith','schoolName','University A','allergies','Peanuts'), 'email', player1_email, 'email_verified', true, 'phone_verified', false),
          false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null),
         (player2_uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-         'player2@team.edu', crypt('password123', gen_salt('bf', 10)), now(),
+         player2_email, crypt('password123', gen_salt('bf', 10)), now(),
          now(), now(),
-         '{"data": {"firstName": "Taylor", "lastName": "Davis", "schoolName": "University A", "allergies": ""}, "email": "player2@team.edu", "email_verified": true, "phone_verified": false}'::jsonb,
-         false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null);
+         jsonb_build_object('data', jsonb_build_object('firstName','Taylor','lastName','Davis','schoolName','University A','allergies',''), 'email', player2_email, 'email_verified', true, 'phone_verified', false),
+         false, false, '', null, '', null, '', '', null, '', 0, '', null, null, '', '', null)
+    ON CONFLICT (id) DO NOTHING;
 
-    -- Let the user profile trigger run
-    PERFORM pg_sleep(1);
+    -- Deterministic profile upsert (don’t rely on auth trigger timing)
+    INSERT INTO public.user_profiles (id, email, first_name, last_name, school_name, is_active)
+    VALUES
+      (coach_uuid,   coach_email,   'Coach',  'Johnson', 'University A', true),
+      (player1_uuid, player1_email, 'Alex',   'Smith',   'University A', true),
+      (player2_uuid, player2_email, 'Taylor', 'Davis',   'University A', true)
+    ON CONFLICT (id) DO UPDATE
+      SET email = EXCLUDED.email,
+          first_name = EXCLUDED.first_name,
+          last_name = EXCLUDED.last_name,
+          school_name = EXCLUDED.school_name,
+          updated_at = now();
 
-    -- Pull names/emails back out of user_profiles created by trigger
-    SELECT first_name || ' ' || last_name, email INTO coach_name, coach_email FROM public.user_profiles WHERE id = coach_uuid;
-    SELECT first_name || ' ' || last_name, email INTO player1_name, player1_email FROM public.user_profiles WHERE id = player1_uuid;
-    SELECT first_name || ' ' || last_name, email INTO player2_name, player2_email FROM public.user_profiles WHERE id = player2_uuid;
-
-    -- Team & members
+    -- Team & members (coach_id needs user_profiles row present — satisfied above)
     INSERT INTO public.teams (id, name, sport, conference_name, gender, coach_id)
-    VALUES (team_uuid, 'Warriors Basketball', 'Basketball', 'PAC-12', 'womens', coach_uuid);
+    VALUES (team_uuid, 'Warriors', 'Basketball', 'PAC-12', 'womens', coach_uuid);
 
-    INSERT INTO public.team_members (team_id, user_id, role, full_name, email, phone_number, birthday) VALUES
-      (team_uuid, coach_uuid,  'coach',  coach_name,  coach_email,  '(555) 123-4567', '1980-01-15'),
-      (team_uuid, player1_uuid,'player', player1_name,player1_email,'(555) 987-6543', '2000-03-20'),
-      (team_uuid, player2_uuid,'player', player2_name,player2_email,'(555) 111-2222', '2001-07-01');
+    INSERT INTO public.team_members (team_id, user_id, role, full_name, email, phone_number, birthday)
+    VALUES
+      (team_uuid, coach_uuid,  'coach',  coach_name,  coach_email,  '(408) 439-2894', '1980-09-03'),
+      (team_uuid, player1_uuid,'player', player1_name,player1_email,'(555) 987-6543', '2000-09-06'),
+      (team_uuid, player2_uuid,'player', player2_name,player2_email,'(555) 111-2222', '2001-08-30');
+
+    SELECT id INTO coach_tm_id
+    FROM public.team_members
+    WHERE team_id = team_uuid AND user_id = coach_uuid;
+
+    SELECT id INTO player1_tm_id
+    FROM public.team_members
+    WHERE team_id = team_uuid AND user_id = player1_uuid;
+
+    SELECT id INTO player2_tm_id
+    FROM public.team_members
+    WHERE team_id = team_uuid AND user_id = player2_uuid;
+
+    -- Create member groups (explicit created_by avoids trigger/auth.uid() being NULL)
+    INSERT INTO public.member_groups (id, team_id, name, created_by)
+    VALUES
+      (grp_players_uuid, team_uuid, 'Players',  coach_uuid),
+      (grp_coaches_uuid, team_uuid, 'Coaches',  coach_uuid);
+
+    -- Add members to groups
+    INSERT INTO public.member_group_members (group_id, member_id) VALUES
+      (grp_players_uuid, player1_tm_id),
+      (grp_players_uuid, player2_tm_id),
+      (grp_coaches_uuid, coach_tm_id);
 
     -- Location
     INSERT INTO public.saved_locations (id, team_id, name, address, location_type)
     VALUES (location_uuid, team_uuid, 'School Campus Dorms', '456 University Dr, Anytown, CA 90210', 'school'::public.location_type);
 
-    -- API Integrations
+     -- API Integrations
     INSERT INTO public.api_integrations (id, provider_name, api_key, base_url)
     VALUES (api_integration_ubereats_uuid, 'ubereats', 'YOUR_UBEREATS_API_KEY', 'https://api.ubereats.com');
 
@@ -1376,11 +1538,11 @@ BEGIN
     VALUES
       (burger_menu_item_uuid, burger_joint_rest_uuid, 'burger_joint_classic', 'Classic Cheeseburger', 'Classic cheeseburger with fries', 14.50, 'Burgers', 'https://example.com/classic_burger.jpg', true);
 
-    -- Payment method
+    -- Payment method 
     INSERT INTO public.payment_methods (id, team_id, card_name, last_four, is_default, created_by)
     VALUES (payment_method_uuid, team_uuid, 'Team Card - Basketball', '4242', true, coach_uuid);
 
-    -- One completed order (past)
+    -- Completed order 
     INSERT INTO public.meal_orders (
         id, team_id, restaurant_id, location_id, title, description,
         scheduled_date, order_status, payment_method_id, total_amount, payment_status, created_by,
@@ -1392,13 +1554,12 @@ BEGIN
        NOW() - INTERVAL '4 days', 'completed', payment_method_uuid, 45.99, 'completed', coach_uuid,
        'UBEREATS-ORDER-XYZ789', 'ubereats', '456 University Dr', 'Dorm Room 302', 'Anytown', 'CA', '90210',
        'Leave at front desk with security', NOW() - INTERVAL '3 days 1 hour', 2.99, 1.50);
-
     INSERT INTO public.order_items (order_id, user_id, menu_item_id, item_name, quantity, price, special_instructions, selected_options) VALUES
       (completed_order_uuid, player1_uuid, pizza_menu_item_uuid, 'Margherita Pizza', 1, 15.99, 'No olives', '{"size":"Medium","toppings":["Pepperoni"]}'::jsonb),
       (completed_order_uuid, player2_uuid, pizza_menu_item_uuid, 'Margherita Pizza', 1, 17.99, 'Extra cheese', '{"size":"Large","toppings":["Extra Cheese"]}'::jsonb),
       (completed_order_uuid, coach_uuid,   salad_menu_item_uuid, 'Caesar Salad',     1, 12.01, 'Side of ranch', '{"dressing":"Ranch"}'::jsonb);
 
-    -- One scheduled order (future, next week)
+    -- Scheduled order
     INSERT INTO public.meal_orders (
         id, team_id, restaurant_id, location_id, title, description,
         scheduled_date, order_status, payment_method_id, total_amount, payment_status, created_by,
@@ -1415,8 +1576,8 @@ BEGIN
       (scheduled_order_uuid, player1_uuid, burger_menu_item_uuid, 'Classic Cheeseburger', 2, 14.50, 'No pickles', '{"buns":"sesame","cheese":"cheddar"}'::jsonb),
       (scheduled_order_uuid, player2_uuid, burger_menu_item_uuid, 'Classic Cheeseburger', 1, 14.50, 'Extra onion rings', '{"buns":"brioche"}'::jsonb);
 
-    -- NEW: Two orders this week (calendar testing)
-    INSERT INTO public.meal_orders (
+    -- Two orders this week
+     INSERT INTO public.meal_orders (
         id, team_id, restaurant_id, location_id, title, description,
         scheduled_date, order_status, payment_method_id, total_amount, payment_status, created_by,
         api_order_id, api_source, delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
