@@ -46,7 +46,7 @@ const TopPanel = ({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
       {/* This Month */}
-      <div className="lg:col-span-5 self-center h-auto bg-card border border-border rounded-lg p-4 shadow-athletic">
+      {/* <div className="lg:col-span-5 self-center h-auto bg-card border border-border rounded-lg p-4 shadow-athletic">
         <h3 className="text-base font-heading font-semibold text-foreground mb-3">This Month</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="border border-border rounded-md p-3">
@@ -71,10 +71,10 @@ const TopPanel = ({
             <div className="mt-1 text-2xl font-semibold text-foreground">{money(monthStats.avgPerMeal)}</div>
           </div>
         </div>
-      </div>
+      </div> */}
 
       {/* Upcoming */}
-      <div className="lg:col-span-7 self-stretch bg-card border border-border rounded-lg p-4 shadow-athletic">
+      <div className="lg:col-span-6 lg:col-start-4 self-stretch bg-card border border-border rounded-lg p-4 shadow-athletic">
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="text-base font-heading font-semibold text-foreground">Upcoming Meals</h3>
           <span className="text-xs text-muted-foreground">Next 7 days</span>
