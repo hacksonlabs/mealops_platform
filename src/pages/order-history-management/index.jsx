@@ -118,8 +118,6 @@ const OrderHistoryManagement = () => {
       `)
       .eq('team_id', teamId); // Filter by team_id
 
-
-    console.log(query);
     // Apply filters based on current state
     if (filters.dateFrom) {
       query = query.gte('scheduled_date', filters.dateFrom);

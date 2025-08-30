@@ -49,12 +49,6 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
     { name: 'Jordan Smith', order: 'BBQ Pulled Pork Sandwich', specialInstructions: 'Extra BBQ sauce', cost: 13.49 }
   ];
 
-  const modificationHistory = [
-    { date: '2025-01-05 14:30', action: 'Order Created', user: 'Coach Johnson', details: 'Initial order placed for 6 people' },
-    { date: '2025-01-06 09:15', action: 'Member Added', user: 'Sarah Williams', details: 'Added Jordan Smith to the order' },
-    { date: '2025-01-06 11:45', action: 'Order Modified', user: 'Emma Davis', details: 'Changed Alex Rodriguez meal from Chicken Bowl to Caesar Wrap' }
-  ];
-
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
@@ -199,43 +193,6 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                       </Button>
                     </div>
                   </div>
-                </div>
-              </div>
-
-              {/* Modification History */}
-              <div>
-                <h3 className="text-lg font-heading font-semibold text-foreground mb-4">
-                  Modification History
-                </h3>
-                <div className="space-y-3">
-                  {modificationHistory?.map((modification, index) => (
-                    <div key={index} className="flex items-start space-x-3 p-3 bg-muted rounded-lg">
-                      <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center flex-shrink-0">
-                        <Icon name="Clock" size={14} color="white" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2 mb-1">
-                          <span className="text-sm font-medium text-foreground">
-                            {modification?.action}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            by {modification?.user}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-1">
-                          {modification?.details}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(modification.date)?.toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </div>
             </div>

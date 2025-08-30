@@ -6,6 +6,7 @@ import { Checkbox } from '../../../components/ui/Checkbox';
 const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrderAction, activeTab }) => {
   const [sortField, setSortField] = useState('date');
   const [sortDirection, setSortDirection] = useState('desc');
+  const [loading, setLoading] = useState(false);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -51,7 +52,7 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
     if (activeTab === 'scheduled') {
       return (
         <div className="flex items-center space-x-1">
-          <Button
+          {/* <Button
             variant="outline"
             size="sm"
             onClick={() => onOrderAction('modify', order)}
@@ -59,21 +60,20 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
             iconPosition="left"
           >
             Modify
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOrderAction('cancel', order)}
-            iconName="X"
-            iconPosition="left"
-          >
-            Cancel
-          </Button>
+          </Button> */}
           <Button
             variant="ghost"
             size="sm"
             onClick={() => onOrderAction('view', order)}
             iconName="Eye"
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onOrderAction('cancel', order)}
+            iconName="Trash2"
+            title="Delete Group"
+            className="text-red-600 hover:text-red-700"
           />
         </div>
       );

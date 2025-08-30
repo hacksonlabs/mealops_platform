@@ -44,15 +44,6 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
     onFiltersChange(updatedFilters);
   };
 
-  const handleTeamMemberToggle = (memberId) => {
-    const currentMembers = localFilters?.teamMembers || [];
-    const updatedMembers = currentMembers?.includes(memberId)
-      ? currentMembers?.filter(id => id !== memberId)
-      : [...currentMembers, memberId];
-    
-    handleFilterChange('teamMembers', updatedMembers);
-  };
-
   const handleClearFilters = () => {
     const clearedFilters = {
       dateFrom: '',
@@ -149,42 +140,6 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
               value={localFilters?.location || ''}
               onChange={(value) => handleFilterChange('location', value)}
             />
-          </div>
-
-          {/* Cost Range */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-              type="number"
-              label="Min Cost ($)"
-              placeholder="0.00"
-              value={localFilters?.minCost || ''}
-              onChange={(e) => handleFilterChange('minCost', e?.target?.value)}
-            />
-            <Input
-              type="number"
-              label="Max Cost ($)"
-              placeholder="1000.00"
-              value={localFilters?.maxCost || ''}
-              onChange={(e) => handleFilterChange('maxCost', e?.target?.value)}
-            />
-          </div>
-
-          {/* Team Members */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-3">
-              Filter by Team Members
-            </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-              {teamMembers?.map((member) => (
-                <Checkbox
-                  key={member?.id}
-                  label={`${member?.name} (${member?.role})`}
-                  checked={(localFilters?.teamMembers || [])?.includes(member?.id)}
-                  onChange={() => handleTeamMemberToggle(member?.id)}
-                  size="sm"
-                />
-              ))}
-            </div>
           </div>
         </div>
       )}
