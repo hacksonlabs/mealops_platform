@@ -6,7 +6,21 @@ import { Checkbox } from '../../../components/ui/Checkbox';
 const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrderAction, activeTab }) => {
   const [sortField, setSortField] = useState('date');
   const [sortDirection, setSortDirection] = useState('desc');
-  const [loading, setLoading] = useState(false);
+  
+  const sortedOrders = React.useMemo(() => {
+   const dir = sortDirection === 'asc' ? 1 : -1;
+   const arr = [...(orders ?? [])];
+   arr.sort((a, b) => {
+     switch (sortField) {
+       case 'date':       return (new Date(a.date) - new Date(b.date)) * dir;
+       case 'restaurant': return a.restaurant.localeCompare(b.restaurant) * dir;
+       case 'attendees':  return (a.attendees - b.attendees) * dir;
+       case 'totalCost':  return (a.totalCost - b.totalCost) * dir;
+       default:           return 0;
+     }
+   });
+   return arr;
+  }, [orders, sortField, sortDirection]);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -212,7 +226,7 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {orders?.map((order) => (
+            {sortedOrders?.map((order) => (
               <tr key={order?.id} className="hover:bg-muted/50 transition-athletic">
                 <td className="px-4 py-4">
                   <Checkbox
@@ -265,7 +279,7 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
                     {formatCurrency(order?.totalCost)}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {formatCurrency(order?.totalCost / order?.attendees)} per person
+                    {formatCurrency(order?.attendees > 0 ? order.totalCost / order.attendees : 0)} per person
                   </div>
                 </td>
                 <td className="px-4 py-4">

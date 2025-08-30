@@ -13,11 +13,7 @@ import { supabase } from '../../lib/supabase';
 
 const OrderHistoryManagement = () => {
   const navigate = useNavigate();
-  const { user, userProfile, loading: loadingAuth } = useAuth(); 
-  
-  const [teamId, setTeamId] = useState(null);
-  const [loadingTeamId, setLoadingTeamId] = useState(true);
-  const [errorTeamId, setErrorTeamId] = useState(null);
+  const { user, userProfile, loading: loadingAuth, teams, activeTeam, loadingTeams } = useAuth();
 
   const [activeTab, setActiveTab] = useState('scheduled');
   const [orders, setOrders] = useState([]);
@@ -39,48 +35,12 @@ const OrderHistoryManagement = () => {
     maxCost: '',
     search: ''
   });
+  const teamId = activeTeam?.id ?? null;
 
-  // Fetch the teamId for the current user, mirroring the TeamMembersManagement logic
   useEffect(() => {
-    const fetchUserTeamId = async () => {
-      if (user?.id) {
-        setLoadingTeamId(true);
-        setErrorTeamId(null);
-        try {
-          // Query the 'teams' table to find the user's team(s)
-          const { data, error } = await supabase
-            .from('teams')
-            .select('id')
-            .eq('coach_id', user.id)
-            .order('created_at', { ascending: false }) // Order to get a consistent primary team
-            .limit(1); // We only need one teamId for now
-
-          if (error) {
-            throw error;
-          }
-
-          if (data && data.length > 0) {
-            setTeamId(data[0].id); // Set the teamId from the fetched data
-          } else {
-            setTeamId(null);
-            console.warn('User is not associated with any team.');
-          }
-        } catch (error) {
-          console.error('Error fetching team ID:', error.message);
-          setErrorTeamId('Failed to retrieve team information.');
-          setTeamId(null);
-        } finally {
-          setLoadingTeamId(false);
-        }
-      } else if (!loadingAuth) {
-        setTeamId(null);
-        setLoadingTeamId(false);
-      }
-    };
-
-    fetchUserTeamId();
-  }, [user?.id, loadingAuth]);
-
+    setOrders([]);
+    setSelectedOrders([]);
+  }, [teamId]);
 
   // Function to fetch orders from Supabase
   const fetchOrders = useCallback(async () => {
@@ -116,7 +76,17 @@ const OrderHistoryManagement = () => {
           user_profiles (first_name, last_name)
         )
       `)
-      .eq('team_id', teamId); // Filter by team_id
+      .eq('team_id', teamId)
+      .order('scheduled_date', { ascending: false });
+
+      // Apply active-tab server-side status filter
+      const statusMap = {
+        scheduled: ['scheduled','pending_confirmation','preparing','out_for_delivery'],
+        completed: ['completed'],
+        cancelled: ['cancelled','failed'],
+      };
+      const statuses = statusMap[activeTab] ?? statusMap.scheduled;
+      query = query.in('order_status', statuses);
 
     // Apply filters based on current state
     if (filters.dateFrom) {
@@ -154,23 +124,21 @@ const OrderHistoryManagement = () => {
       setOrders(transformedOrders);
     }
     setLoadingOrders(false);
-  }, [teamId, filters]);
+  }, [teamId, activeTab, filters]);
 
   // Use a real-time subscription for orders
   useEffect(() => {
-    if (!teamId) return; // Only subscribe if teamId is available
-
-    fetchOrders(); // Initial fetch
-
+    if (!teamId) return;
+    fetchOrders();
     const channel = supabase
-      .channel('order_history_changes')
+      .channel(`order_history_changes_${teamId}`)
       .on(
         'postgres_changes',
         {
           event: '*', // Listen to INSERT, UPDATE, DELETE
           schema: 'public',
           table: 'meal_orders',
-          filter: `team_id=eq.${teamId}` // Filter real-time changes by team_id
+          filter: `team_id=eq.${teamId}`
         },
         payload => {
           console.log('Change received!', payload);
@@ -356,7 +324,7 @@ const OrderHistoryManagement = () => {
     setSelectedOrders([]);
   };
 
-  if (loadingAuth || loadingTeamId || loadingOrders) {
+  if (loadingAuth || loadingTeams || loadingOrders) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Icon name="Loader" className="animate-spin text-primary" size={48} />
@@ -374,15 +342,6 @@ const OrderHistoryManagement = () => {
     );
   }
 
-  // Handle errors specific to team ID fetching
-  if (errorTeamId) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center text-red-600">
-        <p className="text-lg">Error loading team information: {errorTeamId}</p>
-      </div>
-    );
-  }
-
   // Handle errors specific to order fetching
   if (errorOrders) {
     return (
@@ -396,7 +355,12 @@ const OrderHistoryManagement = () => {
   if (!teamId) {
       return (
           <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground">
-              <p className="text-lg">You are not associated with a team. Please contact your administrator.</p>
+              <div className="space-y-3 text-center">
+                <p className="text-lg">No active team yet.</p>
+                {teams?.length > 0 && (
+                  <p className="text-sm">Use the team switcher to pick one.</p>
+                )}
+              </div>
           </div>
       );
   }
