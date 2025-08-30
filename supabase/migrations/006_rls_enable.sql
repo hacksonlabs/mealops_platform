@@ -1,0 +1,22 @@
+-- supabase/migrations/006_rls_enable
+-- Enable RLS
+ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.saved_locations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.restaurants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.menu_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payment_methods ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meal_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meal_polls ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.poll_options ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.poll_votes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.api_integrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meal_order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meal_order_item_customizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meal_order_item_options ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications enable row level security;
+ALTER TABLE public.member_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.member_group_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.location_addresses ENABLE ROW LEVEL SECURITY;
