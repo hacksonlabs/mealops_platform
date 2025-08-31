@@ -19,7 +19,6 @@ function getRangeForView(currentDate, viewMode) {
   start.setHours(0, 0, 0, 0);
 
   if (viewMode === 'twoWeeks') {
-    // start on Sunday of this week, show 14 days
     const dow = start.getDay();
     start.setDate(start.getDate() - dow);
     const end = new Date(start);
@@ -28,7 +27,6 @@ function getRangeForView(currentDate, viewMode) {
     return { start, end };
   }
 
-  // default to full month
   const mStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
   const mEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59, 999);
   return { start: mStart, end: mEnd };
@@ -46,10 +44,7 @@ function mkBirthdayDateForYear(birthdayISO, year) {
   const m = b.getMonth();
   const d = b.getDate();
   const candidate = new Date(year, m, d);
-  // If JS rolls the date to next month (e.g., Feb 29 -> Mar 1), fallback to previous day
-  if (candidate.getMonth() !== m) {
-    return new Date(year, m, d - 1);
-  }
+  if (candidate.getMonth() !== m) return new Date(year, m, d - 1);
   return candidate;
 }
 
@@ -62,7 +57,6 @@ function computeAge(onDateISO, dobISO) {
   return age;
 }
 
-// normalize US phone numbers like "(xxx) xxx-xxxx" to E.164 +1XXXXXXXXXX
 function toE164US(raw) {
   if (!raw) return null;
   const trimmed = String(raw).trim();
@@ -87,9 +81,7 @@ const CalendarOrderScheduling = () => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [filters, setFilters] = useState({ mealType: 'all', restaurant: 'all' });
   const [selectedDate, setSelectedDate] = useState(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d;
   });
 
   // Loaded from DB
@@ -99,7 +91,7 @@ const CalendarOrderScheduling = () => {
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState('');
 
-  // Saved templates (still local for now)
+  // Saved templates (local)
   const savedTemplates = [
     { id: 'template-1', name: 'Pre-Game Breakfast', restaurant: 'panera', mealType: 'breakfast', time: '08:00', members: [], notes: '' },
     { id: 'template-2', name: 'Team Lunch Meeting',  restaurant: 'chipotle', mealType: 'lunch',    time: '12:30', members: [], notes: '' },
@@ -111,28 +103,32 @@ const CalendarOrderScheduling = () => {
     const run = async () => {
       setLoadErr('');
       if (!activeTeam?.id) {
-        setOrders([]);
-        setTeamMembers([]);
-        setBirthdayEvents([]);
-        return;
+        setOrders([]); setTeamMembers([]); setBirthdayEvents([]); return;
       }
 
       setLoading(true);
       try {
         const { start, end } = getRangeForView(currentDate, viewMode);
 
-        // orders with restaurant name
         const { data: orderRows, error: orderErr } = await supabase
           .from('meal_orders')
           .select(`
             id,
             team_id,
-            restaurant_id,
+            title,
+            description,
+            meal_type,
             scheduled_date,
             order_status,
-            description,
+            fulfillment_method,
+            delivery_instructions,
             created_at,
-            restaurants ( name )
+            restaurants:restaurants ( id, name ),
+            order_items:order_items (
+              id, user_id, team_member_id,
+              user_profiles:user_profiles ( first_name, last_name ),
+              team_members:team_members ( full_name, role )
+            )
           `)
           .eq('team_id', activeTeam.id)
           .gte('scheduled_date', start.toISOString())
@@ -141,29 +137,64 @@ const CalendarOrderScheduling = () => {
 
         if (orderErr) throw orderErr;
 
-        const orderIds = orderRows?.map(o => o.id) ?? [];
-
-        // attendees = distinct user_ids per order from order_items
-        let attendeesByOrder = {};
-        if (orderIds.length > 0) {
-          const { data: itemRows, error: itemsErr } = await supabase
-            .from('order_items')
-            .select('order_id, user_id')
-            .in('order_id', orderIds);
-
-          if (itemsErr) throw itemsErr;
-
-          const map = new Map(); // order_id -> Set(user_id)
-          itemRows?.forEach(({ order_id, user_id }) => {
-            if (!map.has(order_id)) map.set(order_id, new Set());
-            if (user_id) map.get(order_id).add(user_id);
+        // Build event + originalOrderData
+        const mapped = (orderRows || []).map((row) => {
+          // dedupe attendees
+          const unique = new Map();
+          (row.order_items || []).forEach((it) => {
+            const key = it.team_member_id || it.user_id || it.id;
+            if (unique.has(key)) return;
+            const name =
+              it.team_members?.full_name ??
+              (it.user_profiles ? `${it.user_profiles.first_name} ${it.user_profiles.last_name}` : 'Team Member');
+            const role = it.team_members?.role || '';
+            unique.set(key, { name, role });
           });
-          attendeesByOrder = Object.fromEntries(
-            [...map.entries()].map(([k, v]) => [k, v.size])
-          );
-        }
+          const team_members = Array.from(unique.values());
 
-        // team members for the modal
+          // normalize meal type (fallbacks)
+          const mealType = (() => {
+            if (row.meal_type) return row.meal_type;
+            const haystack = `${row.title ?? ''} ${row.description ?? ''}`.toLowerCase();
+            if (/\bbreakfast\b/.test(haystack)) return 'breakfast';
+            if (/\blunch\b/.test(haystack))     return 'lunch';
+            if (/\bdinner\b/.test(haystack))    return 'dinner';
+            if (/\bsnacks?\b/.test(haystack))   return 'snack';
+            return 'other';
+          })();
+
+          const detailPayload = {
+            id: row.id,
+            title: row.title || '',
+            restaurant: row.restaurants?.name || 'Unknown Restaurant',
+            date: row.scheduled_date,
+            time: fmtTime(row.scheduled_date),
+            mealType,
+            status: row.order_status,
+            created_at: row.created_at,
+            fulfillment_method: row.fulfillment_method || '',
+            delivery_instructions: row.delivery_instructions || '',
+            team_members, // [{ name, role }]
+          };
+
+          // event used by calendar & upcoming list
+          return {
+            id: row.id,
+            type: 'order',
+            date: row.scheduled_date,
+            time: fmtTime(row.scheduled_date),
+            restaurant: row.restaurants?.name || 'Unknown Restaurant',
+            mealType,
+            attendees: team_members.length,
+            status: row.order_status,
+            notes: row.description ?? '',
+            originalOrderData: detailPayload,
+          };
+        });
+
+        setOrders(mapped);
+
+        // Separate team member list (if other UIs need it)
         const { data: memberRows, error: membersErr } = await supabase
           .from('team_members')
           .select('id, user_id, full_name, role, email, allergies, birthday')
@@ -171,23 +202,6 @@ const CalendarOrderScheduling = () => {
           .eq('is_active', true);
 
         if (membersErr) throw membersErr;
-
-        // map DB rows -> UI shape your grid/cards expect
-        const mapped = orderRows.map(row => ({
-          id: row.id,
-          type: 'order',
-          date: row.scheduled_date,
-          restaurant: row.restaurants?.name || 'Unknown Restaurant',
-          mealType: 'lunch', // not in schema; set a default or add a column later
-          time: fmtTime(row.scheduled_date),
-          attendees: attendeesByOrder[row.id] ?? 0,
-          status: row.order_status,
-          notes: row.description ?? '',
-          createdAt: row.created_at,
-          members: []
-        }));
-
-        setOrders(mapped);
 
         const simplifiedMembers = (memberRows ?? []).map(m => ({
           id: m.id,
@@ -199,10 +213,9 @@ const CalendarOrderScheduling = () => {
         }));
         setTeamMembers(simplifiedMembers);
 
-        // Build birthday events inside current range
+        // Birthdays inside current range
         const years = new Set([start.getFullYear(), end.getFullYear()]);
         const bdayEvents = [];
-
         simplifiedMembers.forEach((m) => {
           if (!m.birthday) return;
           years.forEach((yr) => {
@@ -215,7 +228,7 @@ const CalendarOrderScheduling = () => {
                 label: `${m.name}'s Bday!`,
                 memberId: m.id,
                 memberName: m.name,
-                dob: m.birthday, // original DOB to compute age
+                dob: m.birthday,
                 status: 'birthday'
               });
             }
@@ -234,7 +247,7 @@ const CalendarOrderScheduling = () => {
     run();
   }, [activeTeam?.id, currentDate, viewMode]);
 
-  // ===== This Month (derived from currentDate + orders) ===== orders only (not birthdays)
+  // ===== This Month (orders only) =====
   const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
   const monthEnd   = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
@@ -253,7 +266,7 @@ const CalendarOrderScheduling = () => {
     return { totalMeals, totalSpent, avgPerMeal };
   }, [thisMonthOrders]);
 
-  // Filters (still client-side)
+  // Client-side filters for calendar
   const filteredOrders = orders.filter(order => {
     if (filters.mealType !== 'all' && order.mealType !== filters.mealType) return false;
     if (filters.restaurant !== 'all') {
@@ -269,8 +282,7 @@ const CalendarOrderScheduling = () => {
     return true;
   });
 
-  // FINAL event list rendered on the grid (orders + birthdays)
-  // Sorted by (1) day asc, (2) birthdays first, (3) time asc
+  // FINAL events on the grid (orders + birthdays)
   const calendarEvents = useMemo(() => {
     const events = [...filteredOrders, ...birthdayEvents];
     events.sort((a, b) => {
@@ -310,32 +322,31 @@ const CalendarOrderScheduling = () => {
 
   const handleScheduleNew = () => setIsScheduleModalOpen(true);
 
-  // client-side updates for now
-  const handleScheduleMeal = (orderData) => setOrders(prev => [...prev, orderData]);
-  const handleOrderClick = (order) => { setSelectedOrder(order); setIsOrderDetailsModalOpen(true); };
+  // Click handlers — always pass the *detail* payload to the modal (like Order History)
+  const handleOrderClick = (orderEvent) => {
+    setSelectedOrder(orderEvent?.originalOrderData || null);
+    setIsOrderDetailsModalOpen(true);
+  };
+
   const handleEditOrder = (order) => console.log('Edit order:', order);
   const handleCancelOrder = (orderId) => setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'cancelled' } : o));
   const handleRepeatOrder = () => { setSelectedDate(new Date()); setIsScheduleModalOpen(true); };
   const handleTemplateUse = () => { setSelectedDate(new Date()); setIsScheduleModalOpen(true); };
+
   const [isMobile, setIsMobile] = useState(false);
   const handleEventClick = (evt) => {
     if (evt?.type === 'birthday') {
       setSelectedBirthday(evt);
       setIsBirthdayModalOpen(true);
     } else {
-      setSelectedOrder(evt);
+      setSelectedOrder(evt?.originalOrderData || null);
       setIsOrderDetailsModalOpen(true);
     }
   };
 
-  // Send birthday reminder:
-  // - SMS first (to coaches except the sender), using numbers normalized to E.164
-  // - Email only as fallback (missing phone / failed SMS)
-  // - Create in-app notification (best-effort)
+  // Birthday reminder flow (unchanged)
   async function handleRemindCoaches(bdayEvt) {
     if (!activeTeam?.id) return;
-
-    // 1) Load coaches (include user_id & phone_number)
     const { data: coaches, error: coachErr } = await supabase
       .from('team_members')
       .select('user_id, full_name, email, phone_number')
@@ -348,7 +359,6 @@ const CalendarOrderScheduling = () => {
       return;
     }
 
-    // 2) Exclude the sender (by user_id or email match)
     const recipients = (coaches ?? []).filter(c =>
       (user?.id ? c.user_id !== user.id : true) &&
       (user?.email ? c.email !== user.email : true)
@@ -362,25 +372,18 @@ const CalendarOrderScheduling = () => {
     const age = computeAge(bdayEvt.date, bdayEvt.dob);
     const smsText = `🎂 ${bdayEvt.memberName} turns ${age} today!`;
 
-    // Normalize phones
-    const recWithPhones = recipients.map(r => ({
-      ...r,
-      phone_e164: toE164US(r.phone_number),
-    }));
+    const recWithPhones = recipients.map(r => ({ ...r, phone_e164: toE164US(r.phone_number) }));
     const smsTargets = recWithPhones.filter(r => !!r.phone_e164).map(r => r.phone_e164);
 
     let failedE164 = new Set();
     let invalidE164 = new Set();
 
-    // 3) Try SMS first
     if (smsTargets.length) {
       const { data: smsRes, error: smsErr } = await supabase.functions.invoke('send-sms', {
         body: { to: smsTargets, text: smsText },
       });
-
       if (smsErr) {
         console.error('send-sms error', smsErr);
-        // service issue => email everyone
         smsTargets.forEach(n => failedE164.add(n));
       } else {
         const toValue = (x) => (typeof x === 'string' ? x : x?.to);
@@ -389,7 +392,6 @@ const CalendarOrderScheduling = () => {
       }
     }
 
-    // 4) Email fallback: no phone OR SMS failed OR invalid format
     const emailFallback = recWithPhones
       .filter(r => !r.phone_e164 || failedE164.has(r.phone_e164) || invalidE164.has(r.phone_e164))
       .map(r => r.email)
@@ -408,28 +410,17 @@ const CalendarOrderScheduling = () => {
       if (emailErr) console.error('send-email error', emailErr);
     }
 
-    // 5) In-app notification (RLS allows a coach to insert for their team)
     const message = `${bdayEvt.memberName} has a birthday today!`;
     const payload = {
-      memberId: bdayEvt.memberId,
-      memberName: bdayEvt.memberName,
-      dob: bdayEvt.dob,
-      date: bdayEvt.date,
-      type: 'birthday_reminder',
+      memberId: bdayEvt.memberId, memberName: bdayEvt.memberName,
+      dob: bdayEvt.dob, date: bdayEvt.date, type: 'birthday_reminder',
     };
 
     const { error: notifErr } = await supabase.from('notifications').insert({
-      team_id: activeTeam.id,
-      type: 'birthday_reminder',
-      message,
-      payload,
+      team_id: activeTeam.id, type: 'birthday_reminder', message, payload,
     });
-    if (notifErr) {
-      // Don’t block the UX—just log it
-      console.warn('notifications insert failed:', notifErr.message);
-    }
+    if (notifErr) console.warn('notifications insert failed:', notifErr.message);
 
-    // 6) UX feedback
     const deliveredSms = smsTargets.length - failedE164.size - invalidE164.size;
     const deliveredEmail = emailFallback.length;
     alert(`Reminder sent.\nSMS: ${Math.max(deliveredSms, 0)}/${smsTargets.length}\nEmail fallback: ${deliveredEmail}`);
@@ -461,16 +452,14 @@ const CalendarOrderScheduling = () => {
             </div>
           </div>
 
-          {loadErr && (
-            <div className="mb-4 text-sm text-red-600">{loadErr}</div>
-          )}
+          {loadErr && <div className="mb-4 text-sm text-red-600">{loadErr}</div>}
 
           <div className="mb-6">
             <TopPanel
               upcomingMeals={upcomingMeals}
               monthStats={monthStats}
               onScheduleNew={handleScheduleNew}
-              onOrderClick={handleOrderClick}
+              onOrderClick={handleOrderClick} // passes event (with originalOrderData) to modal
               loading={loading}
             />
           </div>
@@ -490,7 +479,7 @@ const CalendarOrderScheduling = () => {
           )}
 
           <div className={`grid gap-6 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-1'}`}>
-            <div className={isMobile ? 'order-1' : 'lg:col-span-3'}>
+            <div className={isMobile ? 'order-1' : 'lg:col-span-1'}>
               {isMobile ? (
                 <div className="space-y-4">
                   <div className="bg-card border border-border rounded-lg p-4">
@@ -564,7 +553,7 @@ const CalendarOrderScheduling = () => {
                     onDateSelect={setSelectedDate}
                     orders={calendarEvents}
                     viewMode={viewMode}
-                    onOrderClick={handleEventClick}
+                    onOrderClick={handleEventClick} // uses originalOrderData for the modal
                     onNewOrder={(d) => { const dd = new Date(d); dd.setHours(0,0,0,0); setSelectedDate(dd); setIsScheduleModalOpen(true); }}
                     attached
                     loading={loading}
@@ -592,7 +581,7 @@ const CalendarOrderScheduling = () => {
         isOpen={isScheduleModalOpen}
         onClose={() => setIsScheduleModalOpen(false)}
         selectedDate={selectedDate}
-        onSchedule={handleScheduleMeal}
+        onSchedule={orderData => setOrders(prev => [...prev, orderData])}
         teamMembers={teamMembers}
         savedTemplates={savedTemplates}
       />
