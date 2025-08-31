@@ -1,17 +1,17 @@
+// src/pages/calendar-order-scheduling/components/OrderDetailsModal.jsx
 import React, { useState, useRef } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import PeopleTooltip from '../../../components/ui/PeopleTooltip';
 import { getStatusBadge, getMealTypeIcon } from '../../../utils/ordersUtils';
 
-const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onRepeat }) => {
+const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDetail }) => {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   // Tooltip (attendees)
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [peoplePos, setPeoplePos] = useState({ x: 0, y: 0 });
   const peopleAnchorRef = useRef(null);
-
   if (!isOpen || !order) return null;
 
   const formatDate = (dateString) =>
@@ -32,6 +32,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onRepeat 
 
   const attendees = Array.isArray(order.team_members) ? order.team_members : [];
   const attendeesCount = attendees.length;
+  const peopleNames = attendees.map((m, i) => m?.name || `Member ${i + 1}`);
   const peopleForTooltip = attendees.map((m, i) => ({
     name: m?.name || `Member ${i + 1}`,
     role: m?.role || '',
@@ -45,12 +46,6 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onRepeat 
     setShowCancelConfirm(false);
     onClose?.();
   };
-
-  const handleRepeat = () => {
-    onRepeat?.(order);
-    onClose?.();
-  };
-
   const handleEdit = () => {
     onEdit?.(order);
     onClose?.();
@@ -104,29 +99,11 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onRepeat 
           </div>
 
           {/* Row 3: Order number */}
-          <div className="mt-1 text-sm text-muted-foreground">
-            Order #{order?.id}
-          </div>
+          <div className="mt-1 text-sm text-muted-foreground">Order #{order?.id}</div>
         </div>
-
-
 
         {/* Content */}
         <div className="p-6 space-y-6">
-          {/* Title + Restaurant + Order # */}
-          {/* <div className="space-y-1">
-            <h2 className="text-xl font-heading font-semibold text-foreground">
-              {order?.title || 'Meal'}
-            </h2>
-            <div className="text-sm text-muted-foreground flex items-center gap-2">
-              <Icon name="Store" size={14} className="text-muted-foreground" />
-              <span>{order?.restaurant}</span>
-              <span>•</span>
-              <span>Order #{order?.id}</span>
-            </div>
-          </div> */}
-
-          {/* Key facts */}
           <div className="grid grid-cols-2 gap-4">
             {/* Date */}
             <div className="space-y-1">
@@ -146,7 +123,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onRepeat 
               <p className="text-sm text-muted-foreground pl-6">{formatTime(order?.time)}</p>
             </div>
 
-            {/* Attendees (PeopleTooltip) */}
+            {/* Attendees */}
             <div className="space-y-1 col-span-2">
               <div className="flex items-center gap-2">
                 <Icon name="Users" size={16} className="text-muted-foreground" />
@@ -158,7 +135,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onRepeat 
                   onMouseEnter={openPeople}
                   onMouseLeave={closePeople}
                   className="inline-flex items-center gap-1 text-sm font-medium text-green-700 underline underline-offset-2 decoration-2 decoration-green-500 cursor-default"
-                  title={peopleForTooltip.map(p => p.name).join(', ')}
+                  title={peopleForTooltip.map((p) => p.name).join(', ')}
                 >
                   <Icon name="Users" size={14} />
                   {attendeesCount} {attendeesCount === 1 ? 'person' : 'people'}
@@ -167,7 +144,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onRepeat 
                   open={peopleOpen}
                   x={peoplePos.x}
                   y={peoplePos.y}
-                  names={peopleForTooltip}
+                  names={peopleNames} // works if your PeopleTooltip supports {name, role}
                   onMouseEnter={() => setPeopleOpen(true)}
                   onMouseLeave={closePeople}
                   title="Attendees"
@@ -213,11 +190,11 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onRepeat 
             <Button
               variant="outline"
               size="sm"
-              onClick={handleRepeat}
-              iconName="RotateCcw"
+              onClick={() => onOpenDetail?.(order.id)}
+              iconName="Maximize2"
               iconSize={16}
             >
-              Repeat Order
+              View Full Details
             </Button>
           </div>
 

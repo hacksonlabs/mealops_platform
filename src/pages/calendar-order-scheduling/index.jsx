@@ -5,6 +5,7 @@ import CalendarGrid from './components/CalendarGrid';
 import TopPanel from './components/TopPanel';
 import ScheduleMealModal from './components/ScheduleMealModal';
 import OrderDetailsModal from './components/OrderDetailsModal';
+import OrderDetailModal from '../order-history-management/components/OrderDetailModal';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
 import { supabase } from '../../lib/supabase';
@@ -80,6 +81,8 @@ const CalendarOrderScheduling = () => {
   const [selectedBirthday, setSelectedBirthday] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [filters, setFilters] = useState({ mealType: 'all', restaurant: 'all' });
+  const [isHistoryDetailOpen, setIsHistoryDetailOpen] = useState(false);
+  const [historyDetailOrder, setHistoryDetailOrder] = useState(null);
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d;
   });
@@ -322,7 +325,7 @@ const CalendarOrderScheduling = () => {
 
   const handleScheduleNew = () => setIsScheduleModalOpen(true);
 
-  // Click handlers — always pass the *detail* payload to the modal (like Order History)
+  // Click handlers — always pass the *detail* payload to the modal
   const handleOrderClick = (orderEvent) => {
     setSelectedOrder(orderEvent?.originalOrderData || null);
     setIsOrderDetailsModalOpen(true);
@@ -432,6 +435,39 @@ const CalendarOrderScheduling = () => {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  const handleOpenDetail = async (orderId) => {
+    if (!orderId) return;
+    setIsOrderDetailsModalOpen(false);
+
+    try {
+      const { data, error } = await supabase
+        .from('meal_orders')
+        .select(`
+          id, team_id, title, description, meal_type, scheduled_date, created_at,
+          order_status, total_amount, api_order_id,
+          restaurants:restaurants (id, name, address),
+          saved_locations:saved_locations (id, name, address),
+          payment_methods:payment_methods (id, card_name, last_four, is_default),
+          order_items:order_items (
+            id, user_id, team_member_id, item_name, quantity, price, special_instructions,
+            user_profiles:user_profiles (first_name, last_name),
+            team_members:team_members (full_name)
+          )
+        `)
+        .eq('team_id', activeTeam.id)
+        .eq('id', orderId)
+        .single();
+
+      if (error) throw error;
+      setHistoryDetailOrder(data);
+      setIsHistoryDetailOpen(true);
+    } catch (e) {
+      console.error('Failed to load full order:', e);
+      alert('Sorry—could not load the full order details.');
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -588,10 +624,15 @@ const CalendarOrderScheduling = () => {
       <OrderDetailsModal
         isOpen={isOrderDetailsModalOpen}
         onClose={() => setIsOrderDetailsModalOpen(false)}
-        order={selectedOrder}
+        order={selectedOrder}        
         onEdit={handleEditOrder}
         onCancel={handleCancelOrder}
-        onRepeat={handleRepeatOrder}
+        onOpenDetail={handleOpenDetail}
+      />
+      <OrderDetailModal
+        order={historyDetailOrder}
+        isOpen={isHistoryDetailOpen}
+        onClose={() => setIsHistoryDetailOpen(false)}
       />
       <BirthdayDetailsModal
         isOpen={isBirthdayModalOpen}
