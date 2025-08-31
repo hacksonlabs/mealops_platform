@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { STATUS_META } from '../../../utils/ordersUtils';
 
 const CalendarGrid = ({
   currentDate,
@@ -41,11 +42,19 @@ const CalendarGrid = ({
   };
 
   const badgeFor = (evt) => {
-    if (evt?.type === 'birthday') return 'bg-rose-100 text-rose-800 border-rose-200';
-    const s = evt?.status;
-    return s === 'scheduled' ? 'bg-blue-100 text-blue-800 border-blue-200'
-         : s === 'confirmed' ? 'bg-green-100 text-green-800 border-green-200'
-         : 'bg-gray-100 text-gray-800 border-gray-200';
+   // Special styling for birthdays (not in STATUS_META)
+   if (evt?.type === 'birthday') {
+     return 'bg-rose-50 text-rose-700 border-rose-200';
+   }
+   // Pull bg/text/ring from STATUS_META; fall back to 'scheduled' or a neutral style
+   const meta =
+     STATUS_META[evt?.status] ??
+     STATUS_META.scheduled ??
+     { bg: 'bg-zinc-50', text: 'text-zinc-700', ring: 'ring-zinc-200' };
+
+   // Convert ring-* to matching border-* for your badge border
+   const border = meta.ring?.replace(/^ring-/, 'border-') || 'border-transparent';
+   return `${meta.bg} ${meta.text} ${border}`;
   };
 
   const EventLabel = ({ evt }) => (

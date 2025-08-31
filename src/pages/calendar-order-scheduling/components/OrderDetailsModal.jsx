@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import { getStatusBadge, getMealTypeIcon } from '../../../utils/ordersUtils';
 
 const OrderDetailsModal = ({ 
   isOpen, 
@@ -31,35 +32,6 @@ const OrderDetailsModal = ({
     return `${displayHour}:${minutes} ${ampm}`;
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'scheduled':
-        return 'text-blue-600 bg-blue-50 border-blue-200';
-      case 'confirmed':
-        return 'text-green-600 bg-green-50 border-green-200';
-      case 'completed':
-        return 'text-gray-600 bg-gray-50 border-gray-200';
-      case 'cancelled':
-        return 'text-red-600 bg-red-50 border-red-200';
-      default:
-        return 'text-gray-600 bg-gray-50 border-gray-200';
-    }
-  };
-
-  const getMealTypeIcon = (mealType) => {
-    switch (mealType) {
-      case 'breakfast':
-        return 'Coffee';
-      case 'lunch':
-        return 'Utensils';
-      case 'dinner':
-        return 'UtensilsCrossed';
-      case 'snack':
-        return 'Cookie';
-      default:
-        return 'Utensils';
-    }
-  };
 
   const canEdit = order?.status === 'scheduled' && new Date(order.date) > new Date();
   const canCancel = order?.status !== 'cancelled' && order?.status !== 'completed';
@@ -117,12 +89,7 @@ const OrderDetailsModal = ({
         <div className="p-6 space-y-6">
           {/* Status Badge */}
           <div className="flex items-center justify-between">
-            <span className={`
-              px-3 py-1 rounded-full text-sm font-medium border
-              ${getStatusColor(order?.status)}
-            `}>
-              {order?.status?.charAt(0)?.toUpperCase() + order?.status?.slice(1)}
-            </span>
+            {getStatusBadge(order?.status)}
             <span className="text-sm text-muted-foreground">
               Order #{order?.id}
             </span>

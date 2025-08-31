@@ -10,6 +10,7 @@ import Icon from '../../components/AppIcon';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
 import BirthdayDetailsModal from './components/BirthdayDetailsModal';
+import { getStatusBadge } from '../../utils/ordersUtils';
 
 /* ----------------- helpers ----------------- */
 
@@ -515,12 +516,7 @@ const CalendarOrderScheduling = () => {
                                 <h4 className="font-medium text-foreground">{meal.restaurant}</h4>
                                 <p className="text-sm text-muted-foreground capitalize">{meal.mealType}</p>
                               </div>
-                              <span className={`
-                                text-xs px-2 py-1 rounded-full border font-medium
-                                ${meal.status === 'scheduled' ? 'text-blue-600 bg-blue-50 border-blue-200' : 'text-green-600 bg-green-50 border-green-200'}
-                              `}>
-                                {meal.status}
-                              </span>
+                              {getStatusBadge(meal.status)}
                             </div>
 
                             <div className="flex items-center justify-between text-sm text-muted-foreground">
