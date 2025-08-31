@@ -1,58 +1,51 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import {
+  getStatusBadge,
+  formatDate,
+  formatCurrency,
+  getMealTypeIcon,
+} from '../../../utils/ordersUtils';
 
 const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
   if (!isOpen || !order) return null;
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date?.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+  // Unique attendees by team_member_id or user_id
+  const uniqueAttendees = React.useMemo(() => {
+    const m = new Map();
+    (order?.order_items || []).forEach((it) => {
+      const key = it.team_member_id || it.user_id || it.id;
+      if (!m.has(key)) {
+        const name =
+          it?.team_members?.full_name ??
+          (it?.user_profiles
+            ? `${it.user_profiles.first_name} ${it.user_profiles.last_name}`
+            : 'Team Member');
+        m.set(key, name);
+      }
     });
-  };
+    return Array.from(m.values());
+  }, [order]);
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    })?.format(amount);
-  };
+  const pplCount = uniqueAttendees.length || 0;
 
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      scheduled: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Scheduled' },
-      completed: { bg: 'bg-green-100', text: 'text-green-800', label: 'Completed' },
-      cancelled: { bg: 'bg-red-100', text: 'text-red-800', label: 'Cancelled' },
-      modified: { bg: 'bg-amber-100', text: 'text-amber-800', label: 'Modified' }
-    };
+  // Prefer DB enum; fallback to 'other'
+  const mealType = order?.meal_type || 'other';
 
-    const config = statusConfig?.[status] || statusConfig?.scheduled;
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config?.bg} ${config?.text}`}>
-        {config?.label}
-      </span>
-    );
-  };
-
-  const memberOrders = [
-    { name: 'Coach Johnson', order: 'Grilled Chicken Salad', specialInstructions: 'No croutons, extra dressing on side', cost: 12.99 },
-    { name: 'Sarah Williams', order: 'Turkey Club Sandwich', specialInstructions: 'No mayo, add avocado', cost: 11.49 },
-    { name: 'Mike Chen', order: 'Beef Burrito Bowl', specialInstructions: 'Extra rice, mild salsa', cost: 13.99 },
-    { name: 'Alex Rodriguez', order: 'Chicken Caesar Wrap', specialInstructions: 'Light dressing', cost: 10.99 },
-    { name: 'Emma Davis', order: 'Veggie Quinoa Bowl', specialInstructions: 'No cheese, extra vegetables', cost: 12.49 },
-    { name: 'Jordan Smith', order: 'BBQ Pulled Pork Sandwich', specialInstructions: 'Extra BBQ sauce', cost: 13.49 }
-  ];
+  // Addresses from the joined tables (these are included in your select())
+  const restaurantName = order?.restaurants?.name || '—';
+  const restaurantAddr = order?.restaurants?.address || '';
+  const locationName = order?.saved_locations?.name || '—';
+  const locationAddr = order?.saved_locations?.address || '';
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black bg-opacity-50 transition-opacity" onClick={onClose} />
+      <div
+        className="fixed inset-0 bg-black/50 transition-opacity"
+        onClick={onClose}
+      />
       {/* Modal */}
       <div className="flex min-h-full items-center justify-center p-4">
         <div className="relative bg-card rounded-lg shadow-athletic-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
@@ -67,53 +60,67 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                   Order Details
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  Order #{order?.orderNumber} • {formatDate(order?.date)}
+                  Order #{order?.api_order_id || `ORD-${String(order?.id || '').substring(0, 8)}`} •{' '}
+                  {formatDate(order?.scheduled_date)}
                 </p>
               </div>
             </div>
-            <div className="flex items-center space-x-2">
-              {getStatusBadge(order?.status)}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onClose}
-                iconName="X"
+            <div className="flex items-center gap-2">
+              {/* meal type icon next to status */}
+              <Icon
+                name={getMealTypeIcon(mealType)}
+                size={16}
+                className="text-muted-foreground"
+                title={mealType}
               />
+              {getStatusBadge(order?.order_status)}
+              <Button variant="ghost" size="sm" onClick={onClose} iconName="X" />
             </div>
           </div>
 
           {/* Content */}
           <div className="overflow-y-auto max-h-[calc(90vh-120px)]">
             <div className="p-6 space-y-6">
-              {/* Order Summary */}
+              {/* Order Summary (no Meal Type card now) */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-muted rounded-lg p-4">
-                  <div className="flex items-center space-x-2 mb-2">
+                  <div className="flex items-center gap-2 mb-2">
                     <Icon name="Store" size={16} className="text-muted-foreground" />
                     <span className="text-sm font-medium text-foreground">Restaurant</span>
                   </div>
-                  <p className="text-lg font-semibold text-foreground">{order?.restaurant}</p>
+                  <p className="text-lg font-semibold text-foreground">{restaurantName}</p>
+                  {restaurantAddr && (
+                    <p className="text-xs text-muted-foreground mt-1">{restaurantAddr}</p>
+                  )}
                 </div>
+
                 <div className="bg-muted rounded-lg p-4">
-                  <div className="flex items-center space-x-2 mb-2">
+                  <div className="flex items-center gap-2 mb-2">
                     <Icon name="MapPin" size={16} className="text-muted-foreground" />
                     <span className="text-sm font-medium text-foreground">Location</span>
                   </div>
-                  <p className="text-lg font-semibold text-foreground">{order?.location}</p>
+                  <p className="text-lg font-semibold text-foreground">{locationName}</p>
+                  {locationAddr && (
+                    <p className="text-xs text-muted-foreground mt-1">{locationAddr}</p>
+                  )}
                 </div>
+
                 <div className="bg-muted rounded-lg p-4">
-                  <div className="flex items-center space-x-2 mb-2">
+                  <div className="flex items-center gap-2 mb-2">
                     <Icon name="Users" size={16} className="text-muted-foreground" />
                     <span className="text-sm font-medium text-foreground">Attendees</span>
                   </div>
-                  <p className="text-lg font-semibold text-foreground">{order?.attendees} people</p>
+                  <p className="text-lg font-semibold text-foreground">{pplCount} people</p>
                 </div>
+
                 <div className="bg-muted rounded-lg p-4">
-                  <div className="flex items-center space-x-2 mb-2">
+                  <div className="flex items-center gap-2 mb-2">
                     <Icon name="DollarSign" size={16} className="text-muted-foreground" />
                     <span className="text-sm font-medium text-foreground">Total Cost</span>
                   </div>
-                  <p className="text-lg font-semibold text-foreground">{formatCurrency(order?.totalCost)}</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {formatCurrency(order?.total_amount)}
+                  </p>
                 </div>
               </div>
 
@@ -127,36 +134,58 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                     <table className="w-full">
                       <thead className="bg-card">
                         <tr>
-                          <th className="px-4 py-3 text-left text-sm font-medium text-foreground">Team Member</th>
-                          <th className="px-4 py-3 text-left text-sm font-medium text-foreground">Order</th>
-                          <th className="px-4 py-3 text-left text-sm font-medium text-foreground">Special Instructions</th>
-                          <th className="px-4 py-3 text-right text-sm font-medium text-foreground">Cost</th>
+                          <th className="px-4 py-3 text-left text-sm font-medium text-foreground">
+                            Team Member
+                          </th>
+                          <th className="px-4 py-3 text-left text-sm font-medium text-foreground">
+                            Order
+                          </th>
+                          <th className="px-4 py-3 text-left text-sm font-medium text-foreground">
+                            Special Instructions
+                          </th>
+                          <th className="px-4 py-3 text-right text-sm font-medium text-foreground">
+                            Cost
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {memberOrders?.map((memberOrder, index) => (
-                          <tr key={index} className="hover:bg-card/50 transition-athletic">
+                        {(order?.order_items ?? []).map((it) => (
+                          <tr key={it.id} className="hover:bg-card/50 transition-athletic">
                             <td className="px-4 py-3">
-                              <div className="flex items-center space-x-2">
+                              <div className="flex items-center gap-2">
                                 <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
                                   <Icon name="User" size={14} color="white" />
                                 </div>
                                 <span className="text-sm font-medium text-foreground">
-                                  {memberOrder?.name}
+                                  {it?.team_members?.full_name ??
+                                    (it?.user_profiles
+                                      ? `${it.user_profiles.first_name} ${it.user_profiles.last_name}`
+                                      : 'Team Member')}
                                 </span>
                               </div>
                             </td>
                             <td className="px-4 py-3 text-sm text-foreground">
-                              {memberOrder?.order}
+                              {it.item_name}
+                              {it.quantity > 1 ? ` × ${it.quantity}` : ''}
                             </td>
                             <td className="px-4 py-3 text-sm text-muted-foreground">
-                              {memberOrder?.specialInstructions || 'None'}
+                              {it.special_instructions || 'None'}
                             </td>
                             <td className="px-4 py-3 text-sm font-medium text-foreground text-right">
-                              {formatCurrency(memberOrder?.cost)}
+                              {formatCurrency(it.price)}
                             </td>
                           </tr>
                         ))}
+                        {(!order?.order_items || order.order_items.length === 0) && (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-6 text-sm text-muted-foreground text-center"
+                            >
+                              No individual items recorded for this order.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -171,14 +200,20 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                 <div className="bg-muted rounded-lg p-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <div className="flex items-center space-x-2 mb-2">
+                      <div className="flex items-center gap-2 mb-2">
                         <Icon name="CreditCard" size={16} className="text-muted-foreground" />
-                        <span className="text-sm font-medium text-foreground">Payment Method</span>
+                        <span className="text-sm font-medium text-foreground">
+                          Payment Method
+                        </span>
                       </div>
-                      <p className="text-sm text-foreground">Team Credit Card (**** 4567)</p>
+                      <p className="text-sm text-foreground">
+                        {order?.payment_methods
+                          ? `${order.payment_methods.card_name} (**** ${order.payment_methods.last_four})`
+                          : '—'}
+                      </p>
                     </div>
                     <div>
-                      <div className="flex items-center space-x-2 mb-2">
+                      <div className="flex items-center gap-2 mb-2">
                         <Icon name="Receipt" size={16} className="text-muted-foreground" />
                         <span className="text-sm font-medium text-foreground">Receipt</span>
                       </div>
@@ -200,7 +235,7 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
 
           {/* Footer Actions */}
           <div className="flex items-center justify-between p-6 border-t border-border bg-muted">
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 onClick={() => onAction('repeat', order)}
@@ -218,8 +253,8 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                 Copy Order
               </Button>
             </div>
-            <div className="flex items-center space-x-2">
-              {order?.status === 'scheduled' && (
+            <div className="flex items-center gap-2">
+              {order?.order_status === 'scheduled' && (
                 <>
                   <Button
                     variant="outline"

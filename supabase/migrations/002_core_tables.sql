@@ -108,6 +108,7 @@ CREATE TABLE public.meal_orders (
     restaurant_id UUID REFERENCES public.restaurants(id) ON DELETE SET NULL,
     location_id UUID REFERENCES public.saved_locations(id) ON DELETE SET NULL, -- Keeping this for internal location tracking
     title TEXT NOT NULL,
+    meal_type public.meal_type,
     description TEXT,
     scheduled_date TIMESTAMPTZ NOT NULL, -- The time the user wants the order for
     order_status public.order_status DEFAULT 'draft'::public.order_status,
@@ -230,6 +231,7 @@ CREATE TABLE public.meal_orders (
 CREATE TABLE public.meal_order_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id UUID NOT NULL REFERENCES public.meal_orders(id) ON DELETE CASCADE,
+  team_member_id UUID REFERENCES public.team_members(id) ON DELETE SET NULL,
   product_id TEXT,
   name TEXT NOT NULL,
   description TEXT,
@@ -263,7 +265,8 @@ CREATE TABLE public.meal_order_item_options (
 CREATE TABLE public.order_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id UUID REFERENCES public.meal_orders(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
+  team_member_id UUID REFERENCES public.team_members(id) ON DELETE SET NULL,
   menu_item_id UUID REFERENCES public.menu_items(id) ON DELETE SET NULL,
   item_name TEXT NOT NULL, -- Kept as a fallback/display name for now
   quantity INTEGER DEFAULT 1,

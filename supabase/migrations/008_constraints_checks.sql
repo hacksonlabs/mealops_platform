@@ -2,6 +2,7 @@
 ALTER TABLE public.menu_items DROP CONSTRAINT IF EXISTS menu_items_api_id_key;
 ALTER TABLE public.menu_items ADD CONSTRAINT uq_menu_items_restaurant_api UNIQUE (restaurant_id, api_id);
 ALTER TABLE public.order_items
+  ADD CONSTRAINT ck_order_items_attributed CHECK (user_id IS NOT NULL OR team_member_id IS NOT NULL),
   ADD CONSTRAINT ck_order_items_qty_pos CHECK (quantity > 0),
   ADD CONSTRAINT ck_order_items_price_nonneg CHECK (price IS NULL OR price >= 0);
 ALTER TABLE public.meal_order_items

@@ -24,6 +24,7 @@ const Select = React.forwardRef(({
     name,
     onChange,
     onOpenChange,
+    selectedNoun = "items",
     ...props
 }, ref) => {
     const [isOpen, setIsOpen] = useState(false);

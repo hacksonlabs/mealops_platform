@@ -1,42 +1,87 @@
-import React, { useState } from 'react';
-
+import React, { useEffect, useState } from 'react';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
-import { Checkbox } from '../../../components/ui/Checkbox';
+import { useAuth } from '../../../contexts/AuthContext';
+import { supabase } from '../../../lib/supabase';
+
+const DEFAULT_VENDOR_OPTIONS = [{ value: '', label: 'All Restaurants' }];
 
 const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse, resultCount }) => {
+  const { activeTeam } = useAuth();
+  const teamId = activeTeam?.id ?? null;
+
   const [localFilters, setLocalFilters] = useState(filters);
+  const [vendorOptions, setVendorOptions] = useState(DEFAULT_VENDOR_OPTIONS);
+  const [loadingLookups, setLoadingLookups] = useState(false);
 
-  const vendorOptions = [
-    { value: '', label: 'All Vendors' },
-    { value: 'chipotle', label: 'Chipotle Mexican Grill' },
-    { value: 'subway', label: 'Subway' },
-    { value: 'panera', label: 'Panera Bread' },
-    { value: 'olive-garden', label: 'Olive Garden' },
-    { value: 'pizza-hut', label: 'Pizza Hut' },
-    { value: 'local-deli', label: 'Local Sports Deli' }
-  ];
+  // Keep local state in sync with parent if parent updates
+  useEffect(() => {
+    setLocalFilters(filters);
+  }, [filters]);
 
-  const locationOptions = [
-    { value: '', label: 'All Locations' },
-    { value: 'home-stadium', label: 'Home Stadium' },
-    { value: 'training-facility', label: 'Training Facility' },
-    { value: 'away-venue', label: 'Away Venue' },
-    { value: 'hotel', label: 'Team Hotel' },
-    { value: 'conference-center', label: 'Conference Center' }
-  ];
+  // Load vendors (names only, deduped across addresses) for the active team
+  useEffect(() => {
+    const loadVendors = async () => {
+      if (!teamId) {
+        setVendorOptions(DEFAULT_VENDOR_OPTIONS);
+        return;
+      }
 
-  const teamMembers = [
-    { id: 1, name: 'Coach Johnson', role: 'Head Coach' },
-    { id: 2, name: 'Sarah Williams', role: 'Assistant Coach' },
-    { id: 3, name: 'Mike Chen', role: 'Player' },
-    { id: 4, name: 'Alex Rodriguez', role: 'Player' },
-    { id: 5, name: 'Emma Davis', role: 'Team Manager' },
-    { id: 6, name: 'Jordan Smith', role: 'Player' },
-    { id: 7, name: 'Taylor Brown', role: 'Athletic Trainer' },
-    { id: 8, name: 'Casey Wilson', role: 'Player' }
-  ];
+      setLoadingLookups(true);
+      try {
+        // Find this team's saved location IDs
+        const { data: locs, error: locErr } = await supabase
+          .from('saved_locations')
+          .select('id')
+          .eq('team_id', teamId);
+
+        if (locErr) throw locErr;
+
+        const locationIds = (locs ?? []).map((l) => l.id);
+        if (locationIds.length === 0) {
+          setVendorOptions(DEFAULT_VENDOR_OPTIONS);
+          return;
+        }
+
+        // Pull restaurants for those locations (names only)
+        const { data: rests, error: restErr } = await supabase
+          .from('restaurants')
+          .select('name, location_id')
+          .in('location_id', locationIds)
+          .order('name', { ascending: true });
+
+        if (restErr) throw restErr;
+
+        // De-dupe by normalized name so "Chipotle" in multiple cities is one option
+        const byName = new Map();
+        (rests ?? []).forEach((r) => {
+          const normalized = (r?.name || '').trim().toLowerCase();
+          if (normalized && !byName.has(normalized)) {
+            byName.set(normalized, r.name.trim());
+          }
+        });
+
+        // Build options (names only)
+        const vendOpts = [
+          ...DEFAULT_VENDOR_OPTIONS,
+          ...Array.from(byName.values()).map((name) => ({
+            value: name,
+            label: name,
+          })),
+        ];
+
+        setVendorOptions(vendOpts);
+      } catch (e) {
+        console.error('Failed to load vendor lookups:', e?.message || e);
+        setVendorOptions(DEFAULT_VENDOR_OPTIONS);
+      } finally {
+        setLoadingLookups(false);
+      }
+    };
+
+    loadVendors();
+  }, [teamId]);
 
   const handleFilterChange = (key, value) => {
     const updatedFilters = { ...localFilters, [key]: value };
@@ -49,7 +94,6 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
       dateFrom: '',
       dateTo: '',
       vendor: '',
-      location: '',
       teamMembers: [],
       minCost: '',
       maxCost: '',
@@ -59,7 +103,7 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
     onFiltersChange(clearedFilters);
   };
 
-  const hasActiveFilters = Object.values(localFilters)?.some(value => 
+  const hasActiveFilters = Object.values(localFilters)?.some((value) =>
     Array.isArray(value) ? value?.length > 0 : value !== ''
   );
 
@@ -72,7 +116,7 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
             variant="ghost"
             size="sm"
             onClick={onToggleCollapse}
-            iconName={isCollapsed ? "ChevronDown" : "ChevronUp"}
+            iconName={isCollapsed ? 'ChevronDown' : 'ChevronUp'}
             iconPosition="left"
           >
             Advanced Filters
@@ -100,6 +144,7 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
           )}
         </div>
       </div>
+
       {/* Filter Content */}
       {!isCollapsed && (
         <div className="p-4 space-y-4">
@@ -115,31 +160,37 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
           </div>
 
           {/* Date Range and Vendor */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Input
-              type="date"
-              label="From Date"
-              value={localFilters?.dateFrom || ''}
-              onChange={(e) => handleFilterChange('dateFrom', e?.target?.value)}
-            />
-            <Input
-              type="date"
-              label="To Date"
-              value={localFilters?.dateTo || ''}
-              onChange={(e) => handleFilterChange('dateTo', e?.target?.value)}
-            />
-            <Select
-              label="Vendor"
-              options={vendorOptions}
-              value={localFilters?.vendor || ''}
-              onChange={(value) => handleFilterChange('vendor', value)}
-            />
-            <Select
-              label="Location"
-              options={locationOptions}
-              value={localFilters?.location || ''}
-              onChange={(value) => handleFilterChange('location', value)}
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+            <div className="self-end">
+              <Input
+                type="date"
+                label="From Date"
+                value={localFilters?.dateFrom || ''}
+                onChange={(e) => handleFilterChange('dateFrom', e?.target?.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div className="self-end">
+              <Input
+                type="date"
+                label="To Date"
+                value={localFilters?.dateTo || ''}
+                onChange={(e) => handleFilterChange('dateTo', e?.target?.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div className="self-end">
+              <Select
+                label="Restaurant"
+                options={vendorOptions}
+                value={localFilters?.vendor || ''}
+                onChange={(value) => handleFilterChange('vendor', value)}
+                disabled={loadingLookups}
+                className="w-full"
+              />
+            </div>
           </div>
         </div>
       )}

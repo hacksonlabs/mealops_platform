@@ -6,6 +6,7 @@ import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
+import PeopleTooltip from '../../../components/ui/PeopleTooltip';
 
 export default function GroupsTab() {
   const { activeTeam } = useAuth();
@@ -17,20 +18,6 @@ export default function GroupsTab() {
   // Search filter
   const [q, setQ] = useState('');
 
-  // Users popover
-  const [openUsersForGroupId, setOpenUsersForGroupId] = useState(null);
-
-  // Popover refs for outside-click
-  const popoverContainersRef = useRef(new Map());
-  const setPopoverRef = useCallback(
-    (id) => (node) => {
-      const map = popoverContainersRef.current;
-      if (node) map.set(id, node);
-      else map.delete(id);
-    },
-    []
-  );
-
   // Add/Edit modal
   const [showModal, setShowModal] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
@@ -40,6 +27,60 @@ export default function GroupsTab() {
   // Delete modal
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [groupPendingDelete, setGroupPendingDelete] = useState(null);
+
+  // ---- Hover tooltip state (portal, upward) for "Members" column ----
+  const [hoverGroupId, setHoverGroupId] = useState(null);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const memberAnchorRefs = useRef(new Map());
+  const closeTimerRef = useRef(null);
+
+  const setMemberAnchorRef = useCallback((id) => (node) => {
+    const map = memberAnchorRefs.current;
+    if (node) map.set(id, node);
+    else map.delete(id);
+  }, []);
+
+  const positionTooltip = useCallback((groupId) => {
+    const el = memberAnchorRefs.current.get(groupId);
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setTooltipPos({
+      x: rect.left + rect.width / 2,
+      y: rect.top, // top edge; tooltip renders upward
+    });
+  }, []);
+
+  const openOnHover = (groupId) => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    positionTooltip(groupId);
+    setHoverGroupId(groupId);
+  };
+
+  const scheduleClose = () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = setTimeout(() => setHoverGroupId(null), 120);
+  };
+
+  const cancelClose = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!hoverGroupId) return;
+    const handle = () => positionTooltip(hoverGroupId);
+    window.addEventListener('scroll', handle, true);
+    window.addEventListener('resize', handle);
+    return () => {
+      window.removeEventListener('scroll', handle, true);
+      window.removeEventListener('resize', handle);
+    };
+  }, [hoverGroupId, positionTooltip]);
 
   // Loaders
   const loadMembers = useCallback(async (teamId) => {
@@ -128,25 +169,7 @@ export default function GroupsTab() {
     return arr;
   }, [groups, q]);
 
-  // Popover outside click & Esc
-  useEffect(() => {
-    if (!openUsersForGroupId) return;
-    const handlePointerDown = (e) => {
-      const node = popoverContainersRef.current.get(openUsersForGroupId);
-      if (!node || !node.contains(e.target)) setOpenUsersForGroupId(null);
-    };
-    const handleKey = (e) => {
-      if (e.key === 'Escape') setOpenUsersForGroupId(null);
-    };
-    document.addEventListener('pointerdown', handlePointerDown, true);
-    document.addEventListener('keydown', handleKey, true);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true);
-      document.removeEventListener('keydown', handleKey, true);
-    };
-  }, [openUsersForGroupId]);
-
-  // Add/Edit modal helpers
+  // ---- Add/Edit modal helpers ----
   const resetModal = () => {
     setGroupName('');
     setSelectedMemberIds([]);
@@ -159,7 +182,6 @@ export default function GroupsTab() {
   };
 
   const openEdit = (group) => {
-    // ensure existing members are pre-selected
     setEditingGroup(group);
     setGroupName(group?.name || '');
     setSelectedMemberIds(group?.member_ids || []);
@@ -222,11 +244,12 @@ export default function GroupsTab() {
     }
   };
 
-  // Delete modal helpers
+  // ---- Delete modal helpers ----
   const openDeleteModal = (group) => {
     setGroupPendingDelete(group);
     setShowDeleteModal(true);
   };
+
   const closeDeleteModal = () => {
     setShowDeleteModal(false);
     setGroupPendingDelete(null);
@@ -259,7 +282,7 @@ export default function GroupsTab() {
   };
 
   const selectedUsersLabel = (g) =>
-    `${g.member_ids.length} user${g.member_ids.length === 1 ? '' : 's'}`;
+    `${g.member_ids.length} member${g.member_ids.length === 1 ? '' : 's'}`;
 
   return (
     <div className="space-y-4 text-sm">
@@ -307,7 +330,7 @@ export default function GroupsTab() {
         {/* Header (no team column) */}
         <div className="grid grid-cols-12 px-4 py-2 text-[11px] uppercase tracking-wide font-medium text-muted-foreground border-b border-border">
           <div className="col-span-8">Group</div>
-          <div className="col-span-2">Users</div>
+          <div className="col-span-2">Members</div>
           <div className="col-span-2 text-right">Actions</div>
         </div>
 
@@ -316,99 +339,74 @@ export default function GroupsTab() {
           <div className="p-6 text-sm text-muted-foreground">No groups found.</div>
         ) : (
           <ul className="divide-y divide-border">
-            {filteredGroups.map((g) => (
-              <li key={g.id} className="grid grid-cols-12 px-4 py-3 items-center">
-                {/* Group */}
-                <div className="col-span-8">
-                  <div className="text-foreground">{g.name}</div>
-                </div>
+            {filteredGroups.map((g) => {
+              const names = (g.member_ids || []).map((mid) => {
+                const m = memberById.get(mid);
+                return m?.full_name || m?.email || `Member ${String(mid).slice(0, 6)}`;
+              });
 
-                {/* Users (popover upward + caret) */}
-                <div className="col-span-2">
-                  <div className="relative inline-block" ref={setPopoverRef(g.id)}>
-                    <button
-                      className="text-primary underline flex items-center gap-1"
-                      onClick={() =>
-                        setOpenUsersForGroupId((prev) => (prev === g.id ? null : g.id))
-                      }
-                      aria-expanded={openUsersForGroupId === g.id}
+              return (
+                <li key={g.id} className="grid grid-cols-12 px-4 py-3 items-center">
+                  {/* Group */}
+                  <div className="col-span-8">
+                    <div className="text-foreground">{g.name}</div>
+                  </div>
+
+                  {/* Members (hover tooltip upward via PeopleTooltip) */}
+                  <div className="col-span-2">
+                    <div
+                      className="relative inline-block"
+                      ref={setMemberAnchorRef(g.id)}
+                      onMouseEnter={() => openOnHover(g.id)}
+                      onMouseLeave={scheduleClose}
+                      title={names.join(', ')} // mobile fallback
                     >
-                      <Icon name="Users" size={16} />
-                      {selectedUsersLabel(g)}
-                    </button>
+                      <span className="text-primary underline flex items-center gap-1 cursor-default">
+                        <Icon name="Users" size={16} />
+                        {selectedUsersLabel(g)}
+                      </span>
 
-                    {openUsersForGroupId === g.id && (
-                      <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 w-80 rounded-lg border border-border bg-popover shadow-lg p-2">
-                        {/* caret */}
-                        <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 -bottom-2" aria-hidden>
-                          <span
-                            className="block w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent"
-                            style={{ borderTopColor: 'hsl(var(--border))' }}
-                          />
-                          <span
-                            className="block w-0 h-0 -mt-[4px] border-l-7 border-r-7 border-t-7 border-l-transparent border-r-transparent"
-                            style={{ borderTopColor: 'hsl(var(--popover))' }}
-                          />
-                        </span>
-
-                        <div className="text-xs font-medium text-muted-foreground px-2 py-1">
-                          Users ({g.member_ids.length})
-                        </div>
-                        <ul className="max-h-60 overflow-auto pr-1">
-                          {g.member_ids.map((mid) => {
-                            const m = memberById.get(mid);
-                            const label = m?.full_name || m?.email || `Member ${mid.slice(0, 6)}`;
-                            return (
-                              <li key={mid} className="px-2 py-2 flex items-center gap-2 hover:bg-muted/40 rounded-md">
-                                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
-                                  {label
-                                    .split(' ')
-                                    .map((s) => s.charAt(0))
-                                    .join('')
-                                    .slice(0, 2)
-                                    .toUpperCase()}
-                                </div>
-                                <div className="text-sm text-foreground truncate">{label}</div>
-                                {m?.role && <span className="ml-auto text-xs text-muted-foreground">{m.role}</span>}
-                              </li>
-                            );
-                          })}
-                          {g.member_ids.length === 0 && (
-                            <li className="px-2 py-2 text-sm text-muted-foreground">No users yet.</li>
-                          )}
-                        </ul>
-                      </div>
-                    )}
+                      <PeopleTooltip
+                        open={hoverGroupId === g.id}
+                        x={tooltipPos.x}
+                        y={tooltipPos.y}
+                        names={names}
+                        onMouseEnter={cancelClose}
+                        onMouseLeave={scheduleClose}
+                        title="Members"
+                        width={320}
+                      />
+                    </div>
                   </div>
-                </div>
 
-                {/* Actions */}
-                <div className="col-span-2 text-right">
-                  <div className="inline-flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openEdit(g)}
-                      iconName="Edit"
-                      title="Edit Group"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openDeleteModal(g)}
-                      iconName="Trash2"
-                      title="Delete Group"
-                      className="text-red-600 hover:text-red-700"
-                    />
+                  {/* Actions */}
+                  <div className="col-span-2 text-right">
+                    <div className="inline-flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEdit(g)}
+                        iconName="Edit"
+                        title="Edit Group"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openDeleteModal(g)}
+                        iconName="Trash2"
+                        title="Delete Group"
+                        className="text-red-600 hover:text-red-700"
+                      />
+                    </div>
                   </div>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
 
-      {/* Create/Edit Modal — name + members shown on load; backdrop closes without saving */}
+      {/* Create/Edit Modal */}
       {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
@@ -426,7 +424,11 @@ export default function GroupsTab() {
               <h3 className="text-base font-semibold text-foreground">
                 {editingGroup ? 'Edit Group' : 'Add Group'}
               </h3>
-              <button className="text-muted-foreground hover:text-foreground" onClick={closeModal} aria-label="Close">
+              <button
+                className="text-muted-foreground hover:text-foreground"
+                onClick={closeModal}
+                aria-label="Close"
+              >
                 <Icon name="X" size={18} />
               </button>
             </div>
@@ -445,14 +447,14 @@ export default function GroupsTab() {
               </div>
 
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">Users</label>
+                <label className="block text-xs text-muted-foreground mb-1">Members</label>
                 <Select
                   multiple
                   options={memberOptions}
                   value={selectedMemberIds}
                   onChange={(vals) => setSelectedMemberIds(vals)}
                   placeholder="Search and select members…"
-                  selectedNoun="members"     // <— ensures “X members selected”
+                  selectedNoun="members"
                 />
               </div>
             </div>
