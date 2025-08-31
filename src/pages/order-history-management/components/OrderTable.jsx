@@ -1,292 +1,225 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
+import PeopleTooltip from '../../../components/ui/PeopleTooltip';
+import { getMealTypeIcon, getStatusBadge, formatDate, formatCurrency } from '../../../utils/ordersUtils';
 
 const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrderAction, activeTab }) => {
   const [sortField, setSortField] = useState('date');
   const [sortDirection, setSortDirection] = useState('desc');
 
+  const sortedOrders = useMemo(() => {
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    const arr = [...(orders ?? [])];
+    arr.sort((a, b) => {
+      switch (sortField) {
+        case 'date':       return (new Date(a.date) - new Date(b.date)) * dir;
+        case 'restaurant': return a.restaurant.localeCompare(b.restaurant) * dir;
+        case 'attendees':  return (a.attendees - b.attendees) * dir;
+        case 'totalCost':  return (a.totalCost - b.totalCost) * dir;
+        default:           return 0;
+      }
+    });
+    return arr;
+  }, [orders, sortField, sortDirection]);
+
   const handleSort = (field) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
+    if (sortField === field) setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDirection('asc'); }
   };
 
-  const getSortIcon = (field) => {
-    if (sortField !== field) return 'ArrowUpDown';
-    return sortDirection === 'asc' ? 'ArrowUp' : 'ArrowDown';
-  };
-
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      scheduled: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Scheduled' },
-      completed: { bg: 'bg-green-100', text: 'text-green-800', label: 'Completed' },
-      cancelled: { bg: 'bg-red-100', text: 'text-red-800', label: 'Cancelled' },
-      modified: { bg: 'bg-amber-100', text: 'text-amber-800', label: 'Modified' }
-    };
-
-    const config = statusConfig?.[status] || statusConfig?.scheduled;
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config?.bg} ${config?.text}`}>
-        {config?.label}
-      </span>
-    );
-  };
-
-  const getMealTypeIcon = (mealType) => {
-    const icons = {
-      breakfast: 'Coffee',
-      lunch: 'Utensils',
-      dinner: 'UtensilsCrossed',
-      snack: 'Cookie'
-    };
-    return icons?.[mealType] || 'Utensils';
-  };
+  const getSortIcon = (field) => (sortField !== field ? 'ArrowUpDown' : sortDirection === 'asc' ? 'ArrowUp' : 'ArrowDown');
 
   const getActionButtons = (order) => {
     if (activeTab === 'scheduled') {
       return (
         <div className="flex items-center space-x-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOrderAction('modify', order)}
-            iconName="Edit"
-            iconPosition="left"
-          >
-            Modify
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOrderAction('cancel', order)}
-            iconName="X"
-            iconPosition="left"
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onOrderAction('view', order)}
-            iconName="Eye"
-          />
+          <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', order)} iconName="Eye" />
+          <Button variant="ghost" size="sm" onClick={() => onOrderAction('cancel', order)} iconName="X" title="Cancel Record" className="text-red-600 hover:text-red-700" />
         </div>
       );
     } else if (activeTab === 'completed') {
-      return (
-        <div className="flex items-center space-x-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOrderAction('repeat', order)}
-            iconName="RotateCcw"
-            iconPosition="left"
-          >
-            Repeat
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOrderAction('copy', order)}
-            iconName="Copy"
-            iconPosition="left"
-          >
-            Copy
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onOrderAction('receipt', order)}
-            iconName="Download"
-          />
-        </div>
-      );
-    } else {
-      return (
-        <div className="flex items-center space-x-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOrderAction('repeat', order)}
-            iconName="RotateCcw"
-            iconPosition="left"
-          >
-            Repeat
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onOrderAction('view', order)}
-            iconName="Eye"
-          />
-        </div>
-      );
+      return <div className="flex items-center space-x-1">
+        <Button variant="ghost" size="sm" onClick={() => onOrderAction('receipt', order)} iconName="Download" />
+      </div>;
     }
-  };
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date?.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    })?.format(amount);
+    return <div className="flex items-center space-x-1">
+      <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', order)} iconName="Eye" />
+    </div>;
   };
 
   const isAllSelected = orders?.length > 0 && selectedOrders?.length === orders?.length;
   const isIndeterminate = selectedOrders?.length > 0 && selectedOrders?.length < orders?.length;
 
+  // ---- Hover tooltip state (portal, upward) ----
+  const [hoverOrderId, setHoverOrderId] = useState(null);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const anchorRefs = useRef(new Map());
+  const closeTimerRef = useRef(null);
+
+  const setAnchorRef = useCallback((id) => (node) => {
+    const map = anchorRefs.current;
+    if (node) map.set(id, node);
+    else map.delete(id);
+  }, []);
+
+  const positionTooltip = useCallback((orderId) => {
+    const el = anchorRefs.current.get(orderId);
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    // For a fixed-position tooltip, use viewport coords (no scrollY)
+    setTooltipPos({
+      x: rect.left + rect.width / 2,
+      y: rect.top, // anchor to the top edge of the trigger
+    });
+  }, []);
+
+
+  // Keep anchored on scroll/resize while visible
+  useEffect(() => {
+    if (!hoverOrderId) return;
+    const handle = () => positionTooltip(hoverOrderId);
+    window.addEventListener('scroll', handle, true);
+    window.addEventListener('resize', handle);
+    return () => {
+      window.removeEventListener('scroll', handle, true);
+      window.removeEventListener('resize', handle);
+    };
+  }, [hoverOrderId, positionTooltip]);
+
+  const openOnHover = (orderId) => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    positionTooltip(orderId);
+    setHoverOrderId(orderId);
+  };
+  const scheduleClose = () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = setTimeout(() => setHoverOrderId(null), 120);
+  };
+  const cancelClose = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
   return (
     <div className="bg-card border border-border rounded-lg shadow-athletic overflow-hidden">
-      {/* Table Header */}
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="bg-muted">
             <tr>
               <th className="w-12 px-4 py-3">
-                <Checkbox
-                  checked={isAllSelected}
-                  indeterminate={isIndeterminate}
-                  onChange={(e) => onSelectAll(e?.target?.checked)}
-                />
+                <Checkbox checked={isAllSelected} indeterminate={isIndeterminate} onChange={(e) => onSelectAll(e?.target?.checked)} />
               </th>
               <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('date')}
-                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
-                >
+                <button onClick={() => handleSort('date')} className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic">
                   <span>Date & Time</span>
                   <Icon name={getSortIcon('date')} size={14} />
                 </button>
               </th>
               <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('restaurant')}
-                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
-                >
+                <button onClick={() => handleSort('restaurant')} className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic">
                   <span>Restaurant</span>
                   <Icon name={getSortIcon('restaurant')} size={14} />
                 </button>
               </th>
+              <th className="px-4 py-3 text-left"><span className="text-sm font-medium text-foreground">Meal Type</span></th>
               <th className="px-4 py-3 text-left">
-                <span className="text-sm font-medium text-foreground">Meal Type</span>
-              </th>
-              <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('attendees')}
-                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
-                >
+                <button onClick={() => handleSort('attendees')} className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic">
                   <span>Attendees</span>
                   <Icon name={getSortIcon('attendees')} size={14} />
                 </button>
               </th>
               <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('totalCost')}
-                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
-                >
+                <button onClick={() => handleSort('totalCost')} className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic">
                   <span>Total Cost</span>
                   <Icon name={getSortIcon('totalCost')} size={14} />
                 </button>
               </th>
-              <th className="px-4 py-3 text-left">
-                <span className="text-sm font-medium text-foreground">Status</span>
-              </th>
-              <th className="px-4 py-3 text-right">
-                <span className="text-sm font-medium text-foreground">Actions</span>
-              </th>
+              <th className="px-4 py-3 text-left"><span className="text-sm font-medium text-foreground">Status</span></th>
+              <th className="px-4 py-3 text-right"><span className="text-sm font-medium text-foreground">Actions</span></th>
             </tr>
           </thead>
+
           <tbody className="divide-y divide-border">
-            {orders?.map((order) => (
+            {sortedOrders?.map((order) => (
               <tr key={order?.id} className="hover:bg-muted/50 transition-athletic">
                 <td className="px-4 py-4">
-                  <Checkbox
-                    checked={selectedOrders?.includes(order?.id)}
-                    onChange={(e) => onOrderSelect(order?.id, e?.target?.checked)}
-                  />
+                  <Checkbox checked={selectedOrders?.includes(order?.id)} onChange={(e) => onOrderSelect(order?.id, e?.target?.checked)} />
                 </td>
+
                 <td className="px-4 py-4">
-                  <div className="text-sm text-foreground font-medium">
-                    {formatDate(order?.date)}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {order?.location}
-                  </div>
+                  <div className="text-sm text-foreground font-medium">{formatDate(order?.date)}</div>
+                  <div className="text-xs text-muted-foreground">{order?.location}</div>
                 </td>
+
                 <td className="px-4 py-4">
                   <div className="flex items-center space-x-2">
                     <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">
                       <Icon name="Store" size={16} className="text-muted-foreground" />
                     </div>
                     <div>
-                      <div className="text-sm font-medium text-foreground">
-                        {order?.restaurant}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Order #{order?.orderNumber}
-                      </div>
+                      <div className="text-sm font-medium text-foreground">{order?.restaurant}</div>
+                      <div className="text-xs text-muted-foreground">Order #{order?.orderNumber}</div>
                     </div>
                   </div>
                 </td>
+
                 <td className="px-4 py-4">
                   <div className="flex items-center space-x-2">
                     <Icon name={getMealTypeIcon(order?.mealType)} size={16} className="text-muted-foreground" />
-                    <span className="text-sm text-foreground capitalize">
-                      {order?.mealType}
-                    </span>
+                    <span className="text-sm text-foreground capitalize">{order?.mealType}</span>
+                  </div>
+                </td>
+
+                {/* Attendees — hover tooltip (portal, upward) */}
+                <td className="px-4 py-4">
+                  <div
+                    className="relative inline-block"
+                    ref={setAnchorRef(order.id)}
+                    onMouseEnter={() => openOnHover(order.id)}
+                    onMouseLeave={scheduleClose}
+                    title={(order?.teamMembers || []).join(', ')} // mobile fallback
+                  >
+                    <div className="text-sm text-primary font-medium underline underline-offset-2 cursor-default flex items-center gap-1">
+                      <Icon name="Users" size={16} className="text-primary" />
+                      {order?.attendees} {order?.attendees === 1 ? 'person' : 'people'}
+                    </div>
+
+                    <PeopleTooltip
+                      open={hoverOrderId === order.id}
+                      x={tooltipPos.x}
+                      y={tooltipPos.y}
+                      names={order.teamMembers || []}
+                      onMouseEnter={cancelClose}
+                      onMouseLeave={scheduleClose}
+                    />
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  <div className="text-sm text-foreground font-medium">
-                    {order?.attendees} people
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {order?.teamMembers?.slice(0, 2)?.join(', ')}
-                    {order?.teamMembers?.length > 2 && ` +${order?.teamMembers?.length - 2} more`}
-                  </div>
+                  <div className="text-sm font-medium text-foreground">{formatCurrency(order?.totalCost)}</div>
                 </td>
-                <td className="px-4 py-4">
-                  <div className="text-sm font-medium text-foreground">
-                    {formatCurrency(order?.totalCost)}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {formatCurrency(order?.totalCost / order?.attendees)} per person
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  {getStatusBadge(order?.status)}
-                </td>
-                <td className="px-4 py-4 text-right">
-                  {getActionButtons(order)}
-                </td>
+
+                <td className="px-4 py-4">{getStatusBadge(order?.status)}</td>
+
+                <td className="px-4 py-4 text-right">{getActionButtons(order)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {/* Empty State */}
+
       {orders?.length === 0 && (
         <div className="text-center py-12">
           <Icon name="ClipboardList" size={48} className="text-muted-foreground mx-auto mb-4" />
           <h3 className="text-lg font-medium text-foreground mb-2">No orders found</h3>
-          <p className="text-muted-foreground">
-            Try adjusting your filters or create a new order to get started.
-          </p>
+          <p className="text-muted-foreground">Try adjusting your filters or create a new order to get started.</p>
         </div>
       )}
     </div>
