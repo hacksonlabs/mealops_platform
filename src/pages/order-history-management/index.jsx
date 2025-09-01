@@ -238,6 +238,7 @@ const OrderHistoryManagement = () => {
             .update({ order_status: 'cancelled' })
             .eq('id', order?.id);
           if (error) throw error;
+          await fetchOrders();
         } catch (error) {
           console.error('Error cancelling order:', error.message);
         }
@@ -287,6 +288,7 @@ const OrderHistoryManagement = () => {
             .in('id', orderIds);
           if (error) throw error;
           setSelectedOrders([]);
+          await fetchOrders();
         } catch (error) {
           console.error('Error bulk cancelling orders:', error.message);
         }
