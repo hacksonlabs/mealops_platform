@@ -42,6 +42,7 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
       );
     } else if (activeTab === 'completed') {
       return <div className="flex items-center space-x-1">
+        <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', order)} iconName="Eye" />
         <Button variant="ghost" size="sm" onClick={() => onOrderAction('receipt', order)} iconName="Download" />
       </div>;
     }

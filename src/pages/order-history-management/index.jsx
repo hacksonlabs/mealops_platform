@@ -10,6 +10,7 @@ import BulkActions from './components/BulkActions';
 import ExportModal from './components/ExportModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { downloadReceiptPdf, downloadReceiptsZip } from '../../utils/receipts';
 
 const OrderHistoryManagement = () => {
   const navigate = useNavigate();
@@ -248,8 +249,11 @@ const OrderHistoryManagement = () => {
         navigate('/calendar-order-scheduling', { state: { copyOrder: order?.originalOrderData } });
         break;
       case 'receipt':
-        // TODO: implement download
-        console.log('Downloading receipt for order:', order?.id);
+        try {
+          await downloadReceiptPdf(order?.id);
+        } catch (err) {
+          console.error('Failed to download receipt:', err);
+        }
         break;
       default:
         break;
@@ -259,7 +263,12 @@ const OrderHistoryManagement = () => {
   const handleBulkAction = async (action, orderIds) => {
     switch (action) {
       case 'download-receipts':
-        // TODO
+        try {
+          if (!orderIds?.length) return;
+          await downloadReceiptsZip(orderIds);
+        } catch (err) {
+          console.error('Failed to bulk download receipts:', err);
+        }
         break;
       case 'export-csv':
         setIsExportModalOpen(true);
