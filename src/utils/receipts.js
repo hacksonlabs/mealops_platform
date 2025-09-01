@@ -21,6 +21,10 @@ const HEADER_BG = [246, 248, 252];
 const LABEL_COLOR = [110, 110, 110];
 const TEXT_COLOR = [20, 20, 20];
 const BORDER_COLOR = [220, 224, 229];
+const capFirst = (s) =>
+  (typeof s === 'string' && s.length)
+    ? s.charAt(0).toUpperCase() + s.slice(1)
+    : s;
 
 const extrasFromOptions = (opts = []) =>
   (opts || []).reduce((sum, o) => sum + ((o?.price_cents || 0) * (o?.quantity ?? 1)), 0);
@@ -33,22 +37,6 @@ function getPageSize(doc) {
 
 function splitText(doc, text, maxWidth) {
   return doc.splitTextToSize(String(text ?? ''), maxWidth);
-}
-
-function drawLabelValue(doc, { x, y, label, value, width, lineGap = 2, afterGap = 10 }) {
-  doc.setTextColor(...LABEL_COLOR);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.text(String(label), x, y);
-
-  const lines = splitText(doc, value, width);
-  doc.setTextColor(...TEXT_COLOR);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  doc.text(lines, x, y + 12);
-
-  const usedH = 12 + (lines.length - 1) * 12;
-  return y + usedH + afterGap;
 }
 
 function divider(doc, { x, y, width }) {
@@ -74,9 +62,64 @@ function makeFileName(r) {
   return `receipt_${safeTitle}_${String(r?.order_id || '').slice(0, 8)}.pdf`;
 }
 
+/** Inline field: Label and value on the same line (label small/grey/bold). */
+function drawInlineField(doc, { x, y, label, value, width, gap = 6, afterGap = 10 }) {
+  const labelTxt = `${String(label)}:`;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...LABEL_COLOR);
+  doc.text(labelTxt, x, y);
+
+  const labelW = doc.getTextWidth(labelTxt);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.setTextColor(...TEXT_COLOR);
+
+  const avail = Math.max((width ?? 9999) - labelW - gap, 24);
+  const val = String(value ?? '—');
+  const lines = splitText(doc, val, avail);
+
+  // first line sits to the right of the label
+  doc.text(lines[0] || '—', x + labelW + gap, y);
+
+  // subsequent lines wrap under the whole row
+  if (lines.length > 1) {
+    const rest = lines.slice(1);
+    doc.text(rest, x, y + 12);
+  }
+
+  const usedH = 12 + Math.max(0, (lines.length - 1)) * 12;
+  return y + usedH + afterGap;
+}
+
+/** Label + multiple value lines (e.g., School & Team, Placed By). */
+function drawLabelWithLines(doc, { x, y, label, lines = [], width, afterGap = 10 }) {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...LABEL_COLOR);
+  doc.text(String(label), x, y);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.setTextColor(...TEXT_COLOR);
+
+  // wrap each provided line to fit the column
+  const flattened = [];
+  for (const l of (lines || [])) {
+    const segs = splitText(doc, String(l ?? ''), width);
+    flattened.push(...(segs.length ? segs : ['—']));
+  }
+  if (!flattened.length) flattened.push('—');
+
+  doc.text(flattened, x, y + 12);
+
+  const usedH = 12 + (flattened.length - 1) * 12;
+  return y + usedH + afterGap;
+}
+
 /**
  * Build a jsPDF doc for a receipt and return { doc, fileName }.
- * Everything (including sumLabelW etc.) is defined within this scope.
  */
 function buildReceiptDoc(r) {
   const currency = r?.payment?.currency || 'USD';
@@ -112,7 +155,7 @@ function buildReceiptDoc(r) {
 
   y += 64;
 
-  // Order Info
+  // ------------------ Order Info (clean layout) ------------------
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
   doc.text('Order Info', margin, y);
@@ -122,89 +165,103 @@ function buildReceiptDoc(r) {
 
   // Left column
   let leftY = y;
-  leftY = drawLabelValue(doc, {
+
+  // Order Date inline
+  leftY = drawInlineField(doc, {
     x: margin, y: leftY, width: colW,
     label: 'Order Date',
     value: fmtDateTime(r?.scheduled_for)
   });
 
-  if (r?.placed_by?.school_name) {
-    leftY = drawLabelValue(doc, {
-      x: margin, y: leftY, width: colW,
-      label: 'School',
-      value: r.placed_by.school_name
-    });
-  }
+  // School & Team block
+  const school = r?.placed_by?.school_name || '—';
+	const genderDisplay = r?.gender ? capFirst(r.gender) : null;
+  const teamLine = [
+    r?.team,
+    genderDisplay,
+    r?.sport
+  ].filter(Boolean).join(' ') || (r?.team || '—');
 
-  leftY = drawLabelValue(doc, {
+  leftY = drawLabelWithLines(doc, {
     x: margin, y: leftY, width: colW,
-    label: 'Team',
-    value: r?.team || '—'
+    label: 'School & Team',
+    lines: [school, teamLine],
+    afterGap: 12
   });
 
-  leftY = drawLabelValue(doc, {
-    x: margin, y: leftY, width: colW,
-    label: 'Status',
-    value: r?.status || '—'
-  });
+	leftY += 10;
 
-  if (r?.links?.tracking) {
-    doc.setTextColor(26, 115, 232);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text('Tracking', margin, leftY);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.textWithLink(r.links.tracking, margin, leftY + 12, { url: r.links.tracking });
-    doc.setTextColor(...TEXT_COLOR);
-    leftY += 26;
-  }
+	// Placed By: name then email (no "Email" label) — LEFT column
+	if (r?.placed_by?.first_name || r?.placed_by?.last_name || r?.placed_by?.email) {
+		const name = [r?.placed_by?.first_name, r?.placed_by?.last_name]
+			.filter(Boolean)
+			.join(' ')
+			.trim() || '—';
+		const lines = [name];
+		if (r?.placed_by?.email) lines.push(r.placed_by.email);
+
+		leftY = drawLabelWithLines(doc, {
+			x: margin,
+			y: leftY,
+			width: colW,
+			label: 'Placed By',
+			lines,
+			afterGap: 12
+		});
+	}
 
   // Right column
   let rightY = y;
 
-  rightY = drawLabelValue(doc, {
+  // Status inline
+  rightY = drawInlineField(doc, {
+    x: margin + colW + gutter, y: rightY, width: colW,
+    label: 'Status',
+    value: r?.status || '—'
+  });
+
+  // Order Type inline
+  rightY = drawInlineField(doc, {
     x: margin + colW + gutter, y: rightY, width: colW,
     label: 'Order Type',
     value: r?.fulfillment_method || '—'
   });
 
+  // Deliver To (if delivery)
   if (r?.fulfillment_method === 'delivery' && r?.delivery_address?.line1) {
     const a = r.delivery_address;
     const addr = [a.line1, a.line2, [a.city, a.state, a.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-    rightY = drawLabelValue(doc, {
+    rightY = drawLabelWithLines(doc, {
       x: margin + colW + gutter, y: rightY, width: colW,
       label: 'Deliver To',
-      value: addr
+      lines: [addr],
+      afterGap: 12
     });
   }
 
-  if (r?.placed_by?.first_name || r?.placed_by?.last_name || r?.placed_by?.email || r?.placed_by?.phone) {
-    const name = [r.placed_by.first_name, r.placed_by.last_name].filter(Boolean).join(' ').trim() || '—';
-    rightY = drawLabelValue(doc, {
-      x: margin + colW + gutter, y: rightY, width: colW,
-      label: 'Placed By',
-      value: name
-    });
-    if (r.placed_by.email) {
-      rightY = drawLabelValue(doc, {
-        x: margin + colW + gutter, y: rightY, width: colW,
-        label: 'Email',
-        value: r.placed_by.email
-      });
-    }
-    if (r.placed_by.phone) {
-      rightY = drawLabelValue(doc, {
-        x: margin + colW + gutter, y: rightY, width: colW,
-        label: 'Phone',
-        value: r.placed_by.phone
-      });
-    }
+
+  // Tracking link (small)
+  if (r?.links?.tracking) {
+    doc.setTextColor(26, 115, 232);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text('Tracking', margin + colW + gutter, rightY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.textWithLink(
+      r.links.tracking,
+      margin + colW + gutter,
+      rightY + 12,
+      { url: r.links.tracking }
+    );
+    doc.setTextColor(...TEXT_COLOR);
+    rightY += 26;
   }
 
+  // continue below the taller column
   y = Math.max(leftY, rightY) + 8;
 
-  // Items table
+  // ------------------ Items table ------------------
   y = ensureSpace(doc, y, 120, margin);
 
   doc.setFontSize(12);
@@ -289,7 +346,7 @@ function buildReceiptDoc(r) {
 
   y = (doc.lastAutoTable?.finalY || y) + 18;
 
-  // Payment details
+  // ------------------ Payment details ------------------
   y = ensureSpace(doc, y, 80, margin);
 
   doc.setFont('helvetica', 'bold');
@@ -314,7 +371,7 @@ function buildReceiptDoc(r) {
   doc.text(payLines, margin, y);
   y += 18;
 
-  // Totals
+  // ------------------ Totals summary ------------------
   const fees = r?.fees || {};
   const totals = r?.totals || {};
   const pctBps = fees?.added_fee_percent_bps;

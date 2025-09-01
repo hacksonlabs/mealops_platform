@@ -31,6 +31,8 @@ begin
       mo.*,
       coalesce(mo.api_order_id, 'ORD-'||substr(mo.id::text,1,8)) as order_number,
       t.name  as team_name,
+			t.sport as sport,
+			t.gender as gender,
       r.name  as restaurant_name,
       r.address as restaurant_address,
       pm.card_name,
@@ -167,6 +169,8 @@ begin
     'order_number', f.order_number,
     'title', f.title,
     'team', f.team_name,
+		'sport', f.sport,
+		'gender', f.gender,
     'restaurant', jsonb_strip_nulls(jsonb_build_object(
       'name', f.restaurant_name,
       'address', f.restaurant_address
