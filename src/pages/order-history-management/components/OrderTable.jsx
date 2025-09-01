@@ -10,6 +10,31 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
   const [sortField, setSortField] = useState('date');
   const [sortDirection, setSortDirection] = useState('desc');
 
+  // confirmation modal state
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [orderToCancel, setOrderToCancel] = useState(null);
+
+  const openCancelConfirm = (order) => {
+    setOrderToCancel(order);
+    setConfirmOpen(true);
+  };
+  const closeConfirm = () => {
+    setConfirmOpen(false);
+    setOrderToCancel(null);
+  };
+  const confirmCancel = () => {
+    if (orderToCancel) onOrderAction('cancel', orderToCancel);
+    closeConfirm();
+  };
+
+  // Close on Esc
+  useEffect(() => {
+    if (!confirmOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') closeConfirm(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [confirmOpen]);
+
   const sortedOrders = useMemo(() => {
     const dir = sortDirection === 'asc' ? 1 : -1;
     const arr = [...(orders ?? [])];
@@ -37,7 +62,14 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
       return (
         <div className="flex items-center space-x-1">
           <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', order)} iconName="Eye" />
-          <Button variant="ghost" size="sm" onClick={() => onOrderAction('cancel', order)} iconName="X" title="Cancel Record" className="text-red-600 hover:text-red-700" />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => openCancelConfirm(order)}
+            iconName="X"
+            title="Cancel Record"
+            className="text-red-600 hover:text-red-700"
+          />
         </div>
       );
     } else if (activeTab === 'completed' || activeTab === 'all') {
@@ -70,15 +102,9 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
     const el = anchorRefs.current.get(orderId);
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    // For a fixed-position tooltip, use viewport coords (no scrollY)
-    setTooltipPos({
-      x: rect.left + rect.width / 2,
-      y: rect.top, // anchor to the top edge of the trigger
-    });
+    setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top });
   }, []);
 
-
-  // Keep anchored on scroll/resize while visible
   useEffect(() => {
     if (!hoverOrderId) return;
     const handle = () => positionTooltip(hoverOrderId);
@@ -91,10 +117,7 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
   }, [hoverOrderId, positionTooltip]);
 
   const openOnHover = (orderId) => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
+    if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
     positionTooltip(orderId);
     setHoverOrderId(orderId);
   };
@@ -186,7 +209,7 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
                     ref={setAnchorRef(order.id)}
                     onMouseEnter={() => openOnHover(order.id)}
                     onMouseLeave={scheduleClose}
-                    title={(order?.teamMembers || []).join(', ')} // mobile fallback
+                    title={(order?.teamMembers || []).join(', ')}
                   >
                     <div className="text-sm text-primary font-medium underline underline-offset-2 cursor-default flex items-center gap-1">
                       <Icon name="Users" size={16} className="text-primary" />
@@ -222,6 +245,41 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
           <h3 className="text-lg font-medium text-foreground mb-2">No orders found</h3>
           <p className="text-muted-foreground">Try adjusting your filters or create a new order to get started.</p>
         </div>
+      )}
+
+      {/* CONFIRMATION POPUP */}
+      {confirmOpen && createPortal(
+        <div className="fixed inset-0 z-[100]">
+          <div className="absolute inset-0 bg-black/40" onClick={closeConfirm} />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-xl overflow-hidden">
+              <div className="p-5">
+                <div className="flex items-center gap-3">
+                  <Icon name="AlertTriangle" size={20} className="text-red-600" />
+                  <h3 className="text-lg font-semibold text-foreground">Cancel scheduled meal?</h3>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  This will mark the order as <span className="text-foreground font-medium">cancelled</span> in MealOps.
+                </p>
+                {orderToCancel && (
+                  <div className="mt-3 text-sm">
+                    <div className="text-foreground font-medium">{orderToCancel.restaurant}</div>
+                    <div className="text-muted-foreground">{formatDate(orderToCancel.date)}</div>
+                  </div>
+                )}
+              </div>
+              <div className="px-5 pb-5 flex justify-end gap-2">
+                <Button variant="outline" onClick={closeConfirm}>Never mind</Button>
+                <Button className="bg-red-600 hover:bg-red-700 text-white"
+                        onClick={confirmCancel}
+                        iconName="X">
+                  Cancel meal
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
