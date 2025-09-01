@@ -22,7 +22,6 @@ const LABEL_COLOR = [110, 110, 110];
 const TEXT_COLOR = [20, 20, 20];
 const BORDER_COLOR = [220, 224, 229];
 
-// sum extras from options if RPC didn't provide options_total_cents (legacy rows)
 const extrasFromOptions = (opts = []) =>
   (opts || []).reduce((sum, o) => sum + ((o?.price_cents || 0) * (o?.quantity ?? 1)), 0);
 
@@ -36,7 +35,6 @@ function splitText(doc, text, maxWidth) {
   return doc.splitTextToSize(String(text ?? ''), maxWidth);
 }
 
-// Draw a small label above a value; returns the new y after drawing both.
 function drawLabelValue(doc, { x, y, label, value, width, lineGap = 2, afterGap = 10 }) {
   doc.setTextColor(...LABEL_COLOR);
   doc.setFont('helvetica', 'bold');
@@ -68,9 +66,19 @@ function ensureSpace(doc, y, needed, margin) {
   return y;
 }
 
-// ---- main: professional PDF ------------------------------------------------
-export async function downloadReceiptPdf(orderId) {
-  const r = await fetchReceipt(orderId);
+function makeFileName(r) {
+  const safeTitle = (r?.title || 'order')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return `receipt_${safeTitle}_${String(r?.order_id || '').slice(0, 8)}.pdf`;
+}
+
+/**
+ * Build a jsPDF doc for a receipt and return { doc, fileName }.
+ * Everything (including sumLabelW etc.) is defined within this scope.
+ */
+function buildReceiptDoc(r) {
   const currency = r?.payment?.currency || 'USD';
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' }); // 612 x 792
@@ -81,7 +89,7 @@ export async function downloadReceiptPdf(orderId) {
   const contentW = pageW - margin * 2;
   const colW = (contentW - gutter) / 2;
 
-  // ------------------ Header block ------------------
+  // Header
   let y = margin - 10;
   doc.setFillColor(...HEADER_BG);
   doc.rect(margin - 12, y - 18, contentW + 24, 68, 'F');
@@ -95,11 +103,8 @@ export async function downloadReceiptPdf(orderId) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   const restAddr = r?.restaurant?.address ? `${r.restaurant.address}` : '';
-  if (restAddr) {
-    doc.text(splitText(doc, restAddr, contentW), margin, y + 28);
-  }
+  if (restAddr) doc.text(splitText(doc, restAddr, contentW), margin, y + 28);
 
-  // right-aligned order # in header
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   const orderNo = r?.order_number ?? r?.order_id ?? '—';
@@ -107,7 +112,7 @@ export async function downloadReceiptPdf(orderId) {
 
   y += 64;
 
-  // ------------------ Order Info (2-column) ------------------
+  // Order Info
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
   doc.text('Order Info', margin, y);
@@ -123,13 +128,13 @@ export async function downloadReceiptPdf(orderId) {
     value: fmtDateTime(r?.scheduled_for)
   });
 
-	if (r?.placed_by?.school_name) {
-		leftY = drawLabelValue(doc, {
-			x: margin, y: leftY, width: colW,
-			label: 'School',
-			value: r.placed_by.school_name
-		});
-	}
+  if (r?.placed_by?.school_name) {
+    leftY = drawLabelValue(doc, {
+      x: margin, y: leftY, width: colW,
+      label: 'School',
+      value: r.placed_by.school_name
+    });
+  }
 
   leftY = drawLabelValue(doc, {
     x: margin, y: leftY, width: colW,
@@ -144,7 +149,6 @@ export async function downloadReceiptPdf(orderId) {
   });
 
   if (r?.links?.tracking) {
-    // clickable tracking link
     doc.setTextColor(26, 115, 232);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
@@ -198,10 +202,9 @@ export async function downloadReceiptPdf(orderId) {
     }
   }
 
-  // move y to the taller column bottom, with spacing
   y = Math.max(leftY, rightY) + 8;
 
-  // ------------------ Items table ------------------
+  // Items table
   y = ensureSpace(doc, y, 120, margin);
 
   doc.setFontSize(12);
@@ -211,13 +214,12 @@ export async function downloadReceiptPdf(orderId) {
   divider(doc, { x: margin, y, width: contentW });
   y += 10;
 
-  // Build table rows (includes “Unit (base + extras)”)
   const rows = (r?.items ?? []).map(it => {
     const opts = it?.options ?? [];
     const extras = Number.isFinite(it?.options_total_cents)
       ? (it.options_total_cents ?? 0)
       : extrasFromOptions(opts);
-    const unit = it?.unit_price_cents ?? 0;                 
+    const unit = it?.unit_price_cents ?? 0;
     const base = Number.isFinite(it?.base_price_cents)
       ? (it.base_price_cents ?? (unit - extras))
       : (unit - extras);
@@ -239,20 +241,18 @@ export async function downloadReceiptPdf(orderId) {
     return [
       it?.name ?? '',
       customizations,
-      breakdown,                                  
+      breakdown,
       String(it?.quantity ?? 1),
       fmtCurrency(unit, currency),
       fmtCurrency(it?.line_total_cents ?? 0, currency)
     ];
   });
 
-  // Column widths
   const qtyW       = 44;
   const unitW      = 72;
   const amtW       = 84;
   const breakdownW = 120;
 
-  // Right-aligned totals table: keep it compact and within page
   const sumTableW = Math.min(360, contentW);
   const sumLeft   = margin + contentW - sumTableW;
 
@@ -273,7 +273,6 @@ export async function downloadReceiptPdf(orderId) {
     headStyles: { fillColor: [242, 243, 245], textColor: [40, 40, 40], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [252, 252, 252] },
     columnStyles: {
-      // 0 & 1 flex
       2: { cellWidth: breakdownW },
       3: { halign: 'right', cellWidth: qtyW },
       4: { halign: 'right', cellWidth: unitW },
@@ -290,7 +289,7 @@ export async function downloadReceiptPdf(orderId) {
 
   y = (doc.lastAutoTable?.finalY || y) + 18;
 
-  // ------------------ Payment details ------------------
+  // Payment details
   y = ensureSpace(doc, y, 80, margin);
 
   doc.setFont('helvetica', 'bold');
@@ -315,11 +314,12 @@ export async function downloadReceiptPdf(orderId) {
   doc.text(payLines, margin, y);
   y += 18;
 
-  // ------------------ Totals summary (right-aligned) ------------------
+  // Totals
   const fees = r?.fees || {};
   const totals = r?.totals || {};
   const pctBps = fees?.added_fee_percent_bps;
   const pctDisp = typeof pctBps === 'number' ? (pctBps / 100).toFixed(2) + '%' : null;
+  const isVoided = String(r?.payment?.payment_status || '').toLowerCase() === 'voided';
 
   const summaryRows = [
     ['Subtotal', fmtCurrency(totals?.subtotal_cents ?? 0, currency)],
@@ -331,7 +331,7 @@ export async function downloadReceiptPdf(orderId) {
     ...(pctDisp ? [[`Added fee (${pctDisp})`, fmtCurrency(fees?.added_fee_percent_amount_cents ?? 0, currency)]] : []),
     ['Total (before tip)', fmtCurrency(totals?.total_without_tips_cents ?? 0, currency)],
     ...(totals?.tip_cents ? [['Tip', fmtCurrency(totals.tip_cents, currency)]] : []),
-    ['Total paid', fmtCurrency(totals?.total_with_tip_cents ?? 0, currency)]
+    ['Total paid', isVoided ? '—' : fmtCurrency(totals?.total_with_tip_cents ?? 0, currency)]
   ];
 
   const sumLabelW = Math.round(sumTableW * 0.58);
@@ -361,12 +361,16 @@ export async function downloadReceiptPdf(orderId) {
         data.cell.styles.halign = 'right';
       }
       if (data.section === 'body' && data.row?.raw?.[0] === 'Total paid') {
-        data.cell.styles.fontSize = 12;
-        data.cell.styles.fontStyle = 'bold';
+        if (!isVoided) {
+          data.cell.styles.fontSize = 12;
+          data.cell.styles.fontStyle = 'bold';
+        } else {
+          data.cell.styles.textColor = [130,130,130];
+        }
       }
     },
     didDrawCell: (data) => {
-      if (data.section === 'body' && data.row?.raw?.[0] === 'Total paid' && data.column.index === 0) {
+      if (!isVoided && data.section === 'body' && data.row?.raw?.[0] === 'Total paid' && data.column.index === 0) {
         const x = data.cell.x;
         const yLine = data.cell.y;
         doc.setDrawColor(...BORDER_COLOR);
@@ -378,7 +382,7 @@ export async function downloadReceiptPdf(orderId) {
 
   y = (doc.lastAutoTable?.finalY || y) + 16;
 
-  // subtle footer
+  // Footer
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(120);
@@ -387,40 +391,24 @@ export async function downloadReceiptPdf(orderId) {
   doc.setFontSize(8);
   doc.text('Generated by MealOps', margin, y);
 
-  // filename
-  const safeTitle = (r?.title || 'order')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-  const fileName = `receipt_${safeTitle}_${String(r?.order_id || '').slice(0, 8)}.pdf`;
+  return { doc, fileName: makeFileName(r) };
+}
 
+// ---- single download -------------------------------------------------------
+export async function downloadReceiptPdf(orderId) {
+  const r = await fetchReceipt(orderId);
+  const { doc, fileName } = buildReceiptDoc(r);
   doc.save(fileName);
 }
 
-
-// bulk zip (kept simple on purpose)
+// ---- bulk zip (reuse the same renderer) -----------------------------------
 export async function downloadReceiptsZip(orderIds = []) {
   const zip = new JSZip();
 
   for (const id of orderIds) {
     const r = await fetchReceipt(id);
-    const currency = r?.payment?.currency || 'USD';
-
-    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-    doc.setFontSize(14);
-    doc.text(`Receipt — ${r?.title ?? 'Order'}`, 40, 40);
-    autoTable(doc, {
-      startY: 60,
-      head: [['Item', 'Qty', 'Line']],
-      body: (r?.items ?? []).map(i => [i.name, String(i.quantity ?? 1), fmtCurrency(i.line_total_cents ?? 0, currency)]),
-      styles: { fontSize: 9 }
-    });
+    const { doc, fileName } = buildReceiptDoc(r);
     const pdfArrayBuffer = doc.output('arraybuffer');
-
-    const safeTitle = (r?.title || 'order')
-      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    const fileName = `receipt_${safeTitle}_${String(r?.order_id || '').slice(0, 8)}.pdf`;
-
     zip.file(fileName, pdfArrayBuffer);
   }
 
