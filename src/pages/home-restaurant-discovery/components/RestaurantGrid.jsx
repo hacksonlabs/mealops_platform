@@ -3,13 +3,26 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import RestaurantCard from './RestaurantCard';
 import Icon from '../../../components/AppIcon';
+import {
+  geocodeAddress,
+  computeDistanceMeters,
+  metersToMiles,
+  formatMiles,
+} from '../../../utils/googlePlaces';
 
-const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, searchQuery }) => {
-  const [rows, setRows] = useState([]);          // raw DB rows
+const RestaurantGrid = ({
+  selectedCategory,
+  selectedService,
+  appliedFilters,
+  searchQuery,
+  centerCoords,     // {lat,lng} or null
+  radiusMiles = 3,  // number
+}) => {
+  const [rows, setRows] = useState([]);          // raw DB rows normalized
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
+  const [distanceReady, setDistanceReady] = useState(false);
 
-  // --- helpers ---
   const priceBucket = (avg) => {
     if (avg == null || Number.isNaN(avg)) return null;
     if (avg < 15) return '$';
@@ -29,43 +42,43 @@ const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, sea
       name: r.name,
       image: r.image_url || undefined,
       cuisine: r.cuisine_type || '',
-      description: r.address || '',           // light fallback (you can swap for r.notes)
+      description: r.address || '',
       rating: r.rating != null ? Number(r.rating) : undefined,
-      reviewCount: undefined,                 // not in schema (leave undefined)
-      deliveryTime: undefined,                // not in schema (leave undefined)
-      distance: undefined,                    // not in schema (leave undefined)
+      reviewCount: undefined,
+      deliveryTime: undefined,
+      distance: undefined,            // will set later
+      _distanceMeters: null,          // internal
       deliveryFee: r.delivery_fee != null ? String(r.delivery_fee) : undefined,
       status: r.is_available ? 'open' : 'closed',
       promotion: null,
       isFavorite: !!r.is_favorite,
       priceRange: priceBucket(avgPrice),
-      // features: derive if you want (e.g., supports_catering)
       features: r.supports_catering ? ['catering'] : [],
-      _avgPrice: avgPrice,                    // internal use only
-      _items: items,                          // internal (for search)
+      _avgPrice: avgPrice,
+      _items: items,
+      _address: r.address || '',
+      _coords: null,                  // will fill via geocode
     };
   };
 
-  // --- load ---
+  // Load from DB
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    (async () => {
       setLoading(true);
       setErr('');
+      setDistanceReady(false);
       try {
-        // Pull restaurants + menu items (needed for price buckets & optional text search)
         const { data, error } = await supabase
           .from('restaurants')
           .select(`
             id, name, cuisine_type, rating, image_url, address,
             delivery_fee, minimum_order, is_available, is_favorite,
             supports_catering,
-            menu_items (
-              id, name, description, price, category, image_url, is_available
-            )
+            menu_items ( id, name, description, price, category, image_url, is_available )
           `)
-          .order('name', { ascending: true })  // cheap stable order
-          .limit(200); // adjust as needed
+          .order('name', { ascending: true })
+          .limit(200);
 
         if (error) throw error;
         if (cancelled) return;
@@ -80,17 +93,66 @@ const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, sea
       } finally {
         if (!cancelled) setLoading(false);
       }
-    };
-
-    load();
+    })();
     return () => { cancelled = true; };
-  }, []); // initial load once
+  }, []);
 
-  // --- filtering (client-side; easy to move server-side later) ---
+  // Geocode + compute distance when we have a center
+  useEffect(() => {
+    let cancelled = false;
+    if (!centerCoords || rows.length === 0) {
+      setDistanceReady(true); // nothing to do; allow render without distance
+      return;
+    }
+
+    (async () => {
+      try {
+        const updated = [...rows];
+        // Geocode sequentially to be gentle on API; you can parallelize if needed.
+        for (let i = 0; i < updated.length; i++) {
+          if (cancelled) return;
+
+          const r = updated[i];
+          // if already have coords, skip; else geocode by address
+          if (!r._coords && r._address) {
+            try {
+              r._coords = await geocodeAddress(r._address);
+            } catch (e) {
+              // keep null on failure; silently continue
+              r._coords = null;
+            }
+          }
+
+          // distance
+          if (r._coords) {
+            const meters = await computeDistanceMeters(centerCoords, r._coords);
+            r._distanceMeters = meters ?? null;
+            const miles = metersToMiles(meters ?? null);
+            r.distance = miles != null ? formatMiles(miles) : undefined;
+          } else {
+            r._distanceMeters = null;
+            r.distance = undefined;
+          }
+        }
+
+        if (!cancelled) {
+          setRows(updated);
+          setDistanceReady(true);
+        }
+      } catch (e) {
+        console.warn('Distance calc failed:', e);
+        if (!cancelled) setDistanceReady(true);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [centerCoords, rows.length]);
+
+  // Client filtering + radius filter
   const filtered = useMemo(() => {
     let list = [...rows];
 
-    // Selected category (maps to cuisine)
+    // Category
     if (selectedCategory && selectedCategory !== 'all') {
       const cat = selectedCategory.toLowerCase();
       list = list.filter((r) => {
@@ -101,7 +163,7 @@ const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, sea
       });
     }
 
-    // Search query: name, cuisine, address/description, menu item names
+    // Search
     if (searchQuery && searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter((r) => {
@@ -121,19 +183,14 @@ const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, sea
 
     // Advanced filters
     if (appliedFilters) {
-      // Price ranges
       if (appliedFilters.priceRange?.length) {
         const set = new Set(appliedFilters.priceRange);
         list = list.filter((r) => (r.priceRange ? set.has(r.priceRange) : false));
       }
-
-      // Rating
       if (appliedFilters.rating) {
         const min = parseFloat(appliedFilters.rating);
         list = list.filter((r) => (r.rating ?? 0) >= min);
       }
-
-      // Cuisine types
       if (appliedFilters.cuisineTypes?.length) {
         const wants = appliedFilters.cuisineTypes.map((c) => c.toLowerCase());
         list = list.filter((r) =>
@@ -142,19 +199,30 @@ const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, sea
       }
     }
 
-    // Example sort: by rating desc, then name
+    // Radius filter (only when we have a center & (soon) distances computed)
+    if (centerCoords && radiusMiles && radiusMiles > 0) {
+      const maxMeters = radiusMiles * 1609.344;
+      list = list.filter((r) => r._distanceMeters != null && r._distanceMeters <= maxMeters);
+    }
+
+    // Sort: if we have distances, sort by distance asc; else rating desc then name
     list.sort((a, b) => {
+      const da = a._distanceMeters ?? Infinity;
+      const db = b._distanceMeters ?? Infinity;
+      if (da !== db) return da - db;
+
       const ra = a.rating ?? 0;
       const rb = b.rating ?? 0;
       if (rb !== ra) return rb - ra;
+
       return a.name.localeCompare(b.name);
     });
 
     return list;
-  }, [rows, selectedCategory, appliedFilters, searchQuery]);
+  }, [rows, selectedCategory, appliedFilters, searchQuery, centerCoords, radiusMiles]);
 
-  // --- render states ---
-  if (loading && rows.length === 0) {
+  // Render states
+  if ((loading && rows.length === 0) || (!distanceReady && centerCoords)) {
     return (
       <div className="px-4 py-6 lg:px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -195,7 +263,7 @@ const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, sea
             <Icon name="Search" size={24} className="text-muted-foreground" />
           </div>
           <h3 className="text-lg font-semibold text-foreground mb-2">No restaurants found</h3>
-          <p className="text-muted-foreground">Try adjusting your filters or search.</p>
+          <p className="text-muted-foreground">Try expanding your radius or adjusting filters.</p>
         </div>
       </div>
     );
@@ -207,6 +275,11 @@ const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, sea
         <h2 className="text-lg font-semibold text-foreground">
           {filtered.length} restaurants
         </h2>
+        {centerCoords && (
+          <div className="text-sm text-muted-foreground">
+            within ~{radiusMiles} mi
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">

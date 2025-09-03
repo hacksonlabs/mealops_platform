@@ -100,3 +100,79 @@ export async function searchNearbyRestaurants(center, {
   const { places = [] } = await Place.searchNearby(request);
   return places;
 }
+
+
+let geoLibPromise = null;
+let geomLibPromise = null;
+
+export async function ensureGeocodingLib() {
+  if (!geoLibPromise) {
+    const g = window.google;
+    if (!g?.maps?.importLibrary) {
+      throw new Error('Google Maps JS not ready (geocoding).');
+    }
+    geoLibPromise = g.maps.importLibrary('geocoding');
+  }
+  return geoLibPromise;
+}
+
+export async function ensureGeometryLib() {
+  if (!geomLibPromise) {
+    const g = window.google;
+    if (!g?.maps?.importLibrary) {
+      throw new Error('Google Maps JS not ready (geometry).');
+    }
+    geomLibPromise = g.maps.importLibrary('geometry');
+  }
+  return geomLibPromise;
+}
+
+/** Geocode a single address -> { lat, lng } (uses cache to cut calls). */
+const __geocodeCache = new Map(); // address -> {lat,lng}
+export async function geocodeAddress(address) {
+  if (!address) return null;
+  if (__geocodeCache.has(address)) return __geocodeCache.get(address);
+
+  const { Geocoder } = await ensureGeocodingLib();
+  const geocoder = new Geocoder();
+
+  const { results } = await geocoder.geocode({ address });
+  const loc = results?.[0]?.geometry?.location?.toJSON?.();
+  const coords = loc ? { lat: loc.lat, lng: loc.lng } : null;
+
+  __geocodeCache.set(address, coords);
+  return coords;
+}
+
+/** Compute distance in meters between two {lat,lng}. Prefers Google geometry, falls back to haversine. */
+export async function computeDistanceMeters(a, b) {
+  if (!a || !b) return null;
+
+  try {
+    const { spherical } = await ensureGeometryLib();
+    const g = window.google;
+    const d = spherical.computeDistanceBetween(
+      new g.maps.LatLng(a.lat, a.lng),
+      new g.maps.LatLng(b.lat, b.lng)
+    );
+    return d; // meters
+  } catch {
+    // Fallback: haversine
+    const R = 6371000; // meters
+    const toRad = (x) => (x * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const la1 = toRad(a.lat);
+    const la2 = toRad(b.lat);
+    const sinDLat = Math.sin(dLat / 2);
+    const sinDLng = Math.sin(dLng / 2);
+    const h =
+      sinDLat * sinDLat +
+      Math.cos(la1) * Math.cos(la2) * sinDLng * sinDLng;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+}
+
+export const metersToMiles = (m) => (m == null ? null : (m / 1609.344));
+export const formatMiles = (mi, digits = 1) =>
+  mi == null ? '' : `${mi.toFixed(mi < 10 ? digits : 0)} mi`;

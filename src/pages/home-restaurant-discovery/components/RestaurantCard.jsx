@@ -56,7 +56,7 @@ const RestaurantCard = ({ restaurant }) => {
               {restaurant?.rating}
             </span>
             <span className="text-xs text-muted-foreground">
-              ({restaurant?.reviewCount})
+              {restaurant?.reviewCount != null ? `(${restaurant.reviewCount})` : ''}
             </span>
           </div>
         </div>
@@ -69,7 +69,7 @@ const RestaurantCard = ({ restaurant }) => {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-1">
               <Icon name="MapPin" size={14} className="text-muted-foreground" />
-              <span className="text-muted-foreground font-mono">
+              <span className="text-muted-foreground">
                 {restaurant?.distance}
               </span>
             </div>

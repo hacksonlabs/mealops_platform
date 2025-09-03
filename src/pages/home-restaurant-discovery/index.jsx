@@ -36,6 +36,7 @@ const HomeRestaurantDiscovery = () => {
   const [isMapView, setIsMapView] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [intent, setIntent] = useState(null);
+  const [radiusMiles, setRadiusMiles] = useState(3);
   const [filters, setFilters] = useState(emptyFilters);
   const clearAllFilters = () => setFilters(emptyFilters);
   const filterBtnRef = useRef(null);
@@ -214,6 +215,8 @@ const HomeRestaurantDiscovery = () => {
           selectedService={selectedService}
           appliedFilters={filters}
           searchQuery={searchQuery}
+          centerCoords={fulfillment.coords}
+          radiusMiles={radiusMiles}
         />
       </main>
 
