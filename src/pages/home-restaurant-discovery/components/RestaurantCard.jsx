@@ -31,7 +31,7 @@ const RestaurantCard = ({ restaurant }) => {
         />
         
         {/* Favorite Button */}
-        <Button
+        {/* <Button
           variant="ghost"
           size="icon"
           onClick={handleFavoriteClick}
@@ -42,7 +42,7 @@ const RestaurantCard = ({ restaurant }) => {
             size={16} 
             className={isFavorite ? 'text-error fill-current' : 'text-muted-foreground'} 
           />
-        </Button>
+        </Button> */}
       </div>
       {/* Restaurant Info */}
       <div className="p-4">
