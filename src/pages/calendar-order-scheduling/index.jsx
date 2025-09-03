@@ -619,7 +619,6 @@ const CalendarOrderScheduling = () => {
         selectedDate={selectedDate}
         onSchedule={orderData => setOrders(prev => [...prev, orderData])}
         teamMembers={teamMembers}
-        savedTemplates={savedTemplates}
       />
       <OrderDetailsModal
         isOpen={isOrderDetailsModalOpen}

@@ -3,6 +3,19 @@ import React from 'react';
 import Icon from '../components/AppIcon';
 
 // --- Meal type helpers ---
+export const MEAL_TYPES = [
+  { value: 'breakfast', label: 'Breakfast' },
+  { value: 'lunch',     label: 'Lunch' },
+  { value: 'dinner',    label: 'Dinner' },
+  { value: 'snack',     label: 'Snack' },
+  // { value: 'other',     label: 'Other' },
+];
+
+export const SERVICE_TYPES = [
+  { value: 'delivery', label: 'Delivery', icon: 'Truck' },
+  { value: 'pickup',   label: 'Pickup',   icon: 'Package' },
+];
+
 export const getMealTypeIcon = (mealType) => {
   const icons = {
     breakfast: 'Coffee',
