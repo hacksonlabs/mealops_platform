@@ -4,17 +4,13 @@ import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import { getMealTypeIcon, MEAL_TYPES, SERVICE_TYPES } from '../../../utils/ordersUtils';
 
-// Loads the 'places' library using the modern Maps loader that must be added in index.html
-async function loadPlacesLibrary() {
-  const g = window.google;
-  if (!g?.maps?.importLibrary) {
-    throw new Error(
-      'Google Maps JS loaded without importLibrary. Ensure index.html uses v=weekly & libraries=places & loading=async, and that the script is loaded before other libraries.'
-    );
-  }
-  // @ts-ignore
-  return await g.maps.importLibrary('places');
-}
+// NEW: import helpers
+import {
+  ensurePlacesLib,
+  newSessionToken,
+  fetchAddressSuggestions,
+  getPlaceDetailsFromPrediction,
+} from '../../../utils/googlePlaces';
 
 const ScheduleMealModal = ({
   isOpen,
@@ -48,10 +44,9 @@ const ScheduleMealModal = ({
     serviceType: 'delivery',
   });
 
-  // address/autocomplete state (kept separate for clarity)
+  // address/autocomplete state
   const [addressInput, setAddressInput] = useState('');
   const [pickedPlace, setPickedPlace] = useState(null); // { formattedAddress, location: {lat,lng}, id }
-
   const isValid = Boolean(formData?.date && formData?.time && formData?.mealType);
 
   useEffect(() => {
@@ -60,38 +55,29 @@ const ScheduleMealModal = ({
     }
   }, [selectedDate]);
 
-  // --- Google Places (New) ---
-  const servicesRef = useRef({
-    AutocompleteSuggestion: null,
-    AutocompleteSessionToken: null,
-  });
+  // --- Places lib + session token refs ---
+  const placesReadyRef = useRef(false);
   const sessionTokenRef = useRef(null);
 
   // Suggestions UI state
   const [openAC, setOpenAC] = useState(false);
   const [loadingAC, setLoadingAC] = useState(false);
-  const [sugs, setSugs] = useState([]); // array of { placePrediction, id, label }
-  const [hi, setHi] = useState(0); // highlighted index
+  const [sugs, setSugs] = useState([]); // array of { id, label, raw }
+  const [hi, setHi] = useState(0);
   const wrapperRef = useRef(null);
   const debounceRef = useRef(null);
 
-  // Load the new Places library when modal opens
+  // Load library + session token when modal opens
   useEffect(() => {
     let mounted = true;
     (async () => {
       if (!isOpen) return;
-      const placesLib = await loadPlacesLibrary();
-      if (!mounted || !placesLib) return;
-
-      const { AutocompleteSuggestion, AutocompleteSessionToken } = placesLib;
-      servicesRef.current.AutocompleteSuggestion = AutocompleteSuggestion;
-      servicesRef.current.AutocompleteSessionToken = AutocompleteSessionToken;
-      sessionTokenRef.current = new AutocompleteSessionToken(); // start a session
+      await ensurePlacesLib();
+      if (!mounted) return;
+      placesReadyRef.current = true;
+      sessionTokenRef.current = await newSessionToken();
     })();
-
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [isOpen]);
 
   // Close suggestions when clicking outside
@@ -106,43 +92,22 @@ const ScheduleMealModal = ({
 
   // Fetch predictions (debounced)
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !placesReadyRef.current) return;
 
     const q = addressInput?.trim();
-    if (!q || q.length < 3 || !servicesRef.current.AutocompleteSuggestion) {
+    if (!q || q.length < 3) {
       setSugs([]);
       setLoadingAC(false);
       return;
     }
 
     setLoadingAC(true);
-
     if (debounceRef.current) clearTimeout(debounceRef.current);
+
     debounceRef.current = setTimeout(async () => {
       try {
-        const { AutocompleteSuggestion } = servicesRef.current;
-        const token = sessionTokenRef.current;
-        const request = {
-          input: q,
-          sessionToken: token,
-        };
-        const { suggestions } =
-          (await AutocompleteSuggestion.fetchAutocompleteSuggestions(request)) || {};
-
-        // Map into a simple shape for rendering
-        const mapped =
-          (suggestions || []).slice(0, 6).map((s, idx) => ({
-            raw: s,
-            id: s?.placePrediction?.placeId || `sugg-${idx}-${Date.now()}`,
-            label:
-              (s?.placePrediction?.text &&
-                s.placePrediction.text.toString &&
-                s.placePrediction.text.toString()) ||
-              s?.placePrediction?.text ||
-              '',
-          })) || [];
-
-        setSugs(mapped.filter((m) => m.label));
+        const results = await fetchAddressSuggestions(q, sessionTokenRef.current);
+        setSugs(results);
         setHi(0);
       } catch {
         setSugs([]);
@@ -156,38 +121,31 @@ const ScheduleMealModal = ({
     };
   }, [addressInput, isOpen]);
 
-  const resetSessionToken = () => {
-    const lib = servicesRef.current;
-    if (lib.AutocompleteSessionToken) {
-      sessionTokenRef.current = new lib.AutocompleteSessionToken();
-    }
+  const resetSessionToken = async () => {
+    sessionTokenRef.current = await newSessionToken();
   };
 
   // Convert a suggestion to a Place and fetch details
   const selectSuggestion = async (sugg) => {
     try {
-      // @ts-ignore
-      const placesLib = await window.google.maps.importLibrary('places');
-      const pp = sugg.raw?.placePrediction;
-      if (!pp?.toPlace) {
+      const details = await getPlaceDetailsFromPrediction(sugg.raw?.placePrediction, [
+        'id',
+        'formattedAddress',
+        'location',
+      ]);
+      if (!details) {
         setOpenAC(false);
         return;
       }
-      const place = pp.toPlace();
-      await place.fetchFields({ fields: ['id', 'formattedAddress', 'location'] });
-
-      const loc = place.location?.toJSON ? place.location.toJSON() : null;
-
       setPickedPlace({
-        formattedAddress: place.formattedAddress,
-        location: loc ? { lat: loc.lat, lng: loc.lng } : null,
-        id: place.id,
+        id: details.id,
+        formattedAddress: details.formattedAddress,
+        location: details.location,
       });
-      setAddressInput(place.formattedAddress || sugg.label || '');
+      setAddressInput(details.formattedAddress || sugg.label || '');
       setOpenAC(false);
     } finally {
-      // per Google guidance
-      resetSessionToken();
+      await resetSessionToken(); // per Google guidance
     }
   };
 
@@ -325,7 +283,7 @@ const ScheduleMealModal = ({
             <div className="space-y-3">
               <label className="text-sm font-medium text-foreground">Location & Fulfillment</label>
 
-              {/* Address + Autocomplete (Google Places New) */}
+              {/* Address + Autocomplete */}
               <div className="relative" ref={wrapperRef}>
                 <Input
                   type="text"
