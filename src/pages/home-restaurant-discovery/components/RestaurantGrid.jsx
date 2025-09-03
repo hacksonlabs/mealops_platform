@@ -1,274 +1,170 @@
-import React, { useState, useEffect } from 'react';
+// src/pages/home-restaurant-discovery/components/RestaurantGrid.jsx
+import React, { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../../../lib/supabase';
 import RestaurantCard from './RestaurantCard';
 import Icon from '../../../components/AppIcon';
 
 const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, searchQuery }) => {
-  const [restaurants, setRestaurants] = useState([]);
+  const [rows, setRows] = useState([]);          // raw DB rows
   const [loading, setLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [page, setPage] = useState(1);
+  const [err, setErr] = useState('');
 
-  // Mock restaurant data
-  const mockRestaurants = [
-    {
-      id: 1,
-      name: "Tony\'s Pizzeria",
-      image: "https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=300&fit=crop",
-      cuisine: "Italian",
-      description: "Authentic wood-fired pizza and Italian classics",
-      rating: 4.8,
-      reviewCount: 324,
-      deliveryTime: "25-35 min",
-      distance: "0.8 mi",
-      deliveryFee: "2.99",
-      status: "open",
-      promotion: "20% OFF",
-      isFavorite: false,
-      priceRange: "$$",
-      features: ["free-delivery", "pickup-available"]
-    },
-    {
-      id: 2,
-      name: "Dragon Palace",
-      image: "https://images.unsplash.com/photo-1563379091339-03246963d51a?w=400&h=300&fit=crop",
-      cuisine: "Chinese",
-      description: "Traditional Chinese dishes with modern flair",
-      rating: 4.6,
-      reviewCount: 198,
-      deliveryTime: "30-40 min",
-      distance: "1.2 mi",
-      deliveryFee: "3.49",
-      status: "open",
-      promotion: null,
-      isFavorite: true,
-      priceRange: "$$",
-      features: ["pickup-available", "group-ordering"]
-    },
-    {
-      id: 3,
-      name: "Burger Junction",
-      image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&h=300&fit=crop",
-      cuisine: "American",
-      description: "Gourmet burgers and crispy fries",
-      rating: 4.4,
-      reviewCount: 567,
-      deliveryTime: "20-30 min",
-      distance: "0.5 mi",
-      deliveryFee: "1.99",
-      status: "busy",
-      promotion: "Free Fries",
-      isFavorite: false,
-      priceRange: "$",
-      features: ["free-delivery", "accepts-cash"]
-    },
-    {
-      id: 4,
-      name: "Spice Garden",
-      image: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop",
-      cuisine: "Indian",
-      description: "Authentic Indian curries and tandoor specialties",
-      rating: 4.7,
-      reviewCount: 289,
-      deliveryTime: "35-45 min",
-      distance: "1.8 mi",
-      deliveryFee: "4.99",
-      status: "open",
-      promotion: null,
-      isFavorite: false,
-      priceRange: "$$",
-      features: ["eco-friendly", "group-ordering"]
-    },
-    {
-      id: 5,
-      name: "Taco Fiesta",
-      image: "https://images.unsplash.com/photo-1565299585323-38174c4a6c18?w=400&h=300&fit=crop",
-      cuisine: "Mexican",
-      description: "Fresh tacos, burritos, and Mexican street food",
-      rating: 4.5,
-      reviewCount: 412,
-      deliveryTime: "25-35 min",
-      distance: "1.0 mi",
-      deliveryFee: "2.49",
-      status: "open",
-      promotion: "Buy 2 Get 1",
-      isFavorite: true,
-      priceRange: "$",
-      features: ["free-delivery", "pickup-available", "accepts-cash"]
-    },
-    {
-      id: 6,
-      name: "Sushi Zen",
-      image: "https://images.unsplash.com/photo-1579584425555-c3ce17fd4351?w=400&h=300&fit=crop",
-      cuisine: "Japanese",
-      description: "Fresh sushi and traditional Japanese cuisine",
-      rating: 4.9,
-      reviewCount: 156,
-      deliveryTime: "40-50 min",
-      distance: "2.1 mi",
-      deliveryFee: "5.99",
-      status: "open",
-      promotion: null,
-      isFavorite: false,
-      priceRange: "$$$",
-      features: ["eco-friendly", "group-ordering"]
-    },
-    {
-      id: 7,
-      name: "Green Bowl",
-      image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&h=300&fit=crop",
-      cuisine: "Healthy",
-      description: "Fresh salads, smoothie bowls, and healthy options",
-      rating: 4.3,
-      reviewCount: 234,
-      deliveryTime: "20-30 min",
-      distance: "0.7 mi",
-      deliveryFee: "2.99",
-      status: "open",
-      promotion: null,
-      isFavorite: false,
-      priceRange: "$$",
-      features: ["eco-friendly", "free-delivery"]
-    },
-    {
-      id: 8,
-      name: "Pasta Corner",
-      image: "https://images.unsplash.com/photo-1621996346565-e3dbc353d2e5?w=400&h=300&fit=crop",
-      cuisine: "Italian",
-      description: "Homemade pasta and Italian comfort food",
-      rating: 4.6,
-      reviewCount: 178,
-      deliveryTime: "30-40 min",
-      distance: "1.5 mi",
-      deliveryFee: "3.99",
-      status: "closed",
-      promotion: null,
-      isFavorite: false,
-      priceRange: "$$",
-      features: ["pickup-available", "group-ordering"]
-    }
-  ];
+  // --- helpers ---
+  const priceBucket = (avg) => {
+    if (avg == null || Number.isNaN(avg)) return null;
+    if (avg < 15) return '$';
+    if (avg < 25) return '$$';
+    if (avg < 35) return '$$$';
+    return '$$$$';
+  };
 
-  const filterRestaurants = (restaurants) => {
-    let filtered = [...restaurants];
+  const normalize = (r) => {
+    const items = r.menu_items || [];
+    const avgPrice = items.length
+      ? items.reduce((s, it) => s + parseFloat(it.price ?? 0), 0) / items.length
+      : null;
 
-    // Filter by category
+    return {
+      id: r.id,
+      name: r.name,
+      image: r.image_url || undefined,
+      cuisine: r.cuisine_type || '',
+      description: r.address || '',           // light fallback (you can swap for r.notes)
+      rating: r.rating != null ? Number(r.rating) : undefined,
+      reviewCount: undefined,                 // not in schema (leave undefined)
+      deliveryTime: undefined,                // not in schema (leave undefined)
+      distance: undefined,                    // not in schema (leave undefined)
+      deliveryFee: r.delivery_fee != null ? String(r.delivery_fee) : undefined,
+      status: r.is_available ? 'open' : 'closed',
+      promotion: null,
+      isFavorite: !!r.is_favorite,
+      priceRange: priceBucket(avgPrice),
+      // features: derive if you want (e.g., supports_catering)
+      features: r.supports_catering ? ['catering'] : [],
+      _avgPrice: avgPrice,                    // internal use only
+      _items: items,                          // internal (for search)
+    };
+  };
+
+  // --- load ---
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setErr('');
+      try {
+        // Pull restaurants + menu items (needed for price buckets & optional text search)
+        const { data, error } = await supabase
+          .from('restaurants')
+          .select(`
+            id, name, cuisine_type, rating, image_url, address,
+            delivery_fee, minimum_order, is_available, is_favorite,
+            supports_catering,
+            menu_items (
+              id, name, description, price, category, image_url, is_available
+            )
+          `)
+          .order('name', { ascending: true })  // cheap stable order
+          .limit(200); // adjust as needed
+
+        if (error) throw error;
+        if (cancelled) return;
+
+        setRows((data || []).map(normalize));
+      } catch (e) {
+        if (!cancelled) {
+          console.error('Load restaurants failed:', e);
+          setErr(e?.message || 'Failed to load restaurants');
+          setRows([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, []); // initial load once
+
+  // --- filtering (client-side; easy to move server-side later) ---
+  const filtered = useMemo(() => {
+    let list = [...rows];
+
+    // Selected category (maps to cuisine)
     if (selectedCategory && selectedCategory !== 'all') {
-      filtered = filtered?.filter(restaurant => {
-        const cuisine = restaurant?.cuisine?.toLowerCase();
-        const category = selectedCategory?.toLowerCase();
-        
-        if (category === 'pizza') return cuisine?.includes('italian');
-        if (category === 'asian') return ['chinese', 'japanese', 'thai']?.includes(cuisine);
-        if (category === 'mexican') return cuisine?.includes('mexican');
-        if (category === 'italian') return cuisine?.includes('italian');
-        if (category === 'american') return cuisine?.includes('american');
-        if (category === 'indian') return cuisine?.includes('indian');
-        if (category === 'chinese') return cuisine?.includes('chinese');
-        if (category === 'healthy') return cuisine?.includes('healthy');
-        
-        return cuisine?.includes(category);
+      const cat = selectedCategory.toLowerCase();
+      list = list.filter((r) => {
+        const c = (r.cuisine || '').toLowerCase();
+        if (cat === 'pizza') return c.includes('italian') || c.includes('pizza');
+        if (cat === 'asian') return ['chinese','japanese','thai','korean','asian'].some(x => c.includes(x));
+        return c.includes(cat);
       });
     }
 
-    // Filter by search query
-    if (searchQuery) {
-      const query = searchQuery?.toLowerCase();
-      filtered = filtered?.filter(restaurant =>
-        restaurant?.name?.toLowerCase()?.includes(query) ||
-        restaurant?.cuisine?.toLowerCase()?.includes(query) ||
-        restaurant?.description?.toLowerCase()?.includes(query)
-      );
+    // Search query: name, cuisine, address/description, menu item names
+    if (searchQuery && searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter((r) => {
+        const inHeader =
+          r.name?.toLowerCase().includes(q) ||
+          r.cuisine?.toLowerCase().includes(q) ||
+          r.description?.toLowerCase().includes(q);
+        if (inHeader) return true;
+        return (r._items || []).some(
+          (it) =>
+            it.name?.toLowerCase().includes(q) ||
+            it.description?.toLowerCase().includes(q) ||
+            it.category?.toLowerCase().includes(q)
+        );
+      });
     }
 
-    // Apply advanced filters
+    // Advanced filters
     if (appliedFilters) {
-      // Price range filter
-      if (appliedFilters?.priceRange && appliedFilters?.priceRange?.length > 0) {
-        filtered = filtered?.filter(restaurant =>
-          appliedFilters?.priceRange?.includes(restaurant?.priceRange)
-        );
+      // Price ranges
+      if (appliedFilters.priceRange?.length) {
+        const set = new Set(appliedFilters.priceRange);
+        list = list.filter((r) => (r.priceRange ? set.has(r.priceRange) : false));
       }
 
-      // Rating filter
-      if (appliedFilters?.rating) {
-        const minRating = parseFloat(appliedFilters?.rating);
-        filtered = filtered?.filter(restaurant => restaurant?.rating >= minRating);
+      // Rating
+      if (appliedFilters.rating) {
+        const min = parseFloat(appliedFilters.rating);
+        list = list.filter((r) => (r.rating ?? 0) >= min);
       }
 
-      // Delivery time filter
-      if (appliedFilters?.deliveryTime) {
-        const maxTime = parseInt(appliedFilters?.deliveryTime);
-        filtered = filtered?.filter(restaurant => {
-          const restaurantTime = parseInt(restaurant?.deliveryTime?.split('-')?.[1]);
-          return restaurantTime <= maxTime;
-        });
-      }
-
-      // Cuisine types filter
-      if (appliedFilters?.cuisineTypes && appliedFilters?.cuisineTypes?.length > 0) {
-        filtered = filtered?.filter(restaurant =>
-          appliedFilters?.cuisineTypes?.some(cuisine =>
-            restaurant?.cuisine?.toLowerCase()?.includes(cuisine)
-          )
-        );
-      }
-
-      // Features filter
-      if (appliedFilters?.features && appliedFilters?.features?.length > 0) {
-        filtered = filtered?.filter(restaurant =>
-          appliedFilters?.features?.every(feature =>
-            restaurant?.features?.includes(feature)
-          )
+      // Cuisine types
+      if (appliedFilters.cuisineTypes?.length) {
+        const wants = appliedFilters.cuisineTypes.map((c) => c.toLowerCase());
+        list = list.filter((r) =>
+          wants.some((w) => (r.cuisine || '').toLowerCase().includes(w))
         );
       }
     }
 
-    // Sort by distance (nearest first)
-    filtered?.sort((a, b) => {
-      const distanceA = parseFloat(a?.distance);
-      const distanceB = parseFloat(b?.distance);
-      return distanceA - distanceB;
+    // Example sort: by rating desc, then name
+    list.sort((a, b) => {
+      const ra = a.rating ?? 0;
+      const rb = b.rating ?? 0;
+      if (rb !== ra) return rb - ra;
+      return a.name.localeCompare(b.name);
     });
 
-    return filtered;
-  };
+    return list;
+  }, [rows, selectedCategory, appliedFilters, searchQuery]);
 
-  const loadRestaurants = () => {
-    setLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      let filtered = filterRestaurants(mockRestaurants);
-      setRestaurants(filtered);
-      setLoading(false);
-      setHasMore(false); // For demo, we don't have infinite scroll
-    }, 500);
-  };
-
-  useEffect(() => {
-    loadRestaurants();
-  }, [selectedCategory, selectedService, appliedFilters, searchQuery]);
-
-  const handleRefresh = () => {
-    setPage(1);
-    loadRestaurants();
-  };
-
-  if (loading && restaurants?.length === 0) {
+  // --- render states ---
+  if (loading && rows.length === 0) {
     return (
       <div className="px-4 py-6 lg:px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {[...Array(8)]?.map((_, index) => (
-            <div key={index} className="bg-card border border-border rounded-lg overflow-hidden animate-pulse">
-              <div className="h-48 bg-muted" />
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="bg-card border border-border overflow-hidden">
+              <div className="h-48 bg-muted animate-pulse" />
               <div className="p-4 space-y-3">
-                <div className="h-4 bg-muted rounded w-3/4" />
-                <div className="h-3 bg-muted rounded w-full" />
-                <div className="h-3 bg-muted rounded w-1/2" />
-                <div className="flex justify-between">
-                  <div className="h-3 bg-muted rounded w-1/4" />
-                  <div className="h-3 bg-muted rounded w-1/4" />
-                </div>
+                <div className="h-4 bg-muted animate-pulse" />
+                <div className="h-3 bg-muted animate-pulse" />
+                <div className="h-3 bg-muted animate-pulse w-1/2" />
               </div>
             </div>
           ))}
@@ -277,7 +173,21 @@ const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, sea
     );
   }
 
-  if (restaurants?.length === 0 && !loading) {
+  if (err) {
+    return (
+      <div className="px-4 py-12 lg:px-6 text-center">
+        <div className="max-w-md mx-auto">
+          <div className="w-16 h-16 bg-muted flex items-center justify-center mx-auto mb-4">
+            <Icon name="AlertTriangle" size={24} className="text-error" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground mb-2">Couldn’t load restaurants</h3>
+          <p className="text-muted-foreground mb-4">{err}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (filtered.length === 0) {
     return (
       <div className="px-4 py-12 lg:px-6 text-center">
         <div className="max-w-md mx-auto">
@@ -285,15 +195,7 @@ const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, sea
             <Icon name="Search" size={24} className="text-muted-foreground" />
           </div>
           <h3 className="text-lg font-semibold text-foreground mb-2">No restaurants found</h3>
-          <p className="text-muted-foreground mb-4">
-            Try adjusting your filters or search in a different area.
-          </p>
-          <button
-            onClick={handleRefresh}
-            className="text-primary hover:text-primary/80 font-medium"
-          >
-            Refresh results
-          </button>
+          <p className="text-muted-foreground">Try adjusting your filters or search.</p>
         </div>
       </div>
     );
@@ -301,46 +203,17 @@ const RestaurantGrid = ({ selectedCategory, selectedService, appliedFilters, sea
 
   return (
     <div className="px-4 py-6 lg:px-6">
-      {/* Results Header */}
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">
-            {restaurants?.length} restaurants nearby
-          </h2>
-          {/* <p className="text-sm text-muted-foreground">
-            Sorted by distance • Updated {new Date()?.toLocaleTimeString()}
-          </p> */}
-        </div>
+        <h2 className="text-lg font-semibold text-foreground">
+          {filtered.length} restaurants
+        </h2>
       </div>
-      {/* Restaurant Grid */}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {restaurants?.map((restaurant) => (
-          <RestaurantCard key={restaurant?.id} restaurant={restaurant} />
+        {filtered.map((r) => (
+          <RestaurantCard key={r.id} restaurant={r} />
         ))}
       </div>
-      {/* Loading More */}
-      {loading && restaurants?.length > 0 && (
-        <div className="flex justify-center py-8">
-          <div className="flex items-center space-x-2 text-muted-foreground">
-            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm">Loading more restaurants...</span>
-          </div>
-        </div>
-      )}
-      {/* Load More Button */}
-      {hasMore && !loading && restaurants?.length > 0 && (
-        <div className="flex justify-center py-8">
-          <button
-            onClick={() => {
-              setPage(prev => prev + 1);
-              loadRestaurants();
-            }}
-            className="px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-micro"
-          >
-            Load More Restaurants
-          </button>
-        </div>
-      )}
     </div>
   );
 };

@@ -15,6 +15,14 @@ DECLARE
   -- restaurants
   pizza_rest_uuid     UUID := gen_random_uuid();
   burger_rest_uuid    UUID := gen_random_uuid();
+  taco_rest_uuid          UUID := gen_random_uuid();
+  sushi_rest_uuid         UUID := gen_random_uuid();
+  thai_rest_uuid          UUID := gen_random_uuid();
+  med_rest_uuid           UUID := gen_random_uuid();
+  salad_rest_uuid         UUID := gen_random_uuid();
+  bagel_rest_uuid         UUID := gen_random_uuid();
+  bbq_rest_uuid           UUID := gen_random_uuid();
+  vegan_rest_uuid         UUID := gen_random_uuid();
 
   -- menu items (base)
   pizza_item_uuid     UUID := gen_random_uuid(); -- Margherita
@@ -28,6 +36,23 @@ DECLARE
   blt_cheeseburger_item_uuid  UUID := gen_random_uuid(); -- BLT Cheeseburger
   house_salad_item_uuid       UUID := gen_random_uuid(); -- House Salad
   hamburger_item_uuid         UUID := gen_random_uuid(); -- Hamburger
+
+  taco_al_pastor_uuid     UUID := gen_random_uuid();
+  taco_carnitas_uuid      UUID := gen_random_uuid();
+  sushi_combo_uuid        UUID := gen_random_uuid();
+  sushi_spicy_tuna_uuid   UUID := gen_random_uuid();
+  thai_pad_thai_uuid      UUID := gen_random_uuid();
+  thai_green_curry_uuid   UUID := gen_random_uuid();
+  med_shawarma_uuid       UUID := gen_random_uuid();
+  med_falafel_uuid        UUID := gen_random_uuid();
+  salad_cobb_uuid         UUID := gen_random_uuid();
+  salad_bowl_uuid         UUID := gen_random_uuid();
+  bagel_lox_uuid          UUID := gen_random_uuid();
+  bagel_breakfast_uuid    UUID := gen_random_uuid();
+  bbq_brisket_uuid        UUID := gen_random_uuid();
+  bbq_ribs_uuid           UUID := gen_random_uuid();
+  vegan_bowl_uuid         UUID := gen_random_uuid();
+  vegan_wrap_uuid         UUID := gen_random_uuid();
 
   -- payments
   pm_team_uuid        UUID := gen_random_uuid();
@@ -122,15 +147,37 @@ BEGIN
     id, location_id, name, cuisine_type, phone_number, is_favorite, supports_catering,
     api_id, api_source, address, image_url, rating, delivery_fee, minimum_order, is_available
   ) VALUES
-    (pizza_rest_uuid,  loc_campus_uuid, 'Pizza Palace', 'Italian',  '(123) 456-7890', true,  true,  'ubereats_pizza_palace_123', 'ubereats', '789 Main St, Anytown, CA 90210', 'https://example.com/pizza_palace.jpg', 4.5, 2.99, 15.00, true),
-    (burger_rest_uuid, loc_office_uuid, 'Burger Joint', 'American', '(987) 654-3210', false, false, 'ubereats_burger_joint_456', 'ubereats', '101 Oak Ave, Anytown, CA 90210', 'https://example.com/burger_joint.jpg',  4.2, 1.99, 10.00, true);
+    (pizza_rest_uuid,  loc_campus_uuid, 'Pizza Palace', 'Italian',  '(123) 456-7890', true,  true,  'ubereats_pizza_palace_123', 'ubereats', '1325 Sunnyvale Saratoga Rd, Sunnyvale, CA 94087', 'https://example.com/pizza_palace.jpg', 4.5, 2.99, 15.00, true),
+    (burger_rest_uuid, loc_office_uuid, 'Burger Joint', 'American', '(987) 654-3210', false, false, 'ubereats_burger_joint_456', 'ubereats', '2310 Homestead Rd, Los Altos, CA 94024', 'https://example.com/burger_joint.jpg',  4.2, 1.99, 10.00, true),
+    (taco_rest_uuid,  loc_campus_uuid,    'Taqueria El Sol',      'Mexican',      '(408) 555-1201', false, true,  'ubereats_taqueria_el_sol_001',  'ubereats', '1111 El Camino Real, Santa Clara, CA 95050',     'https://example.com/taqueria.jpg',   4.4, 2.49, 10.00, true),
+    (sushi_rest_uuid, loc_office_uuid,    'Sushi Kai',            'Japanese',     '(650) 555-2202', false, false, 'ubereats_sushi_kai_001',         'ubereats', '250 Castro St, Mountain View, CA 94041',         'https://example.com/sushi.jpg',      4.7, 4.99, 15.00, true),
+    (thai_rest_uuid,  loc_hotel_uuid,     'Thai Spice Kitchen',   'Thai',         '(408) 555-3303', false, true,  'ubereats_thai_spice_kitchen_001','ubereats', '1020 N Mathilda Ave, Sunnyvale, CA 94089',        'https://example.com/thai.jpg',       4.5, 3.49, 12.00, true),
+    (med_rest_uuid,   loc_sanmarcos_uuid, 'Mediterranean Grill',  'Mediterranean','(669) 555-4404', false, true,  'ubereats_mediterranean_grill_001','ubereats','20688 Stevens Creek Blvd, Cupertino, CA 95014',  'https://example.com/med.jpg',        4.6, 2.99, 12.00, true),
+    (salad_rest_uuid, loc_campus_uuid,    'Green Leaf Salads',    'Healthy',      '(408) 555-5505', false, false, 'ubereats_green_leaf_salads_001', 'ubereats', '650 W El Camino Real, Sunnyvale, CA 94087',       'https://example.com/salads.jpg',     4.3, 1.99,  8.00, true),
+    (bagel_rest_uuid, loc_office_uuid,    'Bagel Barn & Deli',    'Breakfast',    '(650) 555-6606', false, false, 'ubereats_bagel_barn_001',        'ubereats', '4546 El Camino Real, Los Altos, CA 94022',        'https://example.com/bagels.jpg',     4.1, 0.00,  0.00, true),
+    (bbq_rest_uuid,   loc_hotel_uuid,     'Smokehouse BBQ',       'BBQ',          '(408) 555-7707', false, true,  'ubereats_smokehouse_bbq_001',    'ubereats', '1001 S Wolfe Rd, Sunnyvale, CA 94086',            'https://example.com/bbq.jpg',        4.2, 3.99, 20.00, true),
+    (vegan_rest_uuid, loc_sanmarcos_uuid, 'Plant Kitchen',        'Vegan',        '(669) 555-8808', true,  false, 'ubereats_plant_kitchen_001',     'ubereats', '1275 W El Camino Real, Sunnyvale, CA 94087',      'https://example.com/vegan.jpg',      4.8, 2.49, 10.00, true);
 
   -- Menu items (complete)
   INSERT INTO public.menu_items (id, restaurant_id, api_id, name, description, price, category, image_url, is_available, options_json) VALUES
     (pizza_item_uuid, pizza_rest_uuid,  'pizza_palace_margherita', 'Margherita Pizza', 'Classic Margherita with fresh basil', 15.99, 'Pizzas', 'https://example.com/margherita.jpg', true,
      '{"sizes":[{"name":"Small","price":13.99},{"name":"Medium","price":15.99},{"name":"Large","price":17.99}],"toppings":[{"name":"Pepperoni","price":2.00},{"name":"Mushrooms","price":1.50}]}'::jsonb),
     (salad_item_uuid, pizza_rest_uuid,  'pizza_palace_caesar_salad', 'Caesar Salad', 'Fresh Caesar salad with croutons', 12.01, 'Salads', 'https://example.com/caesar_salad.jpg', true,
-     '{"dressings":[{"name":"Caesar"},{"name":"Ranch"}]}'::jsonb);
+     '{"dressings":[{"name":"Caesar"},{"name":"Ranch"}]}'::jsonb),
+    (taco_al_pastor_uuid, taco_rest_uuid, 'taqueria_el_sol_al_pastor_tacos', 'Tacos Al Pastor', 'Three tacos with pineapple & cilantro', 12.50, 'Tacos',  'https://example.com/tacos_pastor.jpg', true,
+     '{"tortilla":["corn","flour"],"salsa":["mild","medium","hot"]}'::jsonb),
+    (taco_carnitas_uuid,  taco_rest_uuid, 'taqueria_el_sol_carnitas_burrito','Carnitas Burrito','Slow-cooked pork, rice, beans',          11.75, 'Burritos','https://example.com/burrito.jpg',       true,
+     '{"add_ons":[{"name":"Guacamole","price":1.75},{"name":"Sour Cream","price":0.75}]}'::jsonb),
+    (sushi_combo_uuid,      sushi_rest_uuid, 'sushi_kai_combo_a',      'Sushi Combo A',    'Chef''s selection of 8 nigiri + roll', 22.00, 'Combos', 'https://example.com/sushi_combo.jpg', true,
+     '{"wasabi":["yes","no"],"ginger":true}'::jsonb),
+    (thai_pad_thai_uuid,    thai_rest_uuid,  'thai_spice_pad_thai',    'Pad Thai',         'Rice noodles, egg, peanuts', 14.25, 'Noodles', 'https://example.com/pad_thai.jpg', true,
+     '{"protein":["chicken","tofu","shrimp"],"spice_level":["mild","med","hot"]}'::jsonb),
+    (thai_green_curry_uuid, thai_rest_uuid,  'thai_spice_green_curry', 'Green Curry',      'Coconut milk, basil, veggies', 15.50, 'Curry', 'https://example.com/green_curry.jpg', true,
+     '{"protein":["chicken","tofu"],"rice":["jasmine","brown"]}'::jsonb),
+    (med_shawarma_uuid, med_rest_uuid, 'med_grill_shawarma_wrap', 'Chicken Shawarma Wrap', 'Marinated chicken, garlic sauce', 12.99, 'Wraps',   'https://example.com/shawarma.jpg', true,
+     '{"sides":["fries","salad"],"add_ons":[{"name":"Hummus","price":1.50}]}'::jsonb),
+    (salad_cobb_uuid, salad_rest_uuid, 'green_leaf_cobb', 'Cobb Salad', 'Bacon, egg, avocado, blue cheese', 12.25, 'Salads', 'https://example.com/cobb.jpg', true,
+     '{"dressings":["ranch","balsamic","caesar"]}'::jsonb);
 
   INSERT INTO public.menu_items (id, restaurant_id, api_id, name, description, price, category, image_url, is_available) VALUES
     (burger_item_uuid,           burger_rest_uuid, 'burger_joint_classic',   'Classic Cheeseburger', 'Classic cheeseburger with fries', 14.50, 'Burgers', 'https://example.com/classic_burger.jpg', true),
@@ -139,7 +186,16 @@ BEGIN
     (house_hamburger_item_uuid,  burger_rest_uuid, 'burger_joint_house',     'House Hamburger',      'Signature house hamburger',             15.50, 'Burgers', 'https://example.com/house_hamburger.jpg', true),
     (blt_cheeseburger_item_uuid, burger_rest_uuid, 'burger_joint_blt_cb',    'BLT Cheeseburger',     'BLT + cheese',                          14.50, 'Burgers', 'https://example.com/blt_cheeseburger.jpg', true),
     (house_salad_item_uuid,      pizza_rest_uuid,  'pizza_palace_house_sal', 'House Salad',          'Mixed greens, veggies',                 13.01, 'Salads', 'https://example.com/house_salad.jpg', true),
-    (hamburger_item_uuid,        burger_rest_uuid, 'burger_joint_hamburger', 'Hamburger',            'Classic hamburger',                      13.50, 'Burgers', 'https://example.com/hamburger.jpg', true);
+    (hamburger_item_uuid,        burger_rest_uuid, 'burger_joint_hamburger', 'Hamburger',            'Classic hamburger',                      13.50, 'Burgers', 'https://example.com/hamburger.jpg', true),
+    (sushi_spicy_tuna_uuid, sushi_rest_uuid, 'sushi_kai_spicy_tuna',   'Spicy Tuna Roll',      'Fresh tuna with spicy mayo', 9.50,  'Rolls',  'https://example.com/spicy_tuna.jpg',  true),
+    (med_falafel_uuid,      med_rest_uuid,   'med_grill_falafel_platter','Falafel Platter',   'Falafel, hummus, pita, salad', 13.75, 'Platters','https://example.com/falafel.jpg',    true),
+    (salad_bowl_uuid,       salad_rest_uuid, 'green_leaf_bowl',        'Power Bowl',          'Quinoa, roasted veggies, tahini', 11.50, 'Bowls', 'https://example.com/bowl.jpg',      true),
+    (bagel_lox_uuid,        bagel_rest_uuid, 'bagel_barn_lox',         'Lox & Cream Cheese',  'Smoked salmon on toasted bagel', 9.75,  'Bagels','https://example.com/lox.jpg',        true),
+    (bagel_breakfast_uuid,  bagel_rest_uuid, 'bagel_barn_breakfast',   'Breakfast Bagel',     'Egg, cheese, choice of meat',    7.95,  'Bagels','https://example.com/breakfast_bagel.jpg', true),
+    (bbq_brisket_uuid,      bbq_rest_uuid,   'smokehouse_brisket_plate','Smoked Brisket Plate','12-hr smoked brisket, 2 sides', 19.99, 'Plates','https://example.com/brisket.jpg',   true),
+    (bbq_ribs_uuid,         bbq_rest_uuid,   'smokehouse_ribs_half',   'Half Rack Ribs',      'Dry rub pork ribs, choice of sauce', 21.50, 'Plates','https://example.com/ribs.jpg',  true),
+    (vegan_bowl_uuid,       vegan_rest_uuid, 'plant_kitchen_buddha_bowl','Buddha Bowl',      'Brown rice, tofu, veggies, tahini', 12.25, 'Bowls', 'https://example.com/vegan_bowl.jpg', true),
+    (vegan_wrap_uuid,       vegan_rest_uuid, 'plant_kitchen_avocado_wrap','Avocado Veggie Wrap','Avocado, hummus, sprouts',      10.50, 'Wraps', 'https://example.com/vegan_wrap.jpg', true);
 
   -- Payment methods
   INSERT INTO public.payment_methods (id, team_id, card_name, last_four, is_default, created_by) VALUES
