@@ -4,21 +4,9 @@ import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import { getMealTypeIcon, MEAL_TYPES, SERVICE_TYPES } from '../../../utils/ordersUtils';
 
-// NEW: import helpers
-import {
-  ensurePlacesLib,
-  newSessionToken,
-  fetchAddressSuggestions,
-  getPlaceDetailsFromPrediction,
-} from '../../../utils/googlePlaces';
+import { ensurePlacesLib, newSessionToken, fetchAddressSuggestions, getPlaceDetailsFromPrediction } from '../../../utils/googlePlaces';
 
-const ScheduleMealModal = ({
-  isOpen,
-  onClose,
-  selectedDate,
-  onSchedule,
-  onSearchNearby // optional: (payload) => void
-}) => {
+const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearchNearby }) => {
   // --- date helpers ---
   const pad = (n) => String(n).padStart(2, '0');
   const formatDateInputValue = (d) =>
@@ -47,7 +35,10 @@ const ScheduleMealModal = ({
   // address/autocomplete state
   const [addressInput, setAddressInput] = useState('');
   const [pickedPlace, setPickedPlace] = useState(null); // { formattedAddress, location: {lat,lng}, id }
-  const isValid = Boolean(formData?.date && formData?.time && formData?.mealType);
+  const hasAddress = Boolean((pickedPlace?.formattedAddress || addressInput)?.trim());
+  const hasFulfillment = Boolean(formData?.serviceType);
+
+  const isValid = Boolean(formData?.date && formData?.time && formData?.mealType && hasAddress && hasFulfillment);
 
   useEffect(() => {
     if (selectedDate) {
