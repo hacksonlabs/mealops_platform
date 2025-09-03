@@ -12,10 +12,10 @@ const RestaurantCard = ({ restaurant }) => {
     navigate('/restaurant-detail-menu', { state: { restaurant } });
   };
 
-  const handleFavoriteClick = (e) => {
-    e?.stopPropagation();
-    setIsFavorite(!isFavorite);
-  };
+  // const handleFavoriteClick = (e) => {
+  //   e?.stopPropagation();
+  //   setIsFavorite(!isFavorite);
+  // };
 
   return (
     <div 
@@ -78,7 +78,7 @@ const RestaurantCard = ({ restaurant }) => {
 
         {/* Quick Actions */}
         <div className="flex items-center space-x-2 mt-3 pt-3 border-t border-border">
-          <Button
+          {/* <Button
             variant="outline"
             size="sm"
             className="flex-1"
@@ -89,7 +89,7 @@ const RestaurantCard = ({ restaurant }) => {
           >
             <Icon name="Menu" size={14} className="mr-1" />
             Menu
-          </Button>
+          </Button> */}
           
           <Button
             variant="default"
