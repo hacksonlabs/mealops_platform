@@ -11,16 +11,16 @@ import {
 const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
   if (!isOpen || !order) return null;
 
-  // Unique attendees by team_member_id or user_id
+  // Unique attendees by team_member_id or user_id (new aliases only)
   const uniqueAttendees = React.useMemo(() => {
     const m = new Map();
     (order?.order_items || []).forEach((it) => {
       const key = it.team_member_id || it.user_id || it.id;
       if (!m.has(key)) {
         const name =
-          it?.team_members?.full_name ??
-          (it?.user_profiles
-            ? `${it.user_profiles.first_name} ${it.user_profiles.last_name}`
+          it?.team_member?.full_name ??
+          (it?.user_profile
+            ? `${it.user_profile.first_name} ${it.user_profile.last_name}`
             : 'Team Member');
         m.set(key, name);
       }
@@ -33,11 +33,11 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
   // Prefer DB enum; fallback to 'other'
   const mealType = order?.meal_type || 'other';
 
-  // Addresses from the joined tables (these are included in your select())
-  const restaurantName = order?.restaurants?.name || '—';
-  const restaurantAddr = order?.restaurants?.address || '';
-  const locationName = order?.saved_locations?.name || '—';
-  const locationAddr = order?.saved_locations?.address || '';
+  const restaurantName = order?.restaurant?.name || '—';
+  const restaurantAddr = order?.restaurant?.address || '';
+  const locationName = order?.location?.name || '—';
+  const locationAddr = order?.location?.address || '';
+  const paymentMethod = order?.payment_method || null;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -66,7 +66,6 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {/* meal type icon next to status */}
               <Icon
                 name={getMealTypeIcon(mealType)}
                 size={16}
@@ -81,7 +80,7 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
           {/* Content */}
           <div className="overflow-y-auto max-h-[calc(90vh-120px)]">
             <div className="p-6 space-y-6">
-              {/* Order Summary (no Meal Type card now) */}
+              {/* Order Summary */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-muted rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-2">
@@ -157,9 +156,9 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                                   <Icon name="User" size={14} color="white" />
                                 </div>
                                 <span className="text-sm font-medium text-foreground">
-                                  {it?.team_members?.full_name ??
-                                    (it?.user_profiles
-                                      ? `${it.user_profiles.first_name} ${it.user_profiles.last_name}`
+                                  {it?.team_member?.full_name ??
+                                    (it?.user_profile
+                                      ? `${it.user_profile.first_name} ${it.user_profile.last_name}`
                                       : 'Team Member')}
                                 </span>
                               </div>
@@ -207,8 +206,8 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                         </span>
                       </div>
                       <p className="text-sm text-foreground">
-                        {order?.payment_methods
-                          ? `${order.payment_methods.card_name} (**** ${order.payment_methods.last_four})`
+                        {paymentMethod?.card_name && paymentMethod?.last_four
+                          ? `${paymentMethod.card_name} (**** ${paymentMethod.last_four})`
                           : '—'}
                       </p>
                     </div>

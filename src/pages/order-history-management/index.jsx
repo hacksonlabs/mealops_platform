@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import Icon from '../../components/AppIcon';
@@ -11,6 +11,7 @@ import ExportModal from './components/ExportModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { downloadReceiptPdf, downloadReceiptsZip } from '../../utils/receipts';
+import { callCancelAPI } from '../../utils/ordersApiUtils';
 
 const OrderHistoryManagement = () => {
   const navigate = useNavigate();
@@ -56,22 +57,17 @@ const OrderHistoryManagement = () => {
     let query = supabase
       .from('meal_orders')
       .select(`
-        id,
-        team_id,
-        title,
-        description,
-        meal_type,
-        scheduled_date,
-        order_status,
-        total_amount,
-        api_order_id,
-        restaurants:restaurants (id, name, address),
-        saved_locations:saved_locations (id, name, address),
-        payment_methods:payment_methods (id, card_name, last_four, is_default),
+        id, team_id, title, description, meal_type, scheduled_date, order_status,
+        total_amount, api_order_id,
+
+        restaurant:restaurants ( id, name, address ),
+        location:saved_locations ( id, name, address ),
+        payment_method:payment_methods ( id, card_name, last_four, is_default ),
+
         order_items:order_items (
           id, user_id, team_member_id, item_name, quantity, price, special_instructions,
-          user_profiles:user_profiles (first_name, last_name),
-          team_members:team_members (full_name)
+          user_profile:user_profiles ( first_name, last_name ),
+          team_member:team_members ( full_name )
         )
       `)
       .eq('team_id', teamId)
@@ -81,21 +77,18 @@ const OrderHistoryManagement = () => {
     if (filters.dateTo)   query = query.lte('scheduled_date', filters.dateTo);
 
     const { data, error } = await query;
-
     if (error) {
       console.error('Error fetching orders:', error.message);
       setErrorOrders('Failed to load orders.');
       setOrders([]);
     } else {
       const transformedOrders = (data || []).map(order => {
-        // unique attendees by user_id
+        // unique attendees by user_id / team_member_id
         const uniqueUsers = new Map();
         (order.order_items || []).forEach((it) => {
           const key = it.team_member_id || it.user_id || it.id;
           if (!uniqueUsers.has(key)) {
-            const name =
-              it.team_members?.full_name ??
-              (it.user_profiles ? `${it.user_profiles.first_name} ${it.user_profiles.last_name}` : 'Team Member');
+            const name = it.team_member?.full_name ?? (it.user_profile ? `${it.user_profile.first_name} ${it.user_profile.last_name}` : 'Team Member');
             uniqueUsers.set(key, name);
           }
         });
@@ -103,7 +96,7 @@ const OrderHistoryManagement = () => {
         return {
           id: order.id,
           date: order.scheduled_date,
-          restaurant: order.restaurants?.name || 'Unknown Restaurant',
+          restaurant: order.restaurant?.name || 'Unknown Restaurant',
           mealType: (() => {
             if (order.meal_type) return order.meal_type; // enum from DB
             const haystack = `${order.title ?? ''} ${order.description ?? ''}`.toLowerCase();
@@ -113,14 +106,14 @@ const OrderHistoryManagement = () => {
             if (/\bsnacks?\b/.test(haystack))   return 'snack';
             return 'other';
           })(),
-          location: order.saved_locations?.name || 'Unknown Location',
+          location: order.location?.name || 'Unknown Location',
           attendees: uniqueUsers.size,
           totalCost: Number(order.total_amount) || 0,
           status: order.order_status,
           orderNumber: order.api_order_id || `ORD-${String(order.id).substring(0, 8)}`,
           teamMembers: Array.from(uniqueUsers.values()),
-          paymentMethod: order.payment_methods
-            ? `${order.payment_methods.card_name} (**** ${order.payment_methods.last_four})`
+          paymentMethod: order.payment_method
+            ? `${order.payment_method.card_name} (**** ${order.payment_method.last_four})`
             : '—',
           originalOrderData: order
         };
@@ -129,7 +122,11 @@ const OrderHistoryManagement = () => {
       setOrders(transformedOrders);
     }
     setLoadingOrders(false);
-  }, [teamId, activeTab, filters]);
+  }, [teamId, filters]);
+
+  // Keep a ref to the latest fetcher so the realtime callback doesn't resubscribe on every change
+  const fetchOrdersRef = useRef(() => {});
+  useEffect(() => { fetchOrdersRef.current = fetchOrders; }, [fetchOrders]);
 
   useEffect(() => {
     if (!teamId) return;
@@ -144,14 +141,19 @@ const OrderHistoryManagement = () => {
           table: 'meal_orders',
           filter: `team_id=eq.${teamId}`
         },
-        () => fetchOrders()
+        () => fetchOrdersRef.current()
       )
       .subscribe();
 
+    // Also listen for custom event from children
+    const customHandler = () => fetchOrdersRef.current();
+    window.addEventListener('orders:refresh', customHandler);
+
     return () => {
       supabase.removeChannel(channel);
+      window.removeEventListener('orders:refresh', customHandler);
     };
-  }, [teamId, fetchOrders]);
+  }, [teamId]);
 
   const tabs = [
     { id: 'scheduled', label: 'Scheduled', icon: 'Calendar', count: orders?.filter(o => ['scheduled','pending_confirmation','preparing','out_for_delivery'].includes(o.status))?.length },
@@ -232,16 +234,10 @@ const OrderHistoryManagement = () => {
         navigate('/calendar-order-scheduling', { state: { editOrder: order?.originalOrderData } });
         break;
       case 'cancel':
-        try {
-          const { error } = await supabase
-            .from('meal_orders')
-            .update({ order_status: 'cancelled' })
-            .eq('id', order?.id);
-          if (error) throw error;
-          await fetchOrders();
-        } catch (error) {
-          console.error('Error cancelling order:', error.message);
-        }
+        await callCancelAPI(order?.id);
+        await fetchOrders();
+        setIsDetailModalOpen(false);
+        setSelectedOrder(null);
         break;
       case 'repeat':
         navigate('/calendar-order-scheduling', { state: { repeatOrder: order?.originalOrderData } });
@@ -282,15 +278,11 @@ const OrderHistoryManagement = () => {
         break;
       case 'cancel-orders':
         try {
-          const { error } = await supabase
-            .from('meal_orders')
-            .update({ order_status: 'cancelled' })
-            .in('id', orderIds);
-          if (error) throw error;
+          await Promise.allSettled((orderIds || []).map((id) => callCancelAPI(id)));
           setSelectedOrders([]);
           await fetchOrders();
         } catch (error) {
-          console.error('Error bulk cancelling orders:', error.message);
+          console.error('Error bulk cancelling orders:', error?.message);
         }
         break;
       default:
@@ -369,14 +361,6 @@ const OrderHistoryManagement = () => {
                 </p>
               </div>
               <div className="flex items-center space-x-3">
-                {/* <Button
-                  variant="outline"
-                  onClick={() => setIsExportModalOpen(true)}
-                  iconName="Download"
-                  iconPosition="left"
-                >
-                  Export Data
-                </Button> */}
                 <Button
                   onClick={() => navigate('/calendar-order-scheduling')}
                   iconName="Plus"
@@ -445,6 +429,7 @@ const OrderHistoryManagement = () => {
             onSelectAll={handleSelectAll}
             onOrderAction={handleOrderAction}
             activeTab={activeTab}
+            onRefresh={fetchOrders}
           />
 
           {/* Pagination */}

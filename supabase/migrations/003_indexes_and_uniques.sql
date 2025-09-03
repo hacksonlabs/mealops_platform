@@ -55,3 +55,13 @@ CREATE INDEX idx_location_addresses_is_primary ON public.location_addresses(is_p
 
 CREATE INDEX notifications_team_id_created_at_idx ON public.notifications(team_id, created_at desc);
 
+CREATE INDEX IF NOT EXISTS idx_meal_orders_cancel_requested_at
+  ON public.meal_orders(cancel_requested_at);
+CREATE INDEX IF NOT EXISTS idx_meal_orders_cancel_states
+  ON public.meal_orders(order_status)
+  WHERE order_status IN ('cancellation_requested','cancelled','cancel_failed');
+CREATE INDEX IF NOT EXISTS idx_meal_orders_provider
+  ON public.meal_orders(api_source, api_order_id);
+
+CREATE INDEX IF NOT EXISTS idx_order_events_order_created
+  ON public.order_events(order_id, created_at DESC);

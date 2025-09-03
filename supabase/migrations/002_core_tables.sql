@@ -118,6 +118,10 @@ CREATE TABLE public.meal_orders (
     created_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    cancel_requested_at TIMESTAMPTZ,
+    cancel_requested_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
+    cancel_reason TEXT,
+    canceled_at TIMESTAMPTZ,
     -- API Integration Fields
     api_order_id TEXT, -- The ID returned by the external API for this order
     api_source public.api_source_type, -- Which API the order was placed through
@@ -211,8 +215,9 @@ CREATE TABLE public.meal_orders (
       delivery_longitude IS NULL OR (delivery_longitude BETWEEN -180 AND 180)
     ),
     -- If it’s delivery, require an address.
-    CONSTRAINT ck_meal_orders_delivery_address_required CHECK (
+    CONSTRAINT ck_meal_orders_delivery_addr_when_active CHECK (
       fulfillment_method <> 'delivery'
+      OR order_status IN ('draft','scheduled')
       OR (
         delivery_address_line1 IS NOT NULL
         AND delivery_city      IS NOT NULL
@@ -319,6 +324,19 @@ CREATE TABLE public.api_integrations (
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Audit/events table (lightweight)
+CREATE TABLE IF NOT EXISTS public.order_events (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id    UUID NOT NULL REFERENCES public.meal_orders(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL CHECK (type IN (
+                'created','status_changed','cancel_requested','cancelled',
+                'cancel_denied','provider_webhook','note'
+              )),
+  payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by  UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 create table if not exists public.notifications (

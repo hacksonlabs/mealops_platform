@@ -774,3 +774,41 @@ ON public.notifications FOR UPDATE TO authenticated
 USING (EXISTS (SELECT 1 FROM public.team_members tm
                WHERE tm.team_id = notifications.team_id
                  AND tm.user_id = auth.uid() AND tm.is_active));
+
+
+
+
+CREATE POLICY "order_events_team_read"
+ON public.order_events
+FOR SELECT TO authenticated
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.meal_orders mo
+    WHERE mo.id = order_events.order_id
+      AND public.is_team_member(mo.team_id)
+  )
+);
+
+CREATE POLICY "order_events_coach_insert"
+ON public.order_events
+FOR INSERT TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+    FROM public.meal_orders mo
+    WHERE mo.id = order_events.order_id
+      AND (public.is_team_coach(mo.team_id) OR public.is_team_admin(mo.team_id))
+  )
+);
+
+CREATE POLICY "order_events_service_all"
+ON public.order_events
+FOR ALL TO service_role
+USING (TRUE) WITH CHECK (TRUE);
+
+-- Auto-fill created_by on insert
+DROP TRIGGER IF EXISTS trg_order_events_set_created_by ON public.order_events;
+CREATE TRIGGER trg_order_events_set_created_by
+BEFORE INSERT ON public.order_events
+FOR EACH ROW EXECUTE FUNCTION public.ensure_created_by();

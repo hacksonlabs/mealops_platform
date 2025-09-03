@@ -140,6 +140,7 @@ RETURNS UUID
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 SELECT tm.team_id
 FROM public.team_members tm
@@ -159,6 +160,140 @@ SELECT EXISTS (
     WHERE la.id = location_address_uuid
     AND public.is_team_member(sl.team_id)
 )
+$$;
+
+-- finalize cancellation (called by jobs/webhooks)
+CREATE OR REPLACE FUNCTION public.finalize_order_cancellation(
+  p_order_id UUID,
+  p_success  BOOLEAN,
+  p_message  TEXT DEFAULT NULL,
+  p_payload  JSONB DEFAULT '{}'::jsonb
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_order public.meal_orders%ROWTYPE;
+  v_new_status public.order_status;
+BEGIN
+  SELECT * INTO v_order
+  FROM public.meal_orders
+  WHERE id = p_order_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'order not found';
+  END IF;
+
+  IF p_success THEN
+    v_new_status := 'cancelled';
+    UPDATE public.meal_orders
+    SET order_status  = v_new_status,
+        canceled_at   = COALESCE(canceled_at, NOW())
+    WHERE id = v_order.id;
+
+    INSERT INTO public.order_events(order_id, type, payload)
+    VALUES (
+      v_order.id, 'cancelled',
+      jsonb_build_object('message', p_message, 'provider', p_payload)
+    );
+  ELSE
+    v_new_status := 'cancel_failed';
+    UPDATE public.meal_orders
+    SET order_status = v_new_status
+    WHERE id = v_order.id;
+
+    INSERT INTO public.order_events(order_id, type, payload)
+    VALUES (
+      v_order.id, 'cancel_denied',
+      jsonb_build_object('message', p_message, 'provider', p_payload)
+    );
+  END IF;
+
+  RETURN jsonb_build_object('order_id', v_order.id, 'order_status', v_new_status);
+END;
+$$;
+
+-- request cancellation (creator/coach/admin)
+CREATE OR REPLACE FUNCTION public.request_order_cancellation(
+  p_order_id UUID,
+  p_reason   TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_order public.meal_orders%ROWTYPE;
+BEGIN
+  -- Load + lock the order
+  SELECT * INTO v_order
+  FROM public.meal_orders
+  WHERE id = p_order_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'order not found';
+  END IF;
+
+  -- Authorization: creator OR coach/admin
+  IF NOT (
+    v_order.created_by = auth.uid()
+    OR public.is_team_coach(v_order.team_id)
+    OR public.is_team_admin(v_order.team_id)
+  ) THEN
+    RAISE EXCEPTION 'permission denied';
+  END IF;
+
+  -- If already terminal, no-op
+  IF v_order.order_status IN ('completed','cancelled','failed') THEN
+    RETURN jsonb_build_object(
+      'order_id', v_order.id,
+      'order_status', v_order.order_status,
+      'no_change', TRUE
+    );
+  END IF;
+
+  -- If not actually placed yet and still early, cancel immediately
+  IF COALESCE(v_order.order_placed, FALSE) = FALSE
+     AND v_order.order_status IN ('draft','scheduled') THEN
+
+    UPDATE public.meal_orders
+    SET order_status        = 'cancelled',
+        canceled_at         = NOW(),
+        cancel_requested_at = NOW(),
+        cancel_requested_by = auth.uid(),
+        cancel_reason       = COALESCE(p_reason, cancel_reason)
+    WHERE id = v_order.id;
+
+    INSERT INTO public.order_events(order_id, type, payload)
+    VALUES (
+      v_order.id, 'cancelled',
+      jsonb_build_object('by', auth.uid(), 'reason', p_reason)
+    );
+
+    RETURN jsonb_build_object('order_id', v_order.id, 'order_status', 'cancelled');
+  END IF;
+
+  -- Otherwise: mark as cancellation requested (to be resolved async by provider)
+  UPDATE public.meal_orders
+  SET order_status        = 'cancellation_requested',
+      cancel_requested_at = COALESCE(cancel_requested_at, NOW()),
+      cancel_requested_by = COALESCE(cancel_requested_by, auth.uid()),
+      cancel_reason       = COALESCE(p_reason, cancel_reason)
+  WHERE id = v_order.id;
+
+  INSERT INTO public.order_events(order_id, type, payload)
+  VALUES (
+    v_order.id, 'cancel_requested',
+    jsonb_build_object('by', auth.uid(), 'reason', p_reason)
+  );
+
+  RETURN jsonb_build_object('order_id', v_order.id, 'order_status', 'cancellation_requested');
+END;
 $$;
 
 

@@ -20,3 +20,4 @@ ALTER TABLE public.notifications enable row level security;
 ALTER TABLE public.member_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.member_group_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.location_addresses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.order_events ENABLE ROW LEVEL SECURITY;

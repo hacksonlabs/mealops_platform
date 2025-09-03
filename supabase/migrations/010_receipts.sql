@@ -274,7 +274,7 @@ grant execute on function public.get_order_receipt(uuid) to authenticated;
 -- ---------------------------------------------------------------------------
 -- Flat line-item view (CSV/admin)
 -- Prefer typed items per order; fall back to legacy rows only if that order has none
-create or replace view public.v_order_receipt_lines as
+create or replace view public.v_order_receipt_lines WITH (security_invoker = true) AS
 with
   li_moi as (
     select

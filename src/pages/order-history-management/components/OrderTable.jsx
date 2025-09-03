@@ -5,29 +5,64 @@ import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import PeopleTooltip from '../../../components/ui/PeopleTooltip';
 import { getMealTypeIcon, getStatusBadge, formatDate, formatCurrency } from '../../../utils/ordersUtils';
+import { callCancelAPI } from '../../../utils/ordersApiUtils';
 
-const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrderAction, activeTab }) => {
+const OrderTable = ({
+  orders,
+  selectedOrders,
+  onOrderSelect,
+  onSelectAll,
+  onOrderAction,
+  activeTab,
+  onRefresh,
+}) => {
   const [sortField, setSortField] = useState('date');
   const [sortDirection, setSortDirection] = useState('desc');
 
-  // confirmation modal state
+  // Confirmation modal state
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [orderToCancel, setOrderToCancel] = useState(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState(null);
 
   const openCancelConfirm = (order) => {
     setOrderToCancel(order);
+    setCancelError(null);
     setConfirmOpen(true);
   };
   const closeConfirm = () => {
     setConfirmOpen(false);
     setOrderToCancel(null);
-  };
-  const confirmCancel = () => {
-    if (orderToCancel) onOrderAction('cancel', orderToCancel);
-    closeConfirm();
+    setCancelError(null);
   };
 
-  // Close on Esc
+  const confirmCancel = async () => {
+    if (!orderToCancel || isCancelling) return;
+    setIsCancelling(true);
+    setCancelError(null);
+    try {
+      await callCancelAPI(orderToCancel.id, '');
+      if (typeof onRefresh === 'function') {
+        await onRefresh();
+      } else {
+        window.dispatchEvent(new CustomEvent('orders:refresh'));
+      }
+      closeConfirm();
+    } catch (err) {
+  const status = err?.status;
+    let msg = err?.message || 'Failed to cancel the order.';
+    if (status === 0) msg = 'Cannot reach the API server. Check that it is running and the proxy is set.';
+    else if (status === 404) msg = 'Order not found.';
+    else if (status === 409) msg = 'Order is already cancelled.';
+    else if (status === 422) msg = 'Cancellation window has passed for this order.';
+    else if (status >= 500) msg = `Server error (${status}). Check backend logs.`;
+    setCancelError(msg);
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  // Close modal on Esc
   useEffect(() => {
     if (!confirmOpen) return;
     const onKey = (e) => { if (e.key === 'Escape') closeConfirm(); };
@@ -41,9 +76,9 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
     arr.sort((a, b) => {
       switch (sortField) {
         case 'date':       return (new Date(a.date) - new Date(b.date)) * dir;
-        case 'restaurant': return a.restaurant.localeCompare(b.restaurant) * dir;
-        case 'attendees':  return (a.attendees - b.attendees) * dir;
-        case 'totalCost':  return (a.totalCost - b.totalCost) * dir;
+        case 'restaurant': return (a.restaurant || '').localeCompare(b.restaurant || '') * dir;
+        case 'attendees':  return ((a.attendees || 0) - (b.attendees || 0)) * dir;
+        case 'totalCost':  return ((a.totalCost || 0) - (b.totalCost || 0)) * dir;
         default:           return 0;
       }
     });
@@ -55,7 +90,8 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
     else { setSortField(field); setSortDirection('asc'); }
   };
 
-  const getSortIcon = (field) => (sortField !== field ? 'ArrowUpDown' : sortDirection === 'asc' ? 'ArrowUp' : 'ArrowDown');
+  const getSortIcon = (field) =>
+    sortField !== field ? 'ArrowUpDown' : sortDirection === 'asc' ? 'ArrowUp' : 'ArrowDown';
 
   const getActionButtons = (order) => {
     if (activeTab === 'scheduled') {
@@ -73,14 +109,18 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
         </div>
       );
     } else if (activeTab === 'completed' || activeTab === 'all') {
-      return <div className="flex items-center space-x-1">
-        <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', order)} iconName="Eye" />
-        <Button variant="ghost" size="sm" onClick={() => onOrderAction('receipt', order)} iconName="Download" />
-      </div>;
+      return (
+        <div className="flex items-center space-x-1">
+          <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', order)} iconName="Eye" />
+          <Button variant="ghost" size="sm" onClick={() => onOrderAction('receipt', order)} iconName="Download" />
+        </div>
+      );
     }
-    return <div className="flex items-center space-x-1">
-      <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', order)} iconName="Eye" />
-    </div>;
+    return (
+      <div className="flex items-center space-x-1">
+        <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', order)} iconName="Eye" />
+      </div>
+    );
   };
 
   const isAllSelected = orders?.length > 0 && selectedOrders?.length === orders?.length;
@@ -139,103 +179,129 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
           <thead className="bg-muted">
             <tr>
               <th className="w-12 px-4 py-3">
-                <Checkbox checked={isAllSelected} indeterminate={isIndeterminate} onChange={(e) => onSelectAll(e?.target?.checked)} />
+                <Checkbox
+                  checked={isAllSelected}
+                  indeterminate={isIndeterminate}
+                  onChange={(e) => onSelectAll(e?.target?.checked)}
+                />
               </th>
               <th className="px-4 py-3 text-left">
-                <button onClick={() => handleSort('date')} className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic">
+                <button
+                  onClick={() => handleSort('date')}
+                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
+                >
                   <span>Date & Time</span>
                   <Icon name={getSortIcon('date')} size={14} />
                 </button>
               </th>
               <th className="px-4 py-3 text-left">
-                <button onClick={() => handleSort('restaurant')} className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic">
+                <button
+                  onClick={() => handleSort('restaurant')}
+                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
+                >
                   <span>Restaurant</span>
                   <Icon name={getSortIcon('restaurant')} size={14} />
                 </button>
               </th>
-              <th className="px-4 py-3 text-left"><span className="text-sm font-medium text-foreground">Meal Type</span></th>
               <th className="px-4 py-3 text-left">
-                <button onClick={() => handleSort('attendees')} className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic">
+                <span className="text-sm font-medium text-foreground">Meal Type</span>
+              </th>
+              <th className="px-4 py-3 text-left">
+                <button
+                  onClick={() => handleSort('attendees')}
+                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
+                >
                   <span>Attendees</span>
                   <Icon name={getSortIcon('attendees')} size={14} />
                 </button>
               </th>
               <th className="px-4 py-3 text-left">
-                <button onClick={() => handleSort('totalCost')} className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic">
+                <button
+                  onClick={() => handleSort('totalCost')}
+                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
+                >
                   <span>Total Cost</span>
                   <Icon name={getSortIcon('totalCost')} size={14} />
                 </button>
               </th>
-              <th className="px-4 py-3 text-left"><span className="text-sm font-medium text-foreground">Status</span></th>
-              <th className="px-4 py-3 text-right"><span className="text-sm font-medium text-foreground">Actions</span></th>
+              <th className="px-4 py-3 text-left">
+                <span className="text-sm font-medium text-foreground">Status</span>
+              </th>
+              <th className="px-4 py-3 text-right">
+                <span className="text-sm font-medium text-foreground">Actions</span>
+              </th>
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-border">
-            {sortedOrders?.map((order) => (
-              <tr key={order?.id} className="hover:bg-muted/50 transition-athletic">
-                <td className="px-4 py-4">
-                  <Checkbox checked={selectedOrders?.includes(order?.id)} onChange={(e) => onOrderSelect(order?.id, e?.target?.checked)} />
-                </td>
-
-                <td className="px-4 py-4">
-                  <div className="text-sm text-foreground font-medium">{formatDate(order?.date)}</div>
-                  <div className="text-xs text-muted-foreground">{order?.location}</div>
-                </td>
-
-                <td className="px-4 py-4">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">
-                      <Icon name="Store" size={16} className="text-muted-foreground" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-medium text-foreground">{order?.restaurant}</div>
-                      <div className="text-xs text-muted-foreground">Order #{order?.orderNumber}</div>
-                    </div>
-                  </div>
-                </td>
-
-                <td className="px-4 py-4">
-                  <div className="flex items-center space-x-2">
-                    <Icon name={getMealTypeIcon(order?.mealType)} size={16} className="text-muted-foreground" />
-                    <span className="text-sm text-foreground capitalize">{order?.mealType}</span>
-                  </div>
-                </td>
-
-                {/* Attendees — hover tooltip (portal, upward) */}
-                <td className="px-4 py-4">
-                  <div
-                    className="relative inline-block"
-                    ref={setAnchorRef(order.id)}
-                    onMouseEnter={() => openOnHover(order.id)}
-                    onMouseLeave={scheduleClose}
-                    title={(order?.teamMembers || []).join(', ')}
-                  >
-                    <div className="text-sm text-primary font-medium underline underline-offset-2 cursor-default flex items-center gap-1">
-                      <Icon name="Users" size={16} className="text-primary" />
-                      {order?.attendees} {order?.attendees === 1 ? 'person' : 'people'}
-                    </div>
-
-                    <PeopleTooltip
-                      open={hoverOrderId === order.id}
-                      x={tooltipPos.x}
-                      y={tooltipPos.y}
-                      names={order.teamMembers || []}
-                      onMouseEnter={cancelClose}
-                      onMouseLeave={scheduleClose}
+            <tbody className="divide-y divide-border">
+              {sortedOrders?.map((order) => (
+                <tr key={order?.id} className="hover:bg-muted/50 transition-athletic">
+                  <td className="px-4 py-4">
+                    <Checkbox
+                      checked={selectedOrders?.includes(order?.id)}
+                      onChange={(e) => onOrderSelect(order?.id, e?.target?.checked)}
                     />
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="text-sm font-medium text-foreground">{formatCurrency(order?.totalCost)}</div>
-                </td>
+                  </td>
 
-                <td className="px-4 py-4">{getStatusBadge(order?.status)}</td>
+                  <td className="px-4 py-4">
+                    <div className="text-sm text-foreground font-medium">{formatDate(order?.date)}</div>
+                    <div className="text-xs text-muted-foreground">{order?.location}</div>
+                  </td>
 
-                <td className="px-4 py-4 text-right">{getActionButtons(order)}</td>
-              </tr>
-            ))}
-          </tbody>
+                  <td className="px-4 py-4">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">
+                        <Icon name="Store" size={16} className="text-muted-foreground" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-foreground">{order?.restaurant}</div>
+                        <div className="text-xs text-muted-foreground">Order #{order?.orderNumber}</div>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="flex items-center space-x-2">
+                      <Icon name={getMealTypeIcon(order?.mealType)} size={16} className="text-muted-foreground" />
+                      <span className="text-sm text-foreground capitalize">{order?.mealType}</span>
+                    </div>
+                  </td>
+
+                  {/* Attendees — hover tooltip (portal, upward) */}
+                  <td className="px-4 py-4">
+                    <div
+                      className="relative inline-block"
+                      ref={setAnchorRef(order.id)}
+                      onMouseEnter={() => openOnHover(order.id)}
+                      onMouseLeave={scheduleClose}
+                      title={(order?.teamMembers || []).join(', ')}
+                    >
+                      <div className="text-sm text-primary font-medium underline underline-offset-2 cursor-default flex items-center gap-1">
+                        <Icon name="Users" size={16} className="text-primary" />
+                        {order?.attendees} {order?.attendees === 1 ? 'person' : 'people'}
+                      </div>
+
+                      <PeopleTooltip
+                        open={hoverOrderId === order.id}
+                        x={tooltipPos.x}
+                        y={tooltipPos.y}
+                        names={order.teamMembers || []}
+                        onMouseEnter={cancelClose}
+                        onMouseLeave={scheduleClose}
+                      />
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="text-sm font-medium text-foreground">{formatCurrency(order?.totalCost)}</div>
+                  </td>
+
+                  <td className="px-4 py-4">{getStatusBadge(order?.status)}</td>
+
+                  <td className="px-4 py-4 text-right">{getActionButtons(order)}</td>
+                </tr>
+              ))}
+            </tbody>
         </table>
       </div>
 
@@ -267,13 +333,23 @@ const OrderTable = ({ orders, selectedOrders, onOrderSelect, onSelectAll, onOrde
                     <div className="text-muted-foreground">{formatDate(orderToCancel.date)}</div>
                   </div>
                 )}
+
+                {cancelError && (
+                  <div className="mt-3 rounded-md border border-red-300 bg-red-50 text-red-700 text-sm px-3 py-2">
+                    {cancelError}
+                  </div>
+                )}
               </div>
+
               <div className="px-5 pb-5 flex justify-end gap-2">
-                <Button variant="outline" onClick={closeConfirm}>Never mind</Button>
-                <Button className="bg-red-600 hover:bg-red-700 text-white"
-                        onClick={confirmCancel}
-                        iconName="X">
-                  Cancel meal
+                <Button variant="outline" onClick={closeConfirm} disabled={isCancelling}>Never mind</Button>
+                <Button
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  onClick={confirmCancel}
+                  iconName="X"
+                  disabled={isCancelling}
+                >
+                  {isCancelling ? 'Cancelling…' : 'Cancel meal'}
                 </Button>
               </div>
             </div>
