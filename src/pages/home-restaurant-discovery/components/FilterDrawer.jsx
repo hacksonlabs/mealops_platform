@@ -101,21 +101,20 @@ const FilterDrawer = ({ isOpen, onClose, value, onChange, onReset, anchorRef, of
 
   const content = (
     <>
-      {/* Price Range */}
+      {/* Cuisine Types */}
       <div>
-        <h4 className="text-sm font-semibold text-foreground mb-3">Price Range</h4>
+        <h4 className="text-sm font-semibold text-foreground mb-3">Cuisine Type</h4>
         <div className="space-y-2">
-          {priceRanges.map((p) => (
+          {cuisineTypes.map((c) => (
             <Checkbox
-              key={p.id}
-              label={p.label}
-              checked={filters.priceRange?.includes(p.id)}
-              onChange={(e) => toggleArrayItem('priceRange', p.id, e.target.checked)}
+              key={c.id}
+              label={c.label}
+              checked={filters.cuisineTypes?.includes(c.id)}
+              onChange={(e) => toggleArrayItem('cuisineTypes', c.id, e.target.checked)}
             />
           ))}
         </div>
       </div>
-
       {/* Rating */}
       <div>
         <h4 className="text-sm font-semibold text-foreground mb-3">Minimum Rating</h4>
@@ -140,17 +139,16 @@ const FilterDrawer = ({ isOpen, onClose, value, onChange, onReset, anchorRef, of
           })}
         </div>
       </div>
-
-      {/* Cuisine Types */}
+      {/* Price Range */}
       <div>
-        <h4 className="text-sm font-semibold text-foreground mb-3">Cuisine Type</h4>
+        <h4 className="text-sm font-semibold text-foreground mb-3">Price Range</h4>
         <div className="space-y-2">
-          {cuisineTypes.map((c) => (
+          {priceRanges.map((p) => (
             <Checkbox
-              key={c.id}
-              label={c.label}
-              checked={filters.cuisineTypes?.includes(c.id)}
-              onChange={(e) => toggleArrayItem('cuisineTypes', c.id, e.target.checked)}
+              key={p.id}
+              label={p.label}
+              checked={filters.priceRange?.includes(p.id)}
+              onChange={(e) => toggleArrayItem('priceRange', p.id, e.target.checked)}
             />
           ))}
         </div>
