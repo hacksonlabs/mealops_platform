@@ -167,17 +167,21 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
   const handleSubmit = (e) => {
     e?.preventDefault();
 
-    const orderData = {
-      id: Date.now(),
-      date: toISOFromLocal(formData?.date, formData?.time),
-      mealType: formData?.mealType,
-      time: formData?.time,
-      serviceType: formData?.serviceType,
-      address: pickedPlace?.formattedAddress || addressInput || '',
-      location: pickedPlace?.location || null,
+    const address = pickedPlace?.formattedAddress || addressInput || '';
+    const coords  = pickedPlace?.location || null;
+
+    const payload = {
+      mealType: formData.mealType,
+      date: formData.date,               // YYYY-MM-DD
+      time: formData.time,               // HH:mm
+      serviceType: formData.serviceType, // 'delivery' | 'pickup'
+      address,                           // raw address input
+      delivery_address: formData.serviceType === 'delivery' ? address : '',
+      coords,                            // { lat, lng } | null
+      whenISO: new Date(`${formData.date}T${formData.time}`).toISOString(),
     };
 
-    onSchedule(orderData);
+    onSchedule(payload);
     onClose();
     resetForm();
   };

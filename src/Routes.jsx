@@ -17,6 +17,12 @@ import TermsConditoins from './pages/TermsAndConditions';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import AwaitingEmailVerificationPage from "pages/awaiting-email-verification";
 import ResetPassword from 'pages/reset-password';
+import HomeRestaurantDiscovery from './pages/home-restaurant-discovery';
+import RestaurantDetailMenu from './pages/restaurant-detail-menu';
+import ShoppingCartCheckout from './pages/shopping-cart-checkout';
+import SharedCartPage from './pages/shared-cart';
+
+import SharedCartProvider from './contexts/SharedCartContext';
 
 const Routes = () => {
   return (
@@ -40,6 +46,10 @@ const Routes = () => {
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="/awaiting-email-verification" element={<AwaitingEmailVerificationPage />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/home-restaurant-discovery" element={<HomeRestaurantDiscovery />} />
+        <Route path="/restaurant-detail-menu" element={<RestaurantDetailMenu />} />
+        <Route path="/shopping-cart-checkout" element={<ShoppingCartCheckout />} />
+        <Route path="/shared-cart/:shareToken" element={<SharedCartPage />} />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>

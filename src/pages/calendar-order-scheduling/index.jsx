@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import CalendarHeader from './components/CalendarHeader';
 import CalendarGrid from './components/CalendarGrid';
@@ -72,6 +73,7 @@ function toE164US(raw) {
 
 const CalendarOrderScheduling = () => {
   const { activeTeam, user } = useAuth();
+  const navigate = useNavigate();
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('twoWeeks');
@@ -347,6 +349,25 @@ const CalendarOrderScheduling = () => {
     }
   };
 
+  const handleScheduleRedirect = (payload) => {
+    const params = new URLSearchParams({
+      mealType: payload.mealType,
+      date: payload.date,
+      time: payload.time,
+      service: payload.serviceType,
+      address: payload.address || '',
+      delivery_address: payload.delivery_address || '',
+      ...(payload.coords ? {
+        lat: String(payload.coords.lat),
+        lng: String(payload.coords.lng),
+      } : {}),
+      whenISO: payload.whenISO,
+    });
+
+    navigate(`/home-restaurant-discovery?${params.toString()}`);
+    setIsScheduleModalOpen(false);
+  };
+
   // Birthday reminder flow (unchanged)
   async function handleRemindCoaches(bdayEvt) {
     if (!activeTeam?.id) return;
@@ -617,7 +638,7 @@ const CalendarOrderScheduling = () => {
         isOpen={isScheduleModalOpen}
         onClose={() => setIsScheduleModalOpen(false)}
         selectedDate={selectedDate}
-        onSchedule={orderData => setOrders(prev => [...prev, orderData])}
+        onSchedule={handleScheduleRedirect}
         teamMembers={teamMembers}
       />
       <OrderDetailsModal
