@@ -17,6 +17,7 @@ const RestaurantGrid = ({
   searchQuery,
   centerCoords,     // {lat,lng} or null
   radiusMiles = 3,  // number
+  fulfillment,
 }) => {
   const [rows, setRows] = useState([]);          // raw DB rows normalized
   const [loading, setLoading] = useState(false);
@@ -284,7 +285,12 @@ const RestaurantGrid = ({
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filtered.map((r) => (
-          <RestaurantCard key={r.id} restaurant={r} selectedService={selectedService} />
+          <RestaurantCard
+            key={r.id}
+            restaurant={r}
+            selectedService={selectedService}
+            fulfillment={fulfillment}
+          />
         ))}
       </div>
     </div>

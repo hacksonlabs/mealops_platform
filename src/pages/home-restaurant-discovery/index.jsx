@@ -4,7 +4,7 @@ import { Helmet } from 'react-helmet';
 import Header from '../../components/ui/Header';
 import PrimaryTabNavigation from '../../components/ui/PrimaryTabNavigation';
 import CartSummaryFloat from '../../components/ui/CartSummaryFloat';
-import DeliveryAddressBanner from './components/DeliveryAddressBanner';
+import DeliveryAddressBanner from '../../components/ui/DeliveryAddressBanner';
 import ServiceToggle from './components/ServiceToggle';
 import CategoryFilter from './components/CategoryFilter';
 import QuickReorderSection from './components/QuickReorderSection';
@@ -12,7 +12,7 @@ import RestaurantGrid from './components/RestaurantGrid';
 import FilterDrawer from './components/FilterDrawer';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
-import FulfillmentBar from './components/FulfillmentBar';
+import FulfillmentBar from '../../components/ui/FulfillmentBar';
 
 // helpers
 const pad = (n) => String(n).padStart(2, '0');
@@ -217,6 +217,7 @@ const HomeRestaurantDiscovery = () => {
           searchQuery={searchQuery}
           centerCoords={fulfillment.coords}
           radiusMiles={radiusMiles}
+          fulfillment={fulfillment}
         />
       </main>
 

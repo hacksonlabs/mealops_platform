@@ -4,13 +4,13 @@ import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
 import Button from '../../../components/ui/Button';
 
-const RestaurantCard = ({ restaurant, selectedService = 'delivery' }) => {
+const RestaurantCard = ({ restaurant, selectedService = 'delivery', fulfillment }) => {
   const navigate = useNavigate();
   const [isFavorite, setIsFavorite] = useState(restaurant?.isFavorite || false);
 
   const handleCardClick = () => {
     navigate(`/restaurant/${restaurant?.id}?service=${selectedService}`, {
-      state: { restaurant },
+      state: { restaurant, fulfillment },
     });
   };
 
@@ -100,7 +100,7 @@ const RestaurantCard = ({ restaurant, selectedService = 'delivery' }) => {
             onClick={(e) => {
               e?.stopPropagation();
               navigate(`/restaurant/${restaurant?.id}?service=${selectedService}`, {
-                state: { restaurant },
+                state: { restaurant, fulfillment },
               });
             }}
           >

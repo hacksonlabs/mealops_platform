@@ -2,8 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import Header from '../../components/ui/Header';
-import PrimaryTabNavigation from '../../components/ui/PrimaryTabNavigation';
-import LocationBanner from '../../components/ui/LocationBanner';
+import FulfillmentBar from '../../components/ui/FulfillmentBar';
 import CartSummaryFloat from '../../components/ui/CartSummaryFloat';
 import RestaurantHero from './components/RestaurantHero';
 import MenuCategoryNav from './components/MenuCategoryNav';
@@ -13,6 +12,11 @@ import ItemCustomizationModal from './components/ItemCustomizationModal';
 import RestaurantInfo from './components/RestaurantInfo';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
+
+// helpers
+const pad = (n) => String(n).padStart(2, '0');
+const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const toTimeInput = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 function slugifyId(str = '') {
   return String(str)
@@ -26,7 +30,19 @@ const RestaurantDetailMenu = () => {
   const { restaurantId } = useParams(); // support /restaurant/:restaurantId
   const location = useLocation();
 
-  const [selectedService, setSelectedService] = useState('delivery');
+  const [fulfillment, setFulfillment] = useState(() => {
+    const fromState = location.state?.fulfillment;
+    return {
+      service: fromState?.service ?? 'delivery',
+      address: fromState?.address ?? '',
+      coords: fromState?.coords ?? null,
+      date: fromState?.date ?? toDateInput(new Date()),
+      time: fromState?.time ?? '12:00',
+    };
+  });
+  const [selectedService, setSelectedService] = useState(
+    location.state?.fulfillment?.service ?? 'delivery'
+  );
   const [activeCategory, setActiveCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
@@ -40,10 +56,28 @@ const RestaurantDetailMenu = () => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
 
-  // read selected service from querystring (keeps parity with discovery page)
   useEffect(() => {
     const qs = new URLSearchParams(location.search);
     const svc = qs.get('service');
+    const address = qs.get('delivery_address') || qs.get('pickup_address') || qs.get('address') || '';
+    const whenISO = qs.get('whenISO');
+    const date = qs.get('date');
+    const time = qs.get('time');
+    const lat = qs.get('lat');
+    const lng = qs.get('lng');
+
+    setFulfillment((prev) => {
+      const next = {
+        ...prev,
+        service: (svc === 'delivery' || svc === 'pickup') ? svc : prev.service,
+        address: address || prev.address,
+        coords: (lat && lng) ? { lat: +lat, lng: +lng } : prev.coords,
+        date: date || (whenISO ? toDateInput(new Date(whenISO)) : prev.date),
+        time: time || (whenISO ? toTimeInput(new Date(whenISO)) : prev.time),
+      };
+      return next;
+    });
+
     if (svc === 'delivery' || svc === 'pickup') setSelectedService(svc);
   }, [location.search]);
 
@@ -198,7 +232,10 @@ const RestaurantDetailMenu = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [filteredMenuItems]);
 
-  const handleServiceToggle = (service) => setSelectedService(service);
+  const handleServiceToggle = (service) => {
+    setSelectedService(service);
+    setFulfillment((prev) => ({ ...prev, service }));
+  };
   const handleCategoryChange = (categoryId) => setActiveCategory(categoryId);
   const handleSearch = (q) => setSearchQuery(q);
   const handleClearSearch = () => setSearchQuery('');
@@ -220,9 +257,6 @@ const RestaurantDetailMenu = () => {
       image: restaurant.image_url || '',
       cuisine: restaurant.cuisine_type || '',
       rating: restaurant.rating || undefined,
-      reviewCount: undefined, // not in schema
-      deliveryTime: undefined, // not in schema
-      pickupTime: undefined,   // not in schema
       distance: undefined,     // computed elsewhere typically
       deliveryFee: restaurant.delivery_fee ?? undefined,
       minimumOrder: restaurant.minimum_order ?? undefined,
@@ -240,20 +274,31 @@ const RestaurantDetailMenu = () => {
     };
   }, [restaurant]);
 
+  const handleFulfillmentChange = (next) => {
+   setFulfillment(next);
+   if (next.service !== selectedService) setSelectedService(next.service);
+   window.dispatchEvent(
+     new CustomEvent('deliveryAddressUpdate', {
+       detail: { address: next.address, lat: next.coords ?? null },
+     })
+   );
+ };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-        <Header />
-        <PrimaryTabNavigation />
-        <LocationBanner />
-        <div className="p-6">
-          <div className="animate-pulse space-y-4">
+       <Header />
+       <main className="pt-16">
+         <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
+         <div className="p-6">
+            <div className="animate-pulse space-y-4">
             <div className="h-8 w-1/3 bg-muted rounded" />
             <div className="h-48 w-full bg-muted rounded" />
             <div className="h-6 w-1/4 bg-muted rounded" />
             <div className="h-6 w-1/2 bg-muted rounded" />
           </div>
-        </div>
+          </div>
+        </main>
       </div>
     );
   }
@@ -261,15 +306,16 @@ const RestaurantDetailMenu = () => {
   if (err) {
     return (
       <div className="min-h-screen bg-background">
-        <Header />
-        <PrimaryTabNavigation />
-        <LocationBanner />
-        <div className="p-6">
+       <Header />
+       <main className="pt-16">
+         <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
+         <div className="p-6">
           <div className="text-error">Error: {err}</div>
           <Button className="mt-4" onClick={() => navigate('/home-restaurant-discovery')}>
             Back to discovery
           </Button>
-        </div>
+         </div>
+        </main>
       </div>
     );
   }
@@ -279,109 +325,110 @@ const RestaurantDetailMenu = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <PrimaryTabNavigation />
-      <LocationBanner />
+      <main className="pt-16">
+        <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
 
-      {/* Mobile Back/Header */}
-      <div className="md:hidden sticky top-28 z-30 bg-background border-b border-border">
-        <div className="flex items-center justify-between p-4">
-          <Button variant="ghost" size="icon" onClick={handleBackClick}>
-            <Icon name="ArrowLeft" size={20} />
-          </Button>
-          <h1 className="text-lg font-semibold text-foreground truncate mx-4">
-            {restaurant?.name}
-          </h1>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowRestaurantInfo((s) => !s)}
-          >
-            <Icon name="Info" size={20} />
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex">
-        {/* Desktop Sidebar */}
-        <div className="hidden md:block w-80 flex-shrink-0">
-          <MenuCategoryNav
-            categories={menuCategories}
-            activeCategory={activeCategory}
-            onCategoryChange={handleCategoryChange}
-            isSticky={true}
-          />
-        </div>
-
-        {/* Main */}
-        <div className="flex-1">
-          <RestaurantHero
-            restaurant={heroRestaurant}
-            selectedService={selectedService}
-            onServiceToggle={handleServiceToggle}
-          />
-
-          {/* Mobile Category Navigation */}
-          <MenuCategoryNav
-            categories={menuCategories}
-            activeCategory={activeCategory}
-            onCategoryChange={handleCategoryChange}
-            isSticky={true}
-          />
-
-          <MenuSearch
-            searchQuery={searchQuery}
-            onSearch={handleSearch}
-            onClearSearch={handleClearSearch}
-          />
-
-          {/* Menu Content */}
-          <div className="px-4 md:px-6 pb-32">
-            {Object.keys(filteredMenuItems || {}).length === 0 ? (
-              <div className="text-center py-12">
-                <Icon name="Search" size={48} className="text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-foreground mb-2">No items found</h3>
-                <p className="text-muted-foreground">
-                  Try searching for something else or browse our menu categories.
-                </p>
-                <Button variant="outline" onClick={handleClearSearch} className="mt-4">
-                  Clear Search
-                </Button>
-              </div>
-            ) : (
-              Object.keys(filteredMenuItems).map((categoryId) => {
-                const category = menuCategories.find((c) => c.id === categoryId);
-                const items = filteredMenuItems[categoryId];
-                return (
-                  <MenuSection
-                    key={categoryId}
-                    category={category}
-                    items={items}
-                    onAddToCart={handleAddToCart}
-                    onItemClick={handleItemClick}
-                  />
-                );
-              })
-            )}
-
-            {/* Restaurant Information Section */}
-            {showRestaurantInfo && <RestaurantInfo restaurant={heroRestaurant} />}
+        {/* Mobile Back/Header */}
+        <div className="md:hidden sticky top-24 z-30 bg-background border-b border-border">
+          <div className="flex items-center justify-between p-4">
+            <Button variant="ghost" size="icon" onClick={handleBackClick}>
+              <Icon name="ArrowLeft" size={20} />
+            </Button>
+            <h1 className="text-lg font-semibold text-foreground truncate mx-4">
+              {restaurant?.name}
+            </h1>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowRestaurantInfo((s) => !s)}
+            >
+              <Icon name="Info" size={20} />
+            </Button>
           </div>
         </div>
-      </div>
 
-      {/* Floating Cart Summary */}
-      <CartSummaryFloat isVisible={cartItems.length > 0} />
+        <div className="flex">
+          {/* Desktop Sidebar */}
+          {/* <div className="hidden md:block w-80 flex-shrink-0">
+            <MenuCategoryNav
+              categories={menuCategories}
+              activeCategory={activeCategory}
+              onCategoryChange={handleCategoryChange}
+              isSticky={true}
+            />
+          </div> */}
 
-      {/* Item Customization Modal */}
-      <ItemCustomizationModal
-        item={selectedItem}
-        isOpen={isCustomizationModalOpen}
-        onClose={() => {
-          setIsCustomizationModalOpen(false);
-          setSelectedItem(null);
-        }}
-        onAddToCart={handleAddToCart}
-      />
+          {/* Main */}
+          <div className="flex-1">
+            <RestaurantHero
+              restaurant={heroRestaurant}
+              selectedService={selectedService}
+              onServiceToggle={handleServiceToggle}
+            />
+
+            {/* Mobile Category Navigation */}
+            {/* <MenuCategoryNav
+              categories={menuCategories}
+              activeCategory={activeCategory}
+              onCategoryChange={handleCategoryChange}
+              isSticky={true}
+            /> */}
+
+            <MenuSearch
+              searchQuery={searchQuery}
+              onSearch={handleSearch}
+              onClearSearch={handleClearSearch}
+            />
+
+            {/* Menu Content */}
+            <div className="px-4 md:px-6 pb-32">
+              {Object.keys(filteredMenuItems || {}).length === 0 ? (
+                <div className="text-center py-12">
+                  <Icon name="Search" size={48} className="text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-foreground mb-2">No items found</h3>
+                  <p className="text-muted-foreground">
+                    Try searching for something else or browse our menu categories.
+                  </p>
+                  <Button variant="outline" onClick={handleClearSearch} className="mt-4">
+                    Clear Search
+                  </Button>
+                </div>
+              ) : (
+                Object.keys(filteredMenuItems).map((categoryId) => {
+                  const category = menuCategories.find((c) => c.id === categoryId);
+                  const items = filteredMenuItems[categoryId];
+                  return (
+                    <MenuSection
+                      key={categoryId}
+                      category={category}
+                      items={items}
+                      onAddToCart={handleAddToCart}
+                      onItemClick={handleItemClick}
+                    />
+                  );
+                })
+              )}
+
+              {/* Restaurant Information Section */}
+              {showRestaurantInfo && <RestaurantInfo restaurant={heroRestaurant} />}
+            </div>
+          </div>
+        </div>
+
+        {/* Floating Cart Summary */}
+        {/* <CartSummaryFloat isVisible={cartItems.length > 0} /> */}
+
+        {/* Item Customization Modal */}
+        <ItemCustomizationModal
+          item={selectedItem}
+          isOpen={isCustomizationModalOpen}
+          onClose={() => {
+            setIsCustomizationModalOpen(false);
+            setSelectedItem(null);
+          }}
+          onAddToCart={handleAddToCart}
+        />
+    </main>
     </div>
   );
 };
