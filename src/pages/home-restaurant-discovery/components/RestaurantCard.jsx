@@ -4,12 +4,14 @@ import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
 import Button from '../../../components/ui/Button';
 
-const RestaurantCard = ({ restaurant }) => {
+const RestaurantCard = ({ restaurant, selectedService = 'delivery' }) => {
   const navigate = useNavigate();
   const [isFavorite, setIsFavorite] = useState(restaurant?.isFavorite || false);
 
   const handleCardClick = () => {
-    navigate('/restaurant-detail-menu', { state: { restaurant } });
+    navigate(`/restaurant/${restaurant?.id}?service=${selectedService}`, {
+      state: { restaurant },
+    });
   };
 
   // const handleFavoriteClick = (e) => {
@@ -97,7 +99,9 @@ const RestaurantCard = ({ restaurant }) => {
             className="flex-1"
             onClick={(e) => {
               e?.stopPropagation();
-              navigate('/restaurant-detail-menu', { state: { restaurant } });
+              navigate(`/restaurant/${restaurant?.id}?service=${selectedService}`, {
+                state: { restaurant },
+              });
             }}
           >
             <Icon name="ShoppingCart" size={14} className="mr-1" />

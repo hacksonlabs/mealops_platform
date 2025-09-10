@@ -47,7 +47,7 @@ const Routes = () => {
         <Route path="/awaiting-email-verification" element={<AwaitingEmailVerificationPage />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/home-restaurant-discovery" element={<HomeRestaurantDiscovery />} />
-        <Route path="/restaurant-detail-menu" element={<RestaurantDetailMenu />} />
+        <Route path="/restaurant/:restaurantId" element={<RestaurantDetailMenu />} />
         <Route path="/shopping-cart-checkout" element={<ShoppingCartCheckout />} />
         <Route path="/shared-cart/:shareToken" element={<SharedCartPage />} />
         <Route path="*" element={<NotFound />} />
