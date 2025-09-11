@@ -3,7 +3,7 @@ import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
 import Button from '../../../components/ui/Button';
 
-const RestaurantHero = ({ restaurant, onServiceToggle, selectedService }) => {
+const RestaurantHero = ({ restaurant, onServiceToggle, selectedService, rightContent }) => {
   const [isFavorite, setIsFavorite] = useState(false);
 
   const handleFavoriteToggle = () => {
@@ -46,50 +46,52 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService }) => {
           />
         </Button> */}
       </div>
-      {/* Restaurant Info */}
+      {/* Restaurant Info row + right-side search */}
       <div className="p-4 md:p-6 bg-card">
-        <div className="flex items-center gap-2 md:gap-3 min-w-0">
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground leading-tight truncate max-w-[55%] md:max-w-[60%]">
-            {restaurant?.name}
-          </h1>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          {/* Left: name • cuisine • rating • distance */}
+          <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-wrap">
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground leading-tight truncate max-w-[55%] md:max-w-[60%]">
+              {restaurant?.name}
+            </h1>
 
-          {/* Cuisine */}
-          {(restaurant?.cuisine || restaurant?.cuisine_type) && (
-            <>
-              <span className="flex-none text-muted-foreground">•</span>
-              <span className="flex-none text-sm md:text-base text-muted-foreground whitespace-nowrap">
-                {restaurant?.cuisine || restaurant?.cuisine_type}
-              </span>
-            </>
-          )}
+            {(restaurant?.cuisine || restaurant?.cuisine_type) && (
+              <>
+                <span className="flex-none text-muted-foreground">•</span>
+                <span className="flex-none text-sm md:text-base text-muted-foreground whitespace-nowrap">
+                  {restaurant?.cuisine || restaurant?.cuisine_type}
+                </span>
+              </>
+            )}
 
-          {/* Rating + reviews */}
-          {restaurant?.rating != null && (
-            <>
-              {/* <span className="flex-none text-muted-foreground">•</span> */}
-              <div className="flex items-center gap-1 flex-none whitespace-nowrap">
-                <Icon name="Star" size={16} className="text-accent fill-current" />
-                <span className="font-semibold">{restaurant?.rating}</span>
-                {restaurant?.reviewCount != null && (
-                  <span className="text-muted-foreground">({restaurant.reviewCount})</span>
-                )}
-              </div>
-            </>
-          )}
-          {/* Distance */}
-          {restaurant?.distance && (
-            <>
-              {/* <span className="flex-none text-muted-foreground">•</span> */}
-              <div className="flex items-center gap-1 flex-none whitespace-nowrap">
-                <Icon name="MapPin" size={16} className="text-muted-foreground" />
-                <span className="text-muted-foreground">{restaurant.distance}</span>
-              </div>
-            </>
-          )}
+            {restaurant?.rating != null && (
+              <>
+                <span className="flex-none text-muted-foreground">•</span>
+                <div className="flex items-center gap-1 flex-none whitespace-nowrap">
+                  <Icon name="Star" size={16} className="text-accent fill-current" />
+                  <span className="font-semibold">{restaurant?.rating}</span>
+                  {restaurant?.reviewCount != null && (
+                    <span className="text-muted-foreground">({restaurant.reviewCount})</span>
+                  )}
+                </div>
+              </>
+            )}
+
+            {restaurant?.distance && (
+              <>
+                <span className="flex-none text-muted-foreground">•</span>
+                <div className="flex items-center gap-1 flex-none whitespace-nowrap">
+                  <Icon name="MapPin" size={16} className="text-muted-foreground" />
+                  <span className="text-muted-foreground">{restaurant.distance}</span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Right: inline search (from parent) */}
+          {rightContent && <div className="w-full md:w-auto md:ml-4">{rightContent}</div>}
         </div>
       </div>
-
-
     </div>
   );
 };

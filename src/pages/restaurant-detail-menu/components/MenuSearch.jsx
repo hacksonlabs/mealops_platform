@@ -26,7 +26,7 @@ const MenuSearch = ({ onSearch, searchQuery, onClearSearch }) => {
   };
 
   return (
-    <div className="bg-card border-b border-border sticky top-[var(--sticky-top,0px)] z-40">
+    <div className="bg-card sticky top-[var(--sticky-top,0px)] z-40">
       <div className="p-4">
         {/* Mobile Compact Search */}
         <div className="md:hidden">
@@ -45,7 +45,7 @@ const MenuSearch = ({ onSearch, searchQuery, onClearSearch }) => {
                 <Input
                   id="menu-search-input"
                   type="search"
-                  placeholder="Search dishes, ingredients..."
+                  placeholder="Search items.."
                   value={searchQuery}
                   onChange={(e) => handleSearch(e?.target?.value)}
                   className="pl-10"
@@ -69,13 +69,13 @@ const MenuSearch = ({ onSearch, searchQuery, onClearSearch }) => {
 
         {/* Desktop Full Search */}
         <div className="hidden md:block">
-          <div className="relative max-w-md">
+          <div className="relative max-w-lg">
             <Input
               type="search"
-              placeholder="Search menu items, ingredients..."
+              placeholder="Search menu items.."
               value={searchQuery}
               onChange={(e) => handleSearch(e?.target?.value)}
-              className="pl-10 pr-10"
+              className="w-full pl-10 pr-10"
             />
             <Icon 
               name="Search" 

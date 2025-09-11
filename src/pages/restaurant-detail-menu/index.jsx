@@ -572,12 +572,15 @@ const RestaurantDetailMenu = () => {
               restaurant={heroRestaurant}
               selectedService={selectedService}
               onServiceToggle={handleServiceToggle}
-            />
-
-            <MenuSearch
-              searchQuery={searchQuery}
-              onSearch={handleSearch}
-              onClearSearch={handleClearSearch}
+              rightContent={
+                <div className="w-full md:w-80">
+                  <MenuSearch
+                    searchQuery={searchQuery}
+                    onSearch={handleSearch}
+                    onClearSearch={handleClearSearch}
+                  />
+                </div>
+              }
             />
 
             {/* Menu Content */}
