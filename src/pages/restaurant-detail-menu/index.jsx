@@ -1,29 +1,32 @@
+// src/pages/restaurant-detail-menu/index.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import Header from '../../components/ui/Header';
 import FulfillmentBar from '../../components/ui/FulfillmentBar';
-import CartSummaryFloat from '../../components/ui/CartSummaryFloat';
 import RestaurantHero from './components/RestaurantHero';
-import MenuCategoryNav from './components/MenuCategoryNav';
 import MenuSearch from './components/MenuSearch';
 import MenuSection from './components/MenuSection';
 import ItemCustomizationModal from './components/ItemCustomizationModal';
 import RestaurantInfo from './components/RestaurantInfo';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
+import cartService from '../../services/cartService';
+import sharedCartService from '../../services/sharedCartService';
 
 // helpers
 const pad = (n) => String(n).padStart(2, '0');
-const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const toTimeInput = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 function slugifyId(str = '') {
-  return String(str)
-    .toLowerCase()
-    .replace(/[^\w]+/g, '-')
-    .replace(/(^-|-$)/g, '');
+  return String(str).toLowerCase().replace(/[^\w]+/g, '-').replace(/(^-|-$)/g, '');
 }
+
+const makeRowId =
+  () =>
+    (globalThis.crypto?.randomUUID?.() ||
+      `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
 const RestaurantDetailMenu = () => {
   const navigate = useNavigate();
@@ -32,21 +35,27 @@ const RestaurantDetailMenu = () => {
 
   const [fulfillment, setFulfillment] = useState(() => {
     const fromState = location.state?.fulfillment;
+    const now = new Date();
     return {
       service: fromState?.service ?? 'delivery',
       address: fromState?.address ?? '',
       coords: fromState?.coords ?? null,
-      date: fromState?.date ?? toDateInput(new Date()),
-      time: fromState?.time ?? '12:00',
+      date: fromState?.date ?? toDateInput(now),
+      time: fromState?.time ?? toTimeInput(now),
     };
   });
+
   const [selectedService, setSelectedService] = useState(
     location.state?.fulfillment?.service ?? 'delivery'
   );
+
   const [activeCategory, setActiveCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [isCustomizationModalOpen, setIsCustomizationModalOpen] = useState(false);
+
+  // Local cart on this page (non-shared)
+  // Each entry MUST carry a unique rowId to avoid duplicate React keys.
   const [cartItems, setCartItems] = useState([]);
   const [showRestaurantInfo, setShowRestaurantInfo] = useState(false);
 
@@ -56,27 +65,54 @@ const RestaurantDetailMenu = () => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
 
+  // If we came here via "Edit" from the header drawer/checkout, this will be populated
+  const editState = location.state?.editItem || null;
+
+  // Prefill/preset for the modal if the selected item matches the thing we’re editing
+  const presetForSelected = useMemo(() => {
+    if (!selectedItem || !editState) return undefined;
+
+    const editedMenuItemId = editState.menuItemId || editState.menu_items?.id || editState.id;
+    if (editedMenuItemId !== selectedItem.id) return undefined;
+
+    return {
+      quantity: Number(editState.quantity || 1),
+      selectedOptions: editState.selectedOptions ?? null,
+      selectedToppings: editState.selectedToppings ?? null,
+      selectedSize: editState.selectedSize ?? null,
+      specialInstructions: editState.specialInstructions || '',
+      assignedTo:
+        editState.assignedTo || (editState.userName ? [{ name: editState.userName }] : null),
+      // IMPORTANT: these two determine "editing" mode
+      cartRowId: editState.rowId || editState.id || null, // local rowId OR shared order_items.id
+      cartId: location.state?.cartId || null, // shared cart id if present
+      menuItemId: editedMenuItemId,
+    };
+  }, [selectedItem, editState, location.state?.cartId]);
+
+  // Pull fulfillment from URL if present
   useEffect(() => {
     const qs = new URLSearchParams(location.search);
     const svc = qs.get('service');
-    const address = qs.get('delivery_address') || qs.get('pickup_address') || qs.get('address') || '';
+    const address =
+      qs.get('delivery_address') ||
+      qs.get('pickup_address') ||
+      qs.get('address') ||
+      '';
     const whenISO = qs.get('whenISO');
     const date = qs.get('date');
     const time = qs.get('time');
     const lat = qs.get('lat');
     const lng = qs.get('lng');
 
-    setFulfillment((prev) => {
-      const next = {
-        ...prev,
-        service: (svc === 'delivery' || svc === 'pickup') ? svc : prev.service,
-        address: address || prev.address,
-        coords: (lat && lng) ? { lat: +lat, lng: +lng } : prev.coords,
-        date: date || (whenISO ? toDateInput(new Date(whenISO)) : prev.date),
-        time: time || (whenISO ? toTimeInput(new Date(whenISO)) : prev.time),
-      };
-      return next;
-    });
+    setFulfillment((prev) => ({
+      ...prev,
+      service: svc === 'delivery' || svc === 'pickup' ? svc : prev.service,
+      address: address || prev.address,
+      coords: lat && lng ? { lat: +lat, lng: +lng } : prev.coords,
+      date: date || (whenISO ? toDateInput(new Date(whenISO)) : prev.date),
+      time: time || (whenISO ? toTimeInput(new Date(whenISO)) : prev.time),
+    }));
 
     if (svc === 'delivery' || svc === 'pickup') setSelectedService(svc);
   }, [location.search]);
@@ -84,6 +120,7 @@ const RestaurantDetailMenu = () => {
   // fetch restaurant if not passed via state; always fetch menu by restaurant id
   useEffect(() => {
     let cancelled = false;
+
     const load = async () => {
       setLoading(true);
       setErr(null);
@@ -160,35 +197,28 @@ const RestaurantDetailMenu = () => {
         dietaryInfo: row.dietary_info ?? undefined,
         hasCustomizations: !!row.options_json,
         options: row.options_json || null,
+        sizes: row.sizes_json || [],
+        toppings: row.toppings_json || [],
         category: row.category || 'Menu',
-        // You can extend mapping as needed (spicyLevel, sizes, toppings, etc.)
       });
     }
 
     // Build arrays
-    const cats = Array.from(groups.values()).map(g => ({
+    const cats = Array.from(groups.values()).map((g) => ({
       id: g.id,
       name: g.name,
       itemCount: g.items.length,
-      description: '', // optional subtitle if you want one
+      description: '',
     }));
 
-    // Ensure deterministic order
     cats.sort((a, b) => a.name.localeCompare(b.name));
 
-    // Default active tab to first category
-    if (!activeCategory && cats[0]?.id) {
-      // NOTE: we can't set state here; we handle it below in effect.
-    }
-
-    // Map to the object shape used by existing code { [categoryId]: items[] }
     const itemsByCat = {};
     for (const g of cats) {
       itemsByCat[g.id] = groups.get(g.id).items;
     }
 
     return { menuItems: itemsByCat, menuCategories: cats };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuRaw]);
 
   // set initial active category after categories are ready
@@ -215,7 +245,7 @@ const RestaurantDetailMenu = () => {
     return filtered;
   }, [menuItems, searchQuery]);
 
-  // Scroll spy for category nav
+  // Scroll spy for category nav (if you add it back in)
   useEffect(() => {
     const handleScroll = () => {
       const categories = Object.keys(filteredMenuItems || {});
@@ -236,16 +266,150 @@ const RestaurantDetailMenu = () => {
     setSelectedService(service);
     setFulfillment((prev) => ({ ...prev, service }));
   };
+
   const handleCategoryChange = (categoryId) => setActiveCategory(categoryId);
   const handleSearch = (q) => setSearchQuery(q);
   const handleClearSearch = () => setSearchQuery('');
+
   const handleItemClick = (item) => {
     setSelectedItem(item);
     setIsCustomizationModalOpen(true);
   };
-  const handleAddToCart = (item, quantity) => {
-    setCartItems((prev) => [...prev, { ...item, quantity }]);
+
+  /**
+   * IMPORTANT: Every place we send data to the header cart drawer,
+   * we must ensure each item has a UNIQUE `id` for React keys.
+   * For local cart items we use `rowId`. For shared-cart items we keep DB `order_items.id`.
+   */
+  const broadcastHeaderCart = ({ items, restaurantInfo, cartId = null }) => {
+    const count = items.reduce((s, it) => s + Number(it.quantity || 1), 0);
+    const total = items.reduce((s, it) => {
+      const unit = typeof it.customizedPrice === 'number' ? it.customizedPrice : Number(it.price || 0);
+      return s + unit * Number(it.quantity || 1);
+    }, 0);
+
+    const itemsForDrawer = items.map((it) => ({
+      id: it.rowId || it.id, // local uses rowId, shared uses DB id
+      name: it.name,
+      quantity: it.quantity,
+      price: typeof it.customizedPrice === 'number' ? it.customizedPrice : Number(it.price || 0),
+      image: it.image,
+      selectedOptions: it.selectedOptions,
+      specialInstructions: it.specialInstructions,
+      assignedTo: it.assignedTo || [],
+      // ensure the menu item id is available for "Edit" to resolve the correct item
+      menuItemId: it.menuItemId || it.id, // local: menu item id is `id`, shared: `menu_items.id` (map upstream as needed)
+      // For shared carts edited from elsewhere we may also provide userName
+      userName: it.userName,
+    }));
+
+    window.dispatchEvent(
+      new CustomEvent('cartBadge', {
+        detail: {
+          count,
+          total,
+          name: restaurantInfo?.name ? `${restaurantInfo.name} • Cart` : 'Cart',
+          cartId,
+          restaurant: restaurantInfo
+            ? { id: restaurantInfo.id, name: restaurantInfo.name, image: restaurantInfo.image_url || restaurantInfo.image }
+            : null,
+          items: itemsForDrawer,
+        },
+      })
+    );
   };
+
+  const handleAddToCart = async (item, quantity) => {
+    const isEditing = !!item?.cartRowId;
+
+    // --- EDITING A SHARED-CART ROW ---
+    if (isEditing && item?.cartId) {
+      try {
+        await cartService.updateCartItemDetails(item.cartId, item.cartRowId, {
+          quantity,
+          selected_options: item.selectedOptions || null,
+          special_instructions: item.specialInstructions || '',
+          price:
+            typeof item.customizedPrice === 'number'
+              ? item.customizedPrice
+              : Number(item.price || 0),
+        });
+
+        // Let other pages (checkout) refetch themselves
+        window.dispatchEvent(
+          new CustomEvent('cartItemsChanged', { detail: { cartId: item.cartId } })
+        );
+
+        // Nice UX: refresh the header drawer snapshot
+        const data = await sharedCartService.getSharedCart(item.cartId);
+        const sharedItems =
+          (data?.order_items || []).map((it) => ({
+            id: it.id, // DB row id - unique
+            name: it.item_name || it.menu_items?.name,
+            quantity: it.quantity || 1,
+            price: it.price || 0,
+            image: it.menu_items?.image_url,
+            selectedOptions: it.selected_options,
+            specialInstructions: it.special_instructions,
+            userName: `${it?.user_profiles?.first_name || ''} ${it?.user_profiles?.last_name || ''}`.trim(),
+            menuItemId: it.menu_items?.id,
+          })) || [];
+
+        broadcastHeaderCart({
+          items: sharedItems,
+          restaurantInfo: data?.restaurants || null,
+          cartId: item.cartId,
+        });
+
+        return; // done
+      } catch (e) {
+        console.error('Failed to save cart item edits:', e);
+        return;
+      }
+    }
+
+    // --- EDITING A LOCAL (non-shared) CART ROW ---
+    if (isEditing && !item?.cartId) {
+      setCartItems((prev) => {
+        const next = prev.map((it) =>
+          (it.rowId === item.cartRowId ? { ...it, ...item, quantity, rowId: item.cartRowId } : it)
+        );
+
+        broadcastHeaderCart({
+          items: next,
+          restaurantInfo: restaurant,
+          cartId: null,
+        });
+
+        return next;
+      });
+      return;
+    }
+
+    // --- ADD FLOW (local) ---
+    setCartItems((prev) => {
+      const rowId = makeRowId();
+      const next = [
+        ...prev,
+        {
+          ...item,
+          quantity,
+          rowId,
+          // keep the original menu item id explicitly for editing later
+          menuItemId: item.id,
+        },
+      ];
+
+      broadcastHeaderCart({
+        items: next,
+        restaurantInfo: restaurant,
+        cartId: null,
+      });
+
+      return next;
+    });
+  };
+
   const handleBackClick = () => navigate('/home-restaurant-discovery');
 
   // Map DB restaurant to your hero/info expectations
@@ -257,10 +421,10 @@ const RestaurantDetailMenu = () => {
       image: restaurant.image_url || '',
       cuisine: restaurant.cuisine_type || '',
       rating: restaurant.rating || undefined,
-      distance: undefined,     // computed elsewhere typically
+      distance: undefined,
       deliveryFee: restaurant.delivery_fee ?? undefined,
       minimumOrder: restaurant.minimum_order ?? undefined,
-      priceRange: undefined,   // not in schema
+      priceRange: undefined,
       isOpen: restaurant.is_available ?? true,
       phone: restaurant.phone_number || '',
       address: restaurant.address || '',
@@ -268,35 +432,83 @@ const RestaurantDetailMenu = () => {
       deliveryRadius: undefined,
       offers: [],
       features: [restaurant.supports_catering ? 'Catering' : null].filter(Boolean),
-      hours: [],               // not modeled in mock; component should handle empty
+      hours: [],
       ratingBreakdown: [],
       reviews: [],
     };
   }, [restaurant]);
 
   const handleFulfillmentChange = (next) => {
-   setFulfillment(next);
-   if (next.service !== selectedService) setSelectedService(next.service);
-   window.dispatchEvent(
-     new CustomEvent('deliveryAddressUpdate', {
-       detail: { address: next.address, lat: next.coords ?? null },
-     })
-   );
- };
+    setFulfillment(next);
+    if (next.service !== selectedService) setSelectedService(next.service);
+    window.dispatchEvent(
+      new CustomEvent('deliveryAddressUpdate', {
+        detail: { address: next.address, lat: next.coords ?? null },
+      })
+    );
+  };
+
+  // Handle "Remove" from header drawer while on this page (LOCAL cart only)
+  useEffect(() => {
+    const onRemove = (e) => {
+      const { itemId } = e?.detail || {};
+      if (!itemId) return;
+
+      setCartItems((prev) => {
+        const next = prev.filter((it) => (it.rowId || it.id) !== itemId);
+
+        broadcastHeaderCart({
+          items: next,
+          restaurantInfo: restaurant,
+          cartId: null,
+        });
+
+        return next;
+      });
+    };
+    window.addEventListener('cartItemRemove', onRemove);
+    return () => window.removeEventListener('cartItemRemove', onRemove);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restaurant]);
+
+  // Open modal when navigating here from "Edit" in the header drawer
+  useEffect(() => {
+    const edit = location.state?.editItem;
+    if (!edit || !menuRaw?.length) return;
+
+    const menuItemId = edit.menuItemId || edit.id;
+    const row = menuRaw.find((r) => r.id === menuItemId);
+    if (!row) return;
+
+    const mapped = {
+      id: row.id,
+      name: row.name,
+      description: row.description || '',
+      price: row.price ?? 0,
+      image: row.image_url || '',
+      sizes: row.sizes_json || [],
+      toppings: row.toppings_json || [],
+      options: row.options_json || null,
+      category: row.category || 'Menu',
+    };
+
+    setSelectedItem(mapped);
+    setIsCustomizationModalOpen(true);
+  }, [location.state?.editItem, menuRaw]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-       <Header />
-       <main className="pt-16 [--sticky-top:64px] md:[--sticky-top:96px]">
-         <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
-         <div className="p-6">
+        <Header />
+        <main className="pt-16 [--sticky-top:64px] md:[--sticky-top:96px]">
+          <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
+          <div className="p-6">
             <div className="animate-pulse space-y-4">
-            <div className="h-8 w-1/3 bg-muted rounded" />
-            <div className="h-48 w-full bg-muted rounded" />
-            <div className="h-6 w-1/4 bg-muted rounded" />
-            <div className="h-6 w-1/2 bg-muted rounded" />
-          </div>
+              <div className="h-8 w-1/3 bg-muted rounded" />
+              <div className="h-48 w-full bg-muted rounded" />
+              <div className="h-6 w-1/4 bg-muted rounded" />
+              <div className="h-6 w-1/2 bg-muted rounded" />
+            </div>
           </div>
         </main>
       </div>
@@ -306,15 +518,15 @@ const RestaurantDetailMenu = () => {
   if (err) {
     return (
       <div className="min-h-screen bg-background">
-       <Header />
-       <main className="pt-16">
-         <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
-         <div className="p-6">
-          <div className="text-error">Error: {err}</div>
-          <Button className="mt-4" onClick={() => navigate('/home-restaurant-discovery')}>
-            Back to discovery
-          </Button>
-         </div>
+        <Header />
+        <main className="pt-16">
+          <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
+          <div className="p-6">
+            <div className="text-error">Error: {err}</div>
+            <Button className="mt-4" onClick={() => navigate('/home-restaurant-discovery')}>
+              Back to discovery
+            </Button>
+          </div>
         </main>
       </div>
     );
@@ -348,15 +560,7 @@ const RestaurantDetailMenu = () => {
         </div>
 
         <div className="flex">
-          {/* Desktop Sidebar */}
-          {/* <div className="hidden md:block w-80 flex-shrink-0">
-            <MenuCategoryNav
-              categories={menuCategories}
-              activeCategory={activeCategory}
-              onCategoryChange={handleCategoryChange}
-              isSticky={true}
-            />
-          </div> */}
+          {/* Left sidebar category nav can go here */}
 
           {/* Main */}
           <div className="flex-1">
@@ -365,14 +569,6 @@ const RestaurantDetailMenu = () => {
               selectedService={selectedService}
               onServiceToggle={handleServiceToggle}
             />
-
-            {/* Mobile Category Navigation */}
-            {/* <MenuCategoryNav
-              categories={menuCategories}
-              activeCategory={activeCategory}
-              onCategoryChange={handleCategoryChange}
-              isSticky={true}
-            /> */}
 
             <MenuSearch
               searchQuery={searchQuery}
@@ -415,9 +611,6 @@ const RestaurantDetailMenu = () => {
           </div>
         </div>
 
-        {/* Floating Cart Summary */}
-        {/* <CartSummaryFloat isVisible={cartItems.length > 0} /> */}
-
         {/* Item Customization Modal */}
         <ItemCustomizationModal
           item={selectedItem}
@@ -425,10 +618,15 @@ const RestaurantDetailMenu = () => {
           onClose={() => {
             setIsCustomizationModalOpen(false);
             setSelectedItem(null);
+            // Clear edit state so the modal doesn't keep showing "Save changes"
+            if (editState) {
+              navigate('.', { replace: true, state: {} });
+            }
           }}
+          preset={presetForSelected}
           onAddToCart={handleAddToCart}
         />
-    </main>
+      </main>
     </div>
   );
 };

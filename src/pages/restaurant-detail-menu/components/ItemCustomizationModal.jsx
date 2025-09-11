@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
 import Button from '../../../components/ui/Button';
@@ -63,13 +63,52 @@ function normalizeOptions(raw) {
   return [];
 }
 
-const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart }) => {
+function findOptionIdByAny(group, val) {
+  const vId = typeof val === 'object' ? val?.id : undefined;
+  const vName = typeof val === 'object' ? val?.name : (typeof val === 'string' ? val : undefined);
+  const byId = vId && group.options.find(o => o.id === vId);
+  if (byId) return byId.id;
+  const byName = vName && group.options.find(o => o.name?.toLowerCase() === String(vName).toLowerCase());
+  if (byName) return byName.id;
+  if (typeof val === 'string') {
+    const direct = group.options.find(o => o.id === val);
+    if (direct) return direct.id;
+  }
+  return null;
+}
+
+function extractMemberIdsFromPreset(assignedTo, members) {
+  if (!assignedTo || !Array.isArray(assignedTo)) return [];
+  const ids = [];
+  assignedTo.forEach(a => {
+    if (typeof a === 'string') {
+      const m = members.find(mm => (mm.full_name || '').toLowerCase() === a.toLowerCase());
+      if (m) ids.push(m.id);
+    } else if (a && typeof a === 'object') {
+      if (a.id) {
+        ids.push(a.id);
+      } else if (a.name) {
+        const m = members.find(mm => (mm.full_name || '').toLowerCase() === a.name.toLowerCase());
+        if (m) ids.push(m.id);
+      } else if (a.full_name) {
+        const m = members.find(mm => (mm.full_name || '').toLowerCase() === a.full_name.toLowerCase());
+        if (m) ids.push(m.id);
+      }
+    }
+  });
+  return ids;
+}
+
+const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) => {
   const { activeTeam } = useAuth();
+  const isEditing = !!preset?.cartRowId;
 
   // Assignment (multi)
   const [membersLoading, setMembersLoading] = useState(false);
   const [members, setMembers] = useState([]); // [{id, full_name, email, role, phone_number}]
   const [assigneeIds, setAssigneeIds] = useState([]);
+
+  const [assigneesLocked, setAssigneesLocked] = useState(false);
 
   // Quantity & options
   const [quantity, setQuantity] = useState(1);
@@ -78,6 +117,9 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart }) => {
   const groups = useMemo(() => normalizeOptions(item?.options), [item?.options]);
   const [selections, setSelections] = useState({});
   const [specialInstructions, setSpecialInstructions] = useState('');
+
+  // hydrate-once guard per modal open
+  const hydratedRef = useRef(false);
 
   // Close on Escape
   useEffect(() => {
@@ -95,17 +137,19 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart }) => {
   // Reset on open/change
   useEffect(() => {
     if (!isOpen) return;
+    hydratedRef.current = false;
     setQuantity(1);
     setSelectedSize(item?.sizes?.[0] || null);
     setSelectedToppings([]);
     setSelections({});
     setSpecialInstructions('');
     setAssigneeIds([]);
+    setAssigneesLocked(false);
   }, [isOpen, item]);
 
   // Trim assignees when quantity decreases
   useEffect(() => {
-    setAssigneeIds((prev) => prev.slice(0, Math.max(1, quantity)));
+    setAssigneeIds((prev) => prev.slice(0, quantity));
   }, [quantity]);
 
   // Load team members (no is_active filter)
@@ -136,6 +180,7 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart }) => {
     return () => { cancel = true; };
   }, [isOpen, activeTeam?.id]);
 
+  // Base prices
   const basePrice = useMemo(() => {
     if (selectedSize) return Number(selectedSize?.price || 0);
     return Number(item?.price || 0);
@@ -188,6 +233,92 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart }) => {
     (item?.sizes?.length > 0 && !selectedSize) ||
     groups.some(g => g.required && (selections[g.id]?.length || 0) < (g.min ?? 1));
 
+  // ---- HYDRATE FROM PRESET (once per open) ----
+  useEffect(() => {
+    if (!isOpen || hydratedRef.current) return;
+    if (!preset) return;
+    hydratedRef.current = true;
+
+    // Quantity & notes
+    if (typeof preset.quantity === 'number') setQuantity(Math.max(1, preset.quantity));
+    if (typeof preset.specialInstructions === 'string') setSpecialInstructions(preset.specialInstructions);
+
+    // Size
+    if (item?.sizes?.length && preset.selectedSize) {
+      const byId = item.sizes.find(s => s.id === preset.selectedSize?.id);
+      const byName = item.sizes.find(s => s.name?.toLowerCase() === String(preset.selectedSize?.name).toLowerCase());
+      setSelectedSize(byId || byName || item.sizes[0]);
+    }
+
+    // Toppings
+    if (item?.toppings?.length && Array.isArray(preset.selectedToppings)) {
+      const resolved = [];
+      for (const tv of preset.selectedToppings) {
+        const byId = item.toppings.find(t => t.id === (typeof tv === 'object' ? tv?.id : tv));
+        const byName = item.toppings.find(t => t.name?.toLowerCase() === String(typeof tv === 'object' ? tv?.name : tv).toLowerCase());
+        if (byId || byName) resolved.push(byId || byName);
+      }
+      if (resolved.length) setSelectedToppings(resolved);
+    }
+
+    // Generic options
+    if (preset.selectedOptions) {
+      const nextSel = {};
+      // object mapping (preferred): { groupKey -> [values] }
+      if (typeof preset.selectedOptions === 'object' && !Array.isArray(preset.selectedOptions)) {
+        for (const [key, valsMaybe] of Object.entries(preset.selectedOptions)) {
+          const vals = Array.isArray(valsMaybe) ? valsMaybe : [valsMaybe];
+          const g =
+            groups.find(gg => gg.id === key) ||
+            groups.find(gg => gg.name?.toLowerCase() === key.toLowerCase()) ||
+            groups.find(gg => slug(gg.name) === key);
+          if (!g) continue;
+          const ids = [];
+          vals.forEach(v => {
+            const id = findOptionIdByAny(g, v);
+            if (id) ids.push(id);
+          });
+          if (ids.length) nextSel[g.id] = ids;
+        }
+      } else if (Array.isArray(preset.selectedOptions)) {
+        // array of names/objects -> match across all groups by name
+        const all = preset.selectedOptions;
+        for (const g of groups) {
+          const ids = [];
+          all.forEach(v => {
+            const id = findOptionIdByAny(g, v);
+            if (id) ids.push(id);
+          });
+          if (ids.length) nextSel[g.id] = ids;
+        }
+      }
+      setSelections(nextSel);
+    }
+
+    // Assignees (may be ids or names)
+    if (preset.assignedTo && Array.isArray(preset.assignedTo)) {
+      const ids = extractMemberIdsFromPreset(preset.assignedTo, members);
+      if (ids.length) {
+        setAssigneeIds(ids.slice(0, Math.max(1, preset.quantity || 1)));
+        setAssigneesLocked(true);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, preset, item?.sizes, item?.toppings, groups]);
+
+  // If members load after hydration, try mapping assignees again
+  useEffect(() => {
+    if (!isOpen || !preset?.assignedTo) return;
+    if (!members?.length) return;
+    if (assigneeIds?.length) return; // already set
+    if (assigneesLocked) return; 
+    const ids = extractMemberIdsFromPreset(preset.assignedTo, members);
+    if (ids.length) {
+      setAssigneeIds(ids.slice(0, quantity));
+      setAssigneesLocked(true);
+    }
+  }, [isOpen, preset?.assignedTo, members, assigneeIds?.length, quantity]);
+
   const handleAdd = () => {
     if (missingRequired) return;
 
@@ -209,8 +340,11 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart }) => {
       selectedOptions: selections,
       specialInstructions: specialInstructions.trim(),
       customizedPrice: unitPrice,
-      // Array of assignees (length 0..quantity)
       assignedTo: assigned,
+      optionsCatalog: groups,
+      // keep edit context if provided
+      cartRowId: preset?.cartRowId || null,
+      cartId: preset?.cartId || null,
     };
 
     onAddToCart?.(customizedItem, quantity);
@@ -277,6 +411,7 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart }) => {
                     multiple
                     value={assigneeIds}
                     onChange={(vals) => {
+                      if (!assigneesLocked) setAssigneesLocked(true);
                       const arr = Array.isArray(vals) ? vals : (vals ? [vals] : []);
                       setAssigneeIds(arr.slice(0, quantity));
                     }}
@@ -414,9 +549,13 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart }) => {
                                 )}
                               </div>
                             </div>
-                            {o.price ? (
-                              <div className="text-sm font-mono">{o.price > 0 ? `+${o.price.toFixed(2)}` : o.price.toFixed(2)}</div>
-                            ) : <div className="text-sm text-muted-foreground">Included</div>}
+                            {typeof o.price === 'number' ? (
+                              <div className="text-sm font-mono">
+                                {o.price > 0 ? `+${o.price.toFixed(2)}` : o.price.toFixed(2)}
+                              </div>
+                            ) : (
+                              <div className="text-sm text-muted-foreground">Included</div>
+                            )}
                           </label>
                         );
                       })}
@@ -476,7 +615,7 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart }) => {
           </div>
 
           <Button onClick={handleAdd} className="w-full" disabled={missingRequired}>
-            Add {quantity} to Cart • ${total.toFixed(2)}
+            {isEditing ? `Save changes • $${total.toFixed(2)}` : `Add ${quantity} to Cart • $${total.toFixed(2)}`}
           </Button>
         </div>
       </div>

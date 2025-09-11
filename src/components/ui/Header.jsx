@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
 import Icon from '../AppIcon';
 import Button from './Button';
@@ -10,12 +10,16 @@ const Header = ({ notifications = 0, className = '' }) => {
   const { user, userProfile, teams, activeTeam, loadingTeams, switchActiveTeam, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showTeamMenu, setShowTeamMenu] = useState(false);
   const teamMenuRef = useRef(null);
 
+  // cart badge + drawer
+  const [cartBadge, setCartBadge] = useState({ count: 0, total: 0, name: 'Cart', cartId: null });
+  const [cartPanel, setCartPanel] = useState({ restaurant: null, items: [] });
+  const [isCartOpen, setIsCartOpen] = useState(false);
 
   // Close the team menu when clicking outside of it
   useEffect(() => {
@@ -27,61 +31,122 @@ const Header = ({ notifications = 0, className = '' }) => {
     return () => document.removeEventListener('mousedown', onClickAway);
   }, []);
 
-  const navigationItems = [
-    { 
-      label: 'Dashboard', 
-      path: '/dashboard-home', 
-      icon: 'LayoutDashboard',
-      tooltip: 'Team meal overview and quick actions'
-    },
-    { 
-      label: 'Calendar', 
-      path: '/calendar-order-scheduling',
-      icon: 'Calendar',
-      tooltip: 'Schedule and manage meal orders'
-    },
-    // { 
-    //   label: 'Polling', 
-    //   path: '/meal-polling-system', 
-    //   icon: 'Vote',
-    //   tooltip: 'Create and manage meal polls'
-    // },
-    { 
-      label: 'Orders', 
-      path: '/order-history-management', 
-      icon: 'ClipboardList',
-      tooltip: 'View and manage order history'
-    },
-    // { 
-    //   label: 'Reports', 
-    //   path: '/expense-reports-analytics', 
-    //   icon: 'BarChart3',
-    //   tooltip: 'Financial analytics and expense reports'
-    // },
-    { 
-      label: 'Team', 
-      path: '/team-members-management', 
-      icon: 'Users',
-      tooltip: 'Manage team members and roles'
-    },
-    // { 
-    //   label: 'Locations', 
-    //   path: '/saved-addresses-locations', 
-    //   icon: 'MapPin',
-    //   tooltip: 'Saved addresses and restaurant partners'
-    // },
-    // { 
-    //   label: 'Billing', 
-    //   path: '/payment-methods-billing', 
-    //   icon: 'CreditCard',
-    //   tooltip: 'Payment methods and billing management'
-    // }
-  ];
+  const handleRemoveFromDrawer = (it) => {
+    // Broadcast so whichever page is active can perform the real remove (shared/local)
+    window.dispatchEvent(
+      new CustomEvent('cartItemRemove', {
+        detail: { itemId: it.id, menuItemId: it.menuItemId ?? null },
+      })
+    );
+  };
 
-  // const handleNavigation = (path) => {
-  //   navigate(path);
-  //   setIsMobileMenuOpen(false);
-  // };
+  const handleEditFromDrawer = (it) => {
+    setIsCartOpen(false);
+    const rid = cartPanel.restaurant?.id || it.restaurantId || null;
+    if (!rid) {
+      // Fallback so you don’t land on 404
+      navigate('/home-restaurant-discovery');
+      return;
+    }
+    navigate(`/restaurant/${rid}`, {
+      state: {
+        cartId: cartBadge.cartId || null,
+        restaurant: cartPanel.restaurant || null,
+        editItem: {
+          ...it,
+          // ensure menu item id is present so the menu page can resolve the item
+          menuItemId: it.menuItemId ?? it.id,
+        },
+      },
+    });
+  };
+
+  const formatCustomizations = (item) => {
+    const lines = [];
+    // “legacy” customizations array: [{name, price}]
+    if (Array.isArray(item?.customizations) && item.customizations.length) {
+      lines.push(...item.customizations.map((c) => c?.name || String(c)));
+    }
+    // special instructions
+    if (item?.specialInstructions) {
+      lines.push(`Notes: ${item.specialInstructions}`);
+    }
+    // selectedOptions may be:
+    //  • object: { groupId: [optId, ...] } (local flow)
+    //  • array of {name,...} or strings (shared-cart)
+    const so = item?.selectedOptions;
+    if (!so) return lines;
+
+    // array of names/objects
+    if (Array.isArray(so)) {
+      lines.push(
+        ...so
+          .map((o) => (typeof o === 'string' ? o : o?.name))
+          .filter(Boolean)
+      );
+      return lines;
+    }
+    // object mapping group -> values (ids or names)
+    if (typeof so === 'object') {
+      Object.values(so).forEach((arr) => {
+        const vals = Array.isArray(arr) ? arr : [arr];
+        vals.forEach((v) => {
+          // if options with ids exist on the item, try to resolve id -> name
+          if (item?.options && typeof v === 'string') {
+            try {
+              const groups = Array.isArray(item.options)
+                ? item.options
+                : Object.entries(item.options || {}).map(([k, opts]) => ({ id: k, options: opts }));
+              let found;
+              for (const g of groups) {
+                const opts = Array.isArray(g?.options) ? g.options : [];
+                found = opts.find((o) => o?.id === v || o?.name === v);
+                if (found) break;
+              }
+              lines.push(found?.name || String(v));
+            } catch {
+              lines.push(String(v));
+            }
+          } else {
+            lines.push(typeof v === 'string' ? v : v?.name);
+          }
+        });
+      });
+    }
+    return lines.filter(Boolean);
+  };
+
+  // listen for global cart events
+  useEffect(() => {
+    const onBadge = (e) => {
+      if (!e?.detail) return;
+      const { restaurant, items, ...rest } = e.detail;
+      setCartBadge((prev) => ({ ...prev, ...rest }));
+      if (restaurant || items) {
+        setCartPanel((p) => ({
+          restaurant: restaurant ?? p.restaurant,
+          items: Array.isArray(items) ? items : p.items,
+        }));
+      }
+    };
+    const onOpen = () => setIsCartOpen(true);
+    const onClose = () => setIsCartOpen(false);
+    window.addEventListener('cartBadge', onBadge);
+    window.addEventListener('openCartDrawer', onOpen);
+    window.addEventListener('closeCartDrawer', onClose);
+    return () => {
+      window.removeEventListener('cartBadge', onBadge);
+      window.removeEventListener('openCartDrawer', onOpen);
+      window.removeEventListener('closeCartDrawer', onClose);
+    };
+  }, []);
+
+  const navigationItems = [
+    { label: 'Dashboard', path: '/dashboard-home', icon: 'LayoutDashboard', tooltip: 'Team meal overview and quick actions' },
+    { label: 'Calendar', path: '/calendar-order-scheduling', icon: 'Calendar', tooltip: 'Schedule and manage meal orders' },
+    { label: 'Orders', path: '/order-history-management', icon: 'ClipboardList', tooltip: 'View and manage order history' },
+    { label: 'Team', path: '/team-members-management', icon: 'Users', tooltip: 'Manage team members and roles' },
+  ];
 
   const handleNavigation = (path) => {
     if (path === '/team-members-management' && teams.length === 0 && !loadingTeams) {
@@ -93,27 +158,25 @@ const Header = ({ notifications = 0, className = '' }) => {
     setIsMobileMenuOpen(false);
   };
 
-  const handleUserMenuToggle = () => {
-    setIsUserMenuOpen(!isUserMenuOpen);
-  };
+  const handleUserMenuToggle = () => setIsUserMenuOpen(!isUserMenuOpen);
 
   const handleLogout = () => {
     setIsUserMenuOpen(false);
     signOut();
-    navigate('/login-registration')
+    navigate('/login-registration');
   };
 
-  const isActivePath = (path) => {
-    return location?.pathname === path || (location?.pathname === '/' && path === '/dashboard-home');
-  };
+  const isActivePath = (path) =>
+    location?.pathname === path || (location?.pathname === '/' && path === '/dashboard-home');
 
-  const fullName = userProfile?.first_name || userProfile?.last_name 
-    ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() 
-    : '';
+  const fullName =
+    userProfile?.first_name || userProfile?.last_name
+      ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim()
+      : '';
 
   const initials = fullName
     .split(' ')
-    .map(name => name.charAt(0))
+    .map((name) => name.charAt(0))
     .join('')
     .toUpperCase();
 
@@ -126,10 +189,11 @@ const Header = ({ notifications = 0, className = '' }) => {
             <Link to="/" className="flex items-center space-x-2">
               <img src={mealLogo} alt="MealOps Logo" className="h-12 w-auto object-contain" />
             </Link>
+
             {/* Team Info Display */}
             {!loadingTeams && activeTeam && (
               <>
-                <div className='h-10 border-l border-border' />
+                <div className="h-10 border-l border-border" />
                 <div className="relative w-20" ref={teamMenuRef}>
                   <button
                     onClick={() => setShowTeamMenu((s) => !s)}
@@ -138,9 +202,7 @@ const Header = ({ notifications = 0, className = '' }) => {
                     aria-expanded={showTeamMenu}
                   >
                     <div className="flex flex-col items-center">
-                      <span className="text-md font-bold text-foreground">
-                        {activeTeam.name}
-                      </span>
+                      <span className="text-md font-bold text-foreground">{activeTeam.name}</span>
                       <div className="flex items-center space-x-2">
                         <span className="text-xs text-muted-foreground font-medium uppercase">
                           {activeTeam.gender}
@@ -151,7 +213,11 @@ const Header = ({ notifications = 0, className = '' }) => {
                       </div>
                     </div>
                     {!loadingTeams && teams.length > 1 && (
-                      <Icon name={showTeamMenu ? 'ChevronUp' : 'ChevronDown'} size={16} className="ml-2 text-muted-foreground" />
+                      <Icon
+                        name={showTeamMenu ? 'ChevronUp' : 'ChevronDown'}
+                        size={16}
+                        className="ml-2 text-muted-foreground"
+                      />
                     )}
                   </button>
 
@@ -216,6 +282,21 @@ const Header = ({ notifications = 0, className = '' }) => {
 
         {/* Right Side Actions */}
         <div className="flex items-center space-x-3">
+          {/* Cart button (global) */}
+          <button
+            className="relative p-2 text-muted-foreground hover:text-foreground transition-athletic"
+            onClick={() => setIsCartOpen(true)}
+            aria-label={`Open cart${cartBadge.count ? ` (${cartBadge.count})` : ''}`}
+            title="Cart"
+          >
+            <Icon name="ShoppingCart" size={20} />
+            {cartBadge.count > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-primary text-primary-foreground text-[11px] font-bold flex items-center justify-center">
+                {cartBadge.count > 99 ? '99+' : cartBadge.count}
+              </span>
+            )}
+          </button>
+
           {/* Notifications */}
           <button className="relative p-2 text-muted-foreground hover:text-foreground transition-athletic">
             <Icon name="Bell" size={20} />
@@ -229,15 +310,12 @@ const Header = ({ notifications = 0, className = '' }) => {
           {/* User Menu */}
           <div className="relative">
             <button
-              onClick={handleUserMenuToggle}
+              onClick={() => setIsUserMenuOpen((s) => !s)}
               className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted transition-athletic"
             >
               <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
-                {/* Conditionally render initials or generic icon */}
                 {userProfile?.first_name ? (
-                  <span className="text-white font-bold text-xs">
-                    {initials}
-                  </span>
+                  <span className="text-white font-bold text-xs">{initials}</span>
                 ) : (
                   <Icon name="User" size={16} color="white" />
                 )}
@@ -247,10 +325,10 @@ const Header = ({ notifications = 0, className = '' }) => {
                   {/* {userProfile?.first_name} */}
                 </span>
               )}
-              <Icon 
-                name="ChevronDown" 
-                size={16} 
-                className={`text-muted-foreground transition-transform duration-100 ${isUserMenuOpen ? 'rotate-180' : ''}`} 
+              <Icon
+                name="ChevronDown"
+                size={16}
+                className={`text-muted-foreground transition-transform duration-100 ${isUserMenuOpen ? 'rotate-180' : ''}`}
               />
             </button>
 
@@ -259,12 +337,8 @@ const Header = ({ notifications = 0, className = '' }) => {
               <div className="absolute right-0 mt-2 w-48 bg-popover border border-border rounded-md shadow-athletic-lg z-50">
                 <div className="py-1">
                   <div className="px-4 py-2 border-b border-border">
-                    <p className="text-sm font-medium text-foreground">
-                      {'Hi ' + userProfile?.first_name + ',' || 'User'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {user?.email || 'user@example.com'}
-                    </p>
+                    <p className="text-sm font-medium text-foreground">{userProfile?.first_name ? `Hi ${userProfile.first_name},` : 'User'}</p>
+                    <p className="text-xs text-muted-foreground">{user?.email || 'user@example.com'}</p>
                   </div>
                   <button
                     onClick={() => setIsUserMenuOpen(false)}
@@ -299,10 +373,11 @@ const Header = ({ notifications = 0, className = '' }) => {
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="lg:hidden p-2 text-muted-foreground hover:text-foreground transition-athletic"
           >
-            <Icon name={isMobileMenuOpen ? "X" : "Menu"} size={20} />
+            <Icon name={isMobileMenuOpen ? 'X' : 'Menu'} size={20} />
           </button>
         </div>
       </div>
+
       {/* Mobile Navigation */}
       {isMobileMenuOpen && (
         <div className="lg:hidden bg-card border-t border-border shadow-athletic-md">
@@ -331,13 +406,105 @@ const Header = ({ notifications = 0, className = '' }) => {
           </nav>
         </div>
       )}
+
       {/* Click outside to close user menu */}
-      {isUserMenuOpen && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setIsUserMenuOpen(false)}
-        />
-      )}
+      {isUserMenuOpen && <div className="fixed inset-0 z-40" onClick={() => setIsUserMenuOpen(false)} />}
+
+      {/* Cart Drawer */}
+      {isCartOpen &&
+        ReactDOM.createPortal(
+          <div className="fixed inset-0 z-[1200] bg-black/40" onClick={() => setIsCartOpen(false)}>
+            <aside
+              className="absolute right-0 top-0 h-full w-full max-w-md bg-card border-l border-border shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Cart"
+            >
+              <div className="p-4 border-b border-border flex items-center justify-between">
+                <div className="font-semibold flex items-center gap-2">
+                  <Icon name="ShoppingCart" size={18} />
+                  <span>{cartBadge.name || 'Cart'}</span>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setIsCartOpen(false)}>
+                  <Icon name="X" size={18} />
+                </Button>
+              </div>
+              <div className="p-4 space-y-4 overflow-y-auto max-h-[calc(100vh-160px)]">
+                <div className="text-sm text-muted-foreground">
+                  Items: <span className="font-medium text-foreground">{cartBadge.count}</span>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Subtotal:{' '}
+                  <span className="font-medium text-foreground">${(cartBadge.total || 0).toFixed(2)}</span>
+                </div>
+
+                {/* Mini cart list */}
+                {cartPanel.items?.length > 0 && (
+                  <div className="divide-y divide-border border border-border rounded-md">
+                    {cartPanel.items.map((it, idx) => {
+                      const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
+                      const qty = Number(it?.quantity ?? 1);
+                      const lines = formatCustomizations(it);
+                      const assignees =
+                        Array.isArray(it?.assignedTo) && it.assignedTo.length
+                          ? it.assignedTo.map((a) => a?.name).filter(Boolean).join(', ')
+                          : it?.userName || null; // shared cart per-user
+                      return (
+                        <div key={`${it?.id ?? 'row'}-${idx}`} className="p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-medium text-foreground truncate">
+                                {it?.name || 'Item'}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                x{qty} • ${unit.toFixed(2)}
+                              </div>
+                              {assignees && (
+                                <div className="text-xs text-muted-foreground mt-1">
+                                  For: <span className="text-foreground">{assignees}</span>
+                                </div>
+                              )}
+                              {lines?.length > 0 && (
+                                <ul className="mt-1 text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
+                                  {lines.map((l, i) => (
+                                    <li key={i}>{l}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                            {it?.image && (
+                              <img src={it.image} alt="" className="h-14 w-14 rounded-md object-cover shrink-0" />
+                            )}
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <Button variant="ghost" size="sm" onClick={() => handleEditFromDrawer(it)}>
+                              Edit
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleRemoveFromDrawer(it)}>
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    setIsCartOpen(false);
+                    navigate(`/shopping-cart-checkout${cartBadge.cartId ? `?cartId=${cartBadge.cartId}` : ''}`);
+                  }}
+                  disabled={cartBadge.count === 0}
+                >
+                  View Cart & Checkout
+                </Button>
+              </div>
+            </aside>
+          </div>,
+          document.body
+        )}
     </header>
   );
 };
