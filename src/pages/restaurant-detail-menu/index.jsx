@@ -288,7 +288,7 @@ const RestaurantDetailMenu = () => {
     return (
       <div className="min-h-screen bg-background">
        <Header />
-       <main className="pt-16">
+       <main className="pt-16 [--sticky-top:64px] md:[--sticky-top:96px]">
          <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
          <div className="p-6">
             <div className="animate-pulse space-y-4">
