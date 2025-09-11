@@ -7,6 +7,8 @@ import Select from '../../../components/ui/Select';
 import { useAuth } from '../../../contexts';
 import { supabase } from '../../../lib/supabase';
 
+const EXTRA_SENTINEL = '__EXTRA__'; // guaranteed not to collide with UUIDs
+
 const slug = (s='') =>
   String(s).toLowerCase().replace(/[^\w]+/g,'-').replace(/(^-|-$)/g,'');
 
@@ -81,19 +83,30 @@ function extractMemberIdsFromPreset(assignedTo, members) {
   if (!assignedTo || !Array.isArray(assignedTo)) return [];
   const ids = [];
   assignedTo.forEach(a => {
+    // handle plain "Extra"
     if (typeof a === 'string') {
-      const m = members.find(mm => (mm.full_name || '').toLowerCase() === a.toLowerCase());
+      const s = a.trim().toLowerCase();
+      if (s === 'extra') {
+        ids.push(EXTRA_SENTINEL);
+        return;
+      }
+      const m = members.find(mm => (mm.full_name || '').toLowerCase() === s);
       if (m) ids.push(m.id);
-    } else if (a && typeof a === 'object') {
+      return;
+    }
+    // handle object { id? name? full_name? }
+    if (a && typeof a === 'object') {
+      const nm = (a.name || a.full_name || '').trim().toLowerCase();
+      if (nm === 'extra') {
+        ids.push(EXTRA_SENTINEL);
+        return;
+      }
       if (a.id) {
         ids.push(a.id);
-      } else if (a.name) {
-        const m = members.find(mm => (mm.full_name || '').toLowerCase() === a.name.toLowerCase());
-        if (m) ids.push(m.id);
-      } else if (a.full_name) {
-        const m = members.find(mm => (mm.full_name || '').toLowerCase() === a.full_name.toLowerCase());
-        if (m) ids.push(m.id);
+        return;
       }
+      const m = members.find(mm => (mm.full_name || '').toLowerCase() === nm);
+      if (m) ids.push(m.id);
     }
   });
   return ids;
@@ -323,15 +336,28 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
     if (missingRequired) return;
 
     const assigned = assigneeIds
-      .map(id => members.find(m => m.id === id))
-      .filter(Boolean)
-      .map(m => ({
-        id: m.id,
-        name: m.full_name,
-        role: m.role,
-        email: m.email,
-        phone: m.phone_number || null,
-      }));
+      .map(id => {
+        if (id === EXTRA_SENTINEL) {
+          return {
+            id: EXTRA_SENTINEL,
+            name: 'Extra',
+            role: null,
+            email: null,
+            phone: null,
+          };
+        }
+        const m = members.find(mm => mm.id === id);
+        return m
+          ? {
+              id: m.id,
+              name: m.full_name,
+              role: m.role,
+              email: m.email,
+              phone: m.phone_number || null,
+            }
+          : null;
+      })
+      .filter(Boolean);
 
     const customizedItem = {
       ...item,
@@ -350,6 +376,17 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
     onAddToCart?.(customizedItem, quantity);
     onClose?.();
   };
+
+  const optionsList = useMemo(() => {
+    // Always include Extra as an option
+    const base = [{ value: EXTRA_SENTINEL, label: 'Extra' }];
+    return base.concat(
+      (members || []).map(m => ({
+        value: m.id,
+        label: m.full_name || m.email || 'Unnamed',
+      }))
+    );
+  }, [members]);
 
   if (!isOpen) return null;
 
@@ -405,21 +442,18 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
 
               {membersLoading ? (
                 <div className="text-sm text-muted-foreground">Loading members…</div>
-              ) : members.length > 0 ? (
+              ) : (
                 <div className="max-w-md">
                   <Select
                     multiple
                     value={assigneeIds}
                     onChange={(vals) => {
-                      if (!assigneesLocked) setAssigneesLocked(true);
                       const arr = Array.isArray(vals) ? vals : (vals ? [vals] : []);
+                      // cap by quantity, but allow clearing to zero
                       setAssigneeIds(arr.slice(0, quantity));
                     }}
-                    placeholder={`Select up to ${quantity} member${quantity > 1 ? 's' : ''} (optional)`}
-                    options={members.map((m) => ({
-                      value: m.id,
-                      label: m.full_name || m.email || 'Unnamed',
-                    }))}
+                    placeholder={`Select up to ${quantity} ${quantity > 1 ? 'assignees' : 'assignee'} (optional)`}
+                    options={optionsList}
                   />
                   {assigneeIds.length > quantity && (
                     <div className="mt-1 text-xs text-error">
@@ -427,12 +461,9 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
                     </div>
                   )}
                 </div>
-              ) : (
-                <div className="text-sm text-muted-foreground">No members found.</div>
               )}
             </div>
           )}
-
           {/* Size */}
           {item?.sizes?.length > 0 && (
             <div className="p-4 border-b border-border">
