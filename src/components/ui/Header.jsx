@@ -289,7 +289,7 @@ const Header = ({ notifications = 0, className = '' }) => {
             aria-label={`Open cart${cartBadge.count ? ` (${cartBadge.count})` : ''}`}
             title="Cart"
           >
-            <Icon name="ShoppingCart" size={20} />
+            <Icon name="ShoppingCart" size={20} className="-scale-x-100" />
             {cartBadge.count > 0 && (
               <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-primary text-primary-foreground text-[11px] font-bold flex items-center justify-center">
                 {cartBadge.count > 99 ? '99+' : cartBadge.count}
