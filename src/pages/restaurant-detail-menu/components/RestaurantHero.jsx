@@ -54,11 +54,11 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService }) => {
           </h1>
 
           {/* Cuisine */}
-          {restaurant?.cuisine_type && (
+          {(restaurant?.cuisine || restaurant?.cuisine_type) && (
             <>
               <span className="flex-none text-muted-foreground">•</span>
               <span className="flex-none text-sm md:text-base text-muted-foreground whitespace-nowrap">
-                {restaurant?.cuisine_type}
+                {restaurant?.cuisine || restaurant?.cuisine_type}
               </span>
             </>
           )}
@@ -66,13 +66,23 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService }) => {
           {/* Rating + reviews */}
           {restaurant?.rating != null && (
             <>
-              <span className="flex-none text-muted-foreground">•</span>
+              {/* <span className="flex-none text-muted-foreground">•</span> */}
               <div className="flex items-center gap-1 flex-none whitespace-nowrap">
                 <Icon name="Star" size={16} className="text-accent fill-current" />
                 <span className="font-semibold">{restaurant?.rating}</span>
                 {restaurant?.reviewCount != null && (
                   <span className="text-muted-foreground">({restaurant.reviewCount})</span>
                 )}
+              </div>
+            </>
+          )}
+          {/* Distance */}
+          {restaurant?.distance && (
+            <>
+              {/* <span className="flex-none text-muted-foreground">•</span> */}
+              <div className="flex items-center gap-1 flex-none whitespace-nowrap">
+                <Icon name="MapPin" size={16} className="text-muted-foreground" />
+                <span className="text-muted-foreground">{restaurant.distance}</span>
               </div>
             </>
           )}

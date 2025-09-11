@@ -162,7 +162,11 @@ const RestaurantDetailMenu = () => {
         if (miErr) throw miErr;
 
         if (!cancelled) {
-          setRestaurant(rest);
+          const inboundDistance = location.state?.restaurant?.distance;
+          const merged = (inboundDistance != null)
+            ? { ...rest, distance: inboundDistance }
+            : rest;
+          setRestaurant(merged);
           setMenuRaw(mi || []);
         }
       } catch (e) {
@@ -419,9 +423,9 @@ const RestaurantDetailMenu = () => {
       id: restaurant.id,
       name: restaurant.name,
       image: restaurant.image_url || '',
-      cuisine: restaurant.cuisine_type || '',
+      cuisine: restaurant.cuisine_type || restaurant.cuisine || '',
       rating: restaurant.rating || undefined,
-      distance: undefined,
+      distance: restaurant.distance ?? undefined,
       deliveryFee: restaurant.delivery_fee ?? undefined,
       minimumOrder: restaurant.minimum_order ?? undefined,
       priceRange: undefined,
