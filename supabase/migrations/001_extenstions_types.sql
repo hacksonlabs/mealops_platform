@@ -9,4 +9,6 @@ CREATE TYPE public.payment_status AS ENUM ('pending', 'completed', 'failed', 're
 CREATE TYPE public.location_type AS ENUM ('school', 'hotel', 'gym', 'venue', 'other');
 CREATE TYPE public.api_source_type AS ENUM ('ubereats', 'mealme', 'doordash', 'grubhub', 'ezcater','manual');
 CREATE TYPE public.fulfillment_method AS ENUM ('delivery', 'pickup', 'dine-in');
- CREATE TYPE public.meal_type AS ENUM ('breakfast','lunch','dinner','snack', 'other');
+CREATE TYPE public.meal_type AS ENUM ('breakfast','lunch','dinner','snack', 'other');
+CREATE TYPE public.cart_status AS ENUM ('draft','locked','submitted','abandoned');
+CREATE TYPE public.cart_member_role AS ENUM ('owner','member');

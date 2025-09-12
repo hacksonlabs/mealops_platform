@@ -378,3 +378,54 @@ CREATE TABLE public.location_addresses (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Parent cart row (one per restaurant/session)
+CREATE TABLE IF NOT EXISTS public.meal_carts (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id              uuid NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+  restaurant_id        uuid REFERENCES public.restaurants(id) ON DELETE SET NULL,
+  status               public.cart_status NOT NULL DEFAULT 'draft',
+  title                text,
+  created_by_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+  share_token          text UNIQUE
+);
+
+-- Cart membership (who can add to the cart)
+CREATE TABLE IF NOT EXISTS public.meal_cart_members (
+  cart_id     uuid NOT NULL REFERENCES public.meal_carts(id) ON DELETE CASCADE,
+  member_id   uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  role        public.cart_member_role NOT NULL DEFAULT 'member',
+  joined_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (cart_id, member_id)
+);
+
+-- Items in a cart
+CREATE TABLE IF NOT EXISTS public.meal_cart_items (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cart_id               uuid NOT NULL REFERENCES public.meal_carts(id) ON DELETE CASCADE,
+  added_by_member_id    uuid NOT NULL REFERENCES public.team_members(id) ON DELETE SET NULL,
+  menu_item_id          uuid REFERENCES public.menu_items(id) ON DELETE SET NULL,
+  item_name             text NOT NULL,   -- fallback display name
+  quantity              integer NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  price                 numeric(8,2) NOT NULL DEFAULT 0,  -- unit price at time of add (decimal like your order_items)
+  selected_options      jsonb,            -- normalized options for UI/rehydration
+  special_instructions  text,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now()
+);
+
+-- Assignees for a cart item (supports multiple and “Extra”)
+CREATE TABLE IF NOT EXISTS public.meal_cart_item_assignees (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cart_item_id  uuid NOT NULL REFERENCES public.meal_cart_items(id) ON DELETE CASCADE,
+  member_id     uuid REFERENCES public.team_members(id) ON DELETE SET NULL, -- NULL when is_extra = true
+  is_extra      boolean NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_assignee_valid
+    CHECK (
+      (is_extra = true AND member_id IS NULL)
+      OR (is_extra = false AND member_id IS NOT NULL)
+    )
+);

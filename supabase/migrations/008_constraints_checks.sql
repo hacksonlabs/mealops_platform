@@ -21,3 +21,13 @@ ALTER TABLE public.poll_votes
 
 ALTER TABLE public.restaurants DROP CONSTRAINT IF EXISTS restaurants_api_id_key;
 ALTER TABLE public.restaurants ADD CONSTRAINT uq_restaurants_api UNIQUE (api_source, api_id);
+
+-- ALTER TABLE public.meal_carts ADD CONSTRAINT ck_cart_team_fk_member CHECK (created_by_member_id IS NULL OR team_id = (SELECT team_id FROM public.team_members tm WHERE tm.id = created_by_member_id));
+-- ALTER TABLE public.meal_cart_items ADD CONSTRAINT fk_item_cart_member_team
+--     CHECK (
+--       added_by_member_id IS NULL
+--       OR cart_id IS NOT NULL
+--       -- ensure the owner belongs to the same team as the cart
+--       AND (SELECT team_id FROM public.team_members tm WHERE tm.id = added_by_member_id)
+--           = (SELECT team_id FROM public.meal_carts c WHERE c.id = cart_id)
+--     )

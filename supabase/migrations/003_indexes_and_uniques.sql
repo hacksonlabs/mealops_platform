@@ -65,3 +65,18 @@ CREATE INDEX IF NOT EXISTS idx_meal_orders_provider
 
 CREATE INDEX IF NOT EXISTS idx_order_events_order_created
   ON public.order_events(order_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_meal_carts_team ON public.meal_carts(team_id);
+CREATE INDEX IF NOT EXISTS idx_meal_carts_restaurant ON public.meal_carts(restaurant_id);
+CREATE INDEX IF NOT EXISTS idx_meal_carts_status ON public.meal_carts(status);
+
+CREATE INDEX IF NOT EXISTS idx_cart_members_by_member ON public.meal_cart_members(member_id);
+
+CREATE INDEX IF NOT EXISTS idx_cart_items_cart ON public.meal_cart_items(cart_id);
+CREATE INDEX IF NOT EXISTS idx_cart_items_member ON public.meal_cart_items(added_by_member_id);
+
+-- prevent duplicate member assignment to same item
+CREATE UNIQUE INDEX IF NOT EXISTS uq_item_assignee_member
+  ON public.meal_cart_item_assignees(cart_item_id, member_id)
+  WHERE member_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_item_assignees_item ON public.meal_cart_item_assignees(cart_item_id);

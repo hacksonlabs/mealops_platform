@@ -21,3 +21,7 @@ ALTER TABLE public.member_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.member_group_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.location_addresses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meal_carts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meal_cart_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meal_cart_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meal_cart_item_assignees ENABLE ROW LEVEL SECURITY;

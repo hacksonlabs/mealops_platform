@@ -35,7 +35,7 @@ const Header = ({ notifications = 0, className = '' }) => {
     // Broadcast so whichever page is active can perform the real remove (shared/local)
     window.dispatchEvent(
       new CustomEvent('cartItemRemove', {
-        detail: { itemId: it.id, menuItemId: it.menuItemId ?? null },
+        detail: { cartId: cartBadge.cartId || null, itemId: it.id, menuItemId: it.menuItemId ?? null },
       })
     );
   };
@@ -291,7 +291,7 @@ const Header = ({ notifications = 0, className = '' }) => {
           >
             <Icon name="ShoppingCart" size={20} className="-scale-x-100" />
             {cartBadge.count > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-primary text-primary-foreground text-[11px] font-bold flex items-center justify-center">
+              <span className="absolute -top-1 -left-1 min-w-[20px] h-5 px-1 rounded-full bg-primary text-primary-foreground text-[11px] font-bold flex items-center justify-center">
                 {cartBadge.count > 99 ? '99+' : cartBadge.count}
               </span>
             )}

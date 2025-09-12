@@ -11,8 +11,8 @@ import ItemCustomizationModal from './components/ItemCustomizationModal';
 import RestaurantInfo from './components/RestaurantInfo';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
-import cartService from '../../services/cartService';
-import sharedCartService from '../../services/sharedCartService';
+import cartDbService from '../../services/cartDBService';
+import { useAuth } from '../../contexts';
 
 // helpers
 const pad = (n) => String(n).padStart(2, '0');
@@ -23,15 +23,11 @@ function slugifyId(str = '') {
   return String(str).toLowerCase().replace(/[^\w]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
-const makeRowId =
-  () =>
-    (globalThis.crypto?.randomUUID?.() ||
-      `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-
 const RestaurantDetailMenu = () => {
   const navigate = useNavigate();
   const { restaurantId } = useParams(); // support /restaurant/:restaurantId
   const location = useLocation();
+  const { activeTeam } = useAuth();
 
   const [fulfillment, setFulfillment] = useState(() => {
     const fromState = location.state?.fulfillment;
@@ -49,14 +45,11 @@ const RestaurantDetailMenu = () => {
     location.state?.fulfillment?.service ?? 'delivery'
   );
 
+  const [cartId, setCartId] = useState(null);
   const [activeCategory, setActiveCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [isCustomizationModalOpen, setIsCustomizationModalOpen] = useState(false);
-
-  // Local cart on this page (non-shared)
-  // Each entry MUST carry a unique rowId to avoid duplicate React keys.
-  const [cartItems, setCartItems] = useState([]);
   const [showRestaurantInfo, setShowRestaurantInfo] = useState(false);
 
   // fetched data
@@ -280,140 +273,6 @@ const RestaurantDetailMenu = () => {
     setIsCustomizationModalOpen(true);
   };
 
-  /**
-   * IMPORTANT: Every place we send data to the header cart drawer,
-   * we must ensure each item has a UNIQUE `id` for React keys.
-   * For local cart items we use `rowId`. For shared-cart items we keep DB `order_items.id`.
-   */
-  const broadcastHeaderCart = ({ items, restaurantInfo, cartId = null }) => {
-    const count = items.reduce((s, it) => s + Number(it.quantity || 1), 0);
-    const total = items.reduce((s, it) => {
-      const unit = typeof it.customizedPrice === 'number' ? it.customizedPrice : Number(it.price || 0);
-      return s + unit * Number(it.quantity || 1);
-    }, 0);
-
-    const itemsForDrawer = items.map((it) => ({
-      id: it.rowId || it.id, // local uses rowId, shared uses DB id
-      name: it.name,
-      quantity: it.quantity,
-      price: typeof it.customizedPrice === 'number' ? it.customizedPrice : Number(it.price || 0),
-      image: it.image,
-      selectedOptions: it.selectedOptions,
-      specialInstructions: it.specialInstructions,
-      assignedTo: it.assignedTo || [],
-      // ensure the menu item id is available for "Edit" to resolve the correct item
-      menuItemId: it.menuItemId || it.id, // local: menu item id is `id`, shared: `menu_items.id` (map upstream as needed)
-      // For shared carts edited from elsewhere we may also provide userName
-      userName: it.userName,
-    }));
-
-    window.dispatchEvent(
-      new CustomEvent('cartBadge', {
-        detail: {
-          count,
-          total,
-          name: restaurantInfo?.name ? `${restaurantInfo.name} • Cart` : 'Cart',
-          cartId,
-          restaurant: restaurantInfo
-            ? { id: restaurantInfo.id, name: restaurantInfo.name, image: restaurantInfo.image_url || restaurantInfo.image }
-            : null,
-          items: itemsForDrawer,
-        },
-      })
-    );
-  };
-
-  const handleAddToCart = async (item, quantity) => {
-    const isEditing = !!item?.cartRowId;
-
-    // --- EDITING A SHARED-CART ROW ---
-    if (isEditing && item?.cartId) {
-      try {
-        await cartService.updateCartItemDetails(item.cartId, item.cartRowId, {
-          quantity,
-          selected_options: item.selectedOptions || null,
-          special_instructions: item.specialInstructions || '',
-          price:
-            typeof item.customizedPrice === 'number'
-              ? item.customizedPrice
-              : Number(item.price || 0),
-        });
-
-        // Let other pages (checkout) refetch themselves
-        window.dispatchEvent(
-          new CustomEvent('cartItemsChanged', { detail: { cartId: item.cartId } })
-        );
-
-        // Nice UX: refresh the header drawer snapshot
-        const data = await sharedCartService.getSharedCart(item.cartId);
-        const sharedItems =
-          (data?.order_items || []).map((it) => ({
-            id: it.id, // DB row id - unique
-            name: it.item_name || it.menu_items?.name,
-            quantity: it.quantity || 1,
-            price: it.price || 0,
-            image: it.menu_items?.image_url,
-            selectedOptions: it.selected_options,
-            specialInstructions: it.special_instructions,
-            userName: `${it?.user_profiles?.first_name || ''} ${it?.user_profiles?.last_name || ''}`.trim(),
-            menuItemId: it.menu_items?.id,
-          })) || [];
-
-        broadcastHeaderCart({
-          items: sharedItems,
-          restaurantInfo: data?.restaurants || null,
-          cartId: item.cartId,
-        });
-
-        return; // done
-      } catch (e) {
-        console.error('Failed to save cart item edits:', e);
-        return;
-      }
-    }
-
-    // --- EDITING A LOCAL (non-shared) CART ROW ---
-    if (isEditing && !item?.cartId) {
-      setCartItems((prev) => {
-        const next = prev.map((it) =>
-          (it.rowId === item.cartRowId ? { ...it, ...item, quantity, rowId: item.cartRowId } : it)
-        );
-
-        broadcastHeaderCart({
-          items: next,
-          restaurantInfo: restaurant,
-          cartId: null,
-        });
-
-        return next;
-      });
-      return;
-    }
-
-    // --- ADD FLOW (local) ---
-    setCartItems((prev) => {
-      const rowId = makeRowId();
-      const next = [
-        ...prev,
-        {
-          ...item,
-          quantity,
-          rowId,
-          // keep the original menu item id explicitly for editing later
-          menuItemId: item.id,
-        },
-      ];
-
-      broadcastHeaderCart({
-        items: next,
-        restaurantInfo: restaurant,
-        cartId: null,
-      });
-
-      return next;
-    });
-  };
-
   const handleBackClick = () => navigate('/home-restaurant-discovery');
 
   // Map DB restaurant to your hero/info expectations
@@ -452,29 +311,6 @@ const RestaurantDetailMenu = () => {
     );
   };
 
-  // Handle "Remove" from header drawer while on this page (LOCAL cart only)
-  useEffect(() => {
-    const onRemove = (e) => {
-      const { itemId } = e?.detail || {};
-      if (!itemId) return;
-
-      setCartItems((prev) => {
-        const next = prev.filter((it) => (it.rowId || it.id) !== itemId);
-
-        broadcastHeaderCart({
-          items: next,
-          restaurantInfo: restaurant,
-          cartId: null,
-        });
-
-        return next;
-      });
-    };
-    window.addEventListener('cartItemRemove', onRemove);
-    return () => window.removeEventListener('cartItemRemove', onRemove);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restaurant]);
-
   // Open modal when navigating here from "Edit" in the header drawer
   useEffect(() => {
     const edit = location.state?.editItem;
@@ -499,6 +335,148 @@ const RestaurantDetailMenu = () => {
     setSelectedItem(mapped);
     setIsCustomizationModalOpen(true);
   }, [location.state?.editItem, menuRaw]);
+
+  useEffect(() => {
+    if (!activeTeam?.id || !restaurant?.id) return;
+    let cancelled = false;
+    (async () => {
+      // lookup only; do NOT create
+      const id = await cartDbService.findActiveCartForRestaurant(activeTeam.id, restaurant.id);
+      if (!id || cancelled) return;
+      setCartId(id);
+      const snap = await cartDbService.getCartSnapshot(id);
+      if (!snap || cancelled) return;
+      const count = snap.items.reduce((n, it) => n + Number(it.quantity || 0), 0);
+      const total = snap.items.reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0);
+      window.dispatchEvent(new CustomEvent('cartBadge', {
+        detail: {
+          count,
+          total,
+          name: snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart',
+          cartId: snap.cart.id,
+          restaurant: snap.restaurant,
+          items: snap.items,
+        },
+      }));
+    })();
+    return () => { cancelled = true; };
+  }, [activeTeam?.id, restaurant?.id]);
+
+  // Subscribe to realtime changes to keep drawer fresh (optional but nice)
+  useEffect(() => {
+    if (!cartId) return;
+    const unsubscribe = cartDbService.subscribeToCart(cartId, async () => {
+      const snap = await cartDbService.getCartSnapshot(cartId);
+      if (!snap) return;
+      const count = snap.items.reduce((n, it) => n + Number(it.quantity || 0), 0);
+      const total = snap.items.reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0);
+      window.dispatchEvent(new CustomEvent('cartBadge', {
+        detail: {
+          count,
+          total,
+          name: snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart',
+          cartId: snap.cart.id,
+          restaurant: snap.restaurant,
+          items: snap.items,
+        },
+      }));
+    });
+    return unsubscribe;
+  }, [cartId]);
+
+  // When user clicks an item, you already open the modal; no change
+
+  // Add / Edit flow — now DB-backed
+  const handleAddToCart = async (customizedItem, quantity) => {
+    let id = cartId;
+    if (!id) {
+      if (!activeTeam?.id || !restaurant?.id) return;
+      id = await cartDbService.ensureCartForRestaurant(
+        activeTeam.id,
+        restaurant.id,
+        { title: restaurant.name }
+      );
+      setCartId(id);
+    }
+
+    // Build assignment snapshot for header (“For: name(s)” incl. Extra)
+    const memberIds = (customizedItem.assignedTo || [])
+      .map(a => a?.id)
+      .filter(Boolean); // only real member UUIDs
+    const extraCount = (customizedItem.assignedTo || []).filter(a => a?.name === 'Extra').length;
+    const displayNames = (customizedItem.assignedTo || []).map(a => a?.name).filter(Boolean);
+
+    const selectedOptions = customizedItem.selectedOptions || {};
+    const unitPrice = typeof customizedItem.customizedPrice === 'number'
+      ? customizedItem.customizedPrice
+      : Number(customizedItem.price || 0);
+
+    // If this came from an Edit (DB row id present), update; else insert
+    if (customizedItem.cartRowId) {
+      const selWithAssign = {
+        ...selectedOptions,
+        __assignment__: { member_ids: memberIds, extra_count: extraCount, display_names: displayNames },
+      };
+      await cartDbService.updateItem(id, customizedItem.cartRowId, {
+        quantity,
+        price: unitPrice,
+        special_instructions: customizedItem.specialInstructions || '',
+        selected_options: selWithAssign,
+      });
+    } else {
+      await cartDbService.addItem(id, {
+        menuItem: { id: customizedItem.id, name: customizedItem.name, image: customizedItem.image },
+        quantity,
+        unitPrice,
+        specialInstructions: customizedItem.specialInstructions || '',
+        selectedOptions,
+        assignment: { memberIds, extraCount, displayNames },
+      });
+    }
+
+    // Refresh header drawer snapshot
+    const snap = await cartDbService.getCartSnapshot(id);
+    if (snap) {
+      const count = snap.items.reduce((n, it) => n + Number(it.quantity || 0), 0);
+      const total = snap.items.reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0);
+      window.dispatchEvent(new CustomEvent('cartBadge', {
+        detail: {
+          count,
+          total,
+          name: snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart',
+          cartId: id,
+          restaurant: snap.restaurant,
+          items: snap.items,
+        },
+      }));
+    }
+  };
+
+  // Drawer "Remove" -> delete from DB
+  useEffect(() => {
+    const onRemove = async (e) => {
+      const { cartId: evtCartId, itemId } = e?.detail || {};
+      if (!itemId || !evtCartId || evtCartId !== cartId) return;
+      await cartDbService.removeItem(cartId, itemId);
+      const snap = await cartDbService.getCartSnapshot(cartId);
+      if (snap) {
+        const count = snap.items.reduce((n, it) => n + Number(it.quantity || 0), 0);
+        const total = snap.items.reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0);
+        window.dispatchEvent(new CustomEvent('cartBadge', {
+          detail: {
+            count,
+            total,
+            name: snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart',
+            cartId: snap.cart.id,
+            restaurant: snap.restaurant,
+            items: snap.items,
+          },
+        }));
+      }
+    };
+    window.addEventListener('cartItemRemove', onRemove);
+    return () => window.removeEventListener('cartItemRemove', onRemove);
+  }, [cartId]);
 
   if (loading) {
     return (
