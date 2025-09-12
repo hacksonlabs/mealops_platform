@@ -54,7 +54,7 @@ async function getCartSnapshot(cartId) {
     .from('meal_carts')
     .select(`
       id, team_id, restaurant_id,
-      restaurants ( id, name, image_url ),
+      restaurants ( id, name, image_url, address, phone_number ),
       status
     `)
     .eq('id', cartId)
@@ -109,6 +109,8 @@ async function getCartSnapshot(cartId) {
           id: cart.restaurants.id,
           name: cart.restaurants.name,
           image: cart.restaurants.image_url,
+					address: cart.restaurants.address || null,
+          phone: cart.restaurants.phone_number || null,
         }
       : null,
     items: mapped,

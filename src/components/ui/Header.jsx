@@ -18,7 +18,7 @@ const Header = ({ notifications = 0, className = '' }) => {
 
   // cart badge + drawer
   const [cartBadge, setCartBadge] = useState({ count: 0, total: 0, name: 'Cart', cartId: null });
-  const [cartPanel, setCartPanel] = useState({ restaurant: null, items: [] });
+  const [cartPanel, setCartPanel] = useState({ restaurant: null, items: [], fulfillment: null });
   const [isCartOpen, setIsCartOpen] = useState(false);
 
   // Close the team menu when clicking outside of it
@@ -120,12 +120,13 @@ const Header = ({ notifications = 0, className = '' }) => {
   useEffect(() => {
     const onBadge = (e) => {
       if (!e?.detail) return;
-      const { restaurant, items, ...rest } = e.detail;
+      const { restaurant, items, fulfillment, ...rest } = e.detail;
       setCartBadge((prev) => ({ ...prev, ...rest }));
-      if (restaurant || items) {
+      if (restaurant || items || fulfillment) {
         setCartPanel((p) => ({
           restaurant: restaurant ?? p.restaurant,
           items: Array.isArray(items) ? items : p.items,
+          fulfillment: fulfillment ?? p.fulfillment,
         }));
       }
     };
@@ -494,7 +495,16 @@ const Header = ({ notifications = 0, className = '' }) => {
                   className="w-full"
                   onClick={() => {
                     setIsCartOpen(false);
-                    navigate(`/shopping-cart-checkout${cartBadge.cartId ? `?cartId=${cartBadge.cartId}` : ''}`);
+                    navigate(
+                      `/shopping-cart-checkout${cartBadge.cartId ? `?cartId=${cartBadge.cartId}` : ''}`,
+                      {
+                        state: {
+                          cartId: cartBadge.cartId || null,
+                          fulfillment: cartPanel.fulfillment || null,
+                          restaurant: cartPanel.restaurant || null,
+                        },
+                      }
+                    );
                   }}
                   disabled={cartBadge.count === 0}
                 >

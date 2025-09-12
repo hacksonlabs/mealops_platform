@@ -64,7 +64,7 @@ const RestaurantCard = ({ restaurant, selectedService = 'delivery', fulfillment 
         </div>
 
         <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
-          {restaurant?.cuisine} • {restaurant?.description}
+          {restaurant?.cuisine}
         </p>
 
         <div className="flex items-center justify-between text-sm">

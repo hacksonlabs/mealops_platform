@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import FulfillmentBar from '../../components/ui/FulfillmentBar';
 import Icon from '../../components/AppIcon';
@@ -25,6 +25,7 @@ const toTimeInput = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 const ShoppingCartCheckout = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const {
@@ -40,22 +41,26 @@ const ShoppingCartCheckout = () => {
 
   // ---- Fulfillment (replaces PrimaryTab) ----
   const now = useMemo(() => new Date(), []);
+  const inStateFulfillment = location.state?.fulfillment
   const [fulfillment, setFulfillment] = useState({
-    service: 'delivery',
-    address: '123 Main Street, Apt 4B, New York, NY 10001',
-    coords: null,
-    date: toDateInput(now),
-    time: toTimeInput(now),
+    service: inStateFulfillment?.service ?? 'delivery',
+    address: inStateFulfillment?.address ?? '123 Main Street, Apt 4B, New York, NY 10001',
+    coords: inStateFulfillment?.coords ?? null,
+    date: inStateFulfillment?.date ?? toDateInput(now),
+    time: inStateFulfillment?.time ?? toTimeInput(now),
   });
 
   // Restaurant data (placeholder if not coming from shared cart)
-  const [restaurant] = useState({
-    id: 1,
-    name: "Tony's Authentic Pizzeria",
-    image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&h=300&fit=crop',
-    rating: 4.8,
-    distance: '0.8 miles',
-  });
+  const [restaurant] = useState(
+    location.state?.restaurant || {
+      id: 1,
+      name: "Tony's Authentic Pizzeria",
+      image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&h=300&fit=crop',
+      rating: 4.8,
+      distance: '0.8 miles',
+      address: '', // will be filled by snapshot if available
+    }
+  );
 
   // Cart items - replaced by Supabase data when shared cart is loaded
   const [cartItems, setCartItems] = useState([]);
@@ -65,10 +70,9 @@ const ShoppingCartCheckout = () => {
   const [loading, setLoading] = useState(false);
 
   // ---- Order state (kept, but synchronized with Fulfillment) ----
-  const [serviceType, setServiceType] = useState('delivery');
-  const [deliveryAddress, setDeliveryAddress] = useState(
-    '123 Main Street, Apt 4B, New York, NY 10001'
-  );
+  const [serviceType, setServiceType] = useState(() => inStateFulfillment?.service ?? 'delivery');
+  const [deliveryAddress, setDeliveryAddress] = useState(() => inStateFulfillment?.address ?? '');
+
   const [pickupTime, setPickupTime] = useState('asap');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('card1');
   const [tipAmount, setTipAmount] = useState(0);
@@ -118,11 +122,20 @@ const ShoppingCartCheckout = () => {
     try {
       setLoading(true);
       const cartSnapshot = await cartDbService.getCartSnapshot(currentCartId);
-     if (!cartSnapshot) return;
-     setSharedCartData(cartSnapshot);
-     setIsSharedCart(true);
-     setCartItems(cartSnapshot.items);
-     broadcastHeader(cartSnapshot);
+      if (!cartSnapshot) return;
+      setSharedCartData(cartSnapshot);
+      setIsSharedCart(true);
+      // fallback normalize assignees from __assignment__ if needed:
+      const items = (cartSnapshot.items || []).map((it) => {
+        if (Array.isArray(it?.assignedTo) && it.assignedTo.length) return it;
+        const a = it?.selectedOptions?.__assignment__ || it?.selected_options?.__assignment__;
+        if (a?.display_names?.length) {
+          return { ...it, assignedTo: a.display_names.map((n) => ({ name: n })) };
+        }
+        return it;
+      });
+      setCartItems(items);
+      broadcastHeader(cartSnapshot);
     } finally {
       setLoading(false);
     }
@@ -258,12 +271,13 @@ const ShoppingCartCheckout = () => {
     }
   }, [urlCartId, activeCartId, setActiveCartId]);
 
+  const pickupAddress = sharedCartData?.restaurant?.address || location.state?.restaurant?.address || restaurant?.address || '';
+  
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
         <Header />
         <main className="pt-16">
-          <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
           <div className="max-w-4xl mx-auto px-4 lg:px-6 py-10">
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin h-8 w-8 border-2 border-primary-500 border-t-transparent rounded-full mr-3" />
@@ -279,9 +293,6 @@ const ShoppingCartCheckout = () => {
     <div className="min-h-screen bg-background">
       <Header />
       <main className="pt-16 pb-32 md:pb-8">
-        {/* Fulfillment (replaces PrimaryTabNavigation) */}
-        <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
-
         <div className="max-w-4xl mx-auto px-4 lg:px-6">
           {/* Back Navigation */}
           <div className="mt-4 mb-6">
@@ -348,6 +359,7 @@ const ShoppingCartCheckout = () => {
                   }}
                   pickupTime={pickupTime}
                   onPickupTimeChange={setPickupTime}
+                  pickupAddress={pickupAddress}
                 />
 
                 {/* Payment */}

@@ -43,12 +43,14 @@ const RestaurantGrid = ({
       name: r.name,
       image: r.image_url || undefined,
       cuisine: r.cuisine_type || '',
-      description: r.address || '',
+      description: undefined,
+      address: r.address || '',
       rating: r.rating != null ? Number(r.rating) : undefined,
       reviewCount: undefined,
       deliveryTime: undefined,
       distance: undefined,            // will set later
       _distanceMeters: null,          // internal
+      phone_number: r.phone_number || '',
       deliveryFee: r.delivery_fee != null ? String(r.delivery_fee) : undefined,
       status: r.is_available ? 'open' : 'closed',
       promotion: null,
@@ -58,7 +60,7 @@ const RestaurantGrid = ({
       _avgPrice: avgPrice,
       _items: items,
       _address: r.address || '',
-      _coords: null,                  // will fill via geocode
+      _coords: null,
     };
   };
 

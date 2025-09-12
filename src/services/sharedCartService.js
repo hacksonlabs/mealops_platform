@@ -31,7 +31,7 @@ class SharedCartService {
     try {
       const { data, error } = await supabase?.from('meal_orders')?.select(`
           *,
-          restaurants(id, name, image_url, rating, cuisine_type, delivery_fee),
+          restaurants(id, name, image_url, rating, cuisine_type, delivery_fee, address, phone_number),
           order_items(
             id,
             item_name,

@@ -290,8 +290,8 @@ const RestaurantDetailMenu = () => {
       priceRange: undefined,
       isOpen: restaurant.is_available ?? true,
       phone: restaurant.phone_number || '',
-      address: restaurant.address || '',
-      coordinates: restaurant.coords || undefined,
+      address: restaurant.address || restaurant._address || '',
+      coordinates: restaurant._coords || undefined,
       deliveryRadius: undefined,
       offers: [],
       features: [restaurant.supports_catering ? 'Catering' : null].filter(Boolean),
@@ -356,6 +356,7 @@ const RestaurantDetailMenu = () => {
           cartId: snap.cart.id,
           restaurant: snap.restaurant,
           items: snap.items,
+          fulfillment,
         },
       }));
     })();
