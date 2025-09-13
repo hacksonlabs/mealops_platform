@@ -73,7 +73,9 @@ CREATE TABLE public.restaurants (
     minimum_order DECIMAL(8,2),
     is_available BOOLEAN DEFAULT TRUE, -- Current availability from API
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP 
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    supported_providers text[] DEFAULT ARRAY['grubhub'],
+    provider_restaurant_ids jsonb DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE public.menu_items (
@@ -98,7 +100,14 @@ CREATE TABLE public.payment_methods (
     last_four TEXT NOT NULL,
     is_default BOOLEAN DEFAULT false,
     created_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    provider TEXT DEFAULT 'stripe',                 -- 'stripe' | 'braintree' | ...
+    provider_customer_id TEXT,                      -- e.g. Stripe customer id (cus_***)
+    provider_payment_method_id TEXT,                -- e.g. Stripe pm_***
+    brand TEXT,                                     -- 'visa', 'mastercard', ...
+    exp_month INT,
+    exp_year INT,
+    billing_zip TEXT
 );
 
 -- the parent row for an order. One row per order placed (or drafted) with a vendor. (money stored in *_cents while legacy decimals remain)
@@ -389,7 +398,9 @@ CREATE TABLE IF NOT EXISTS public.meal_carts (
   created_by_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz NOT NULL DEFAULT now(),
-  share_token          text UNIQUE
+  share_token          text UNIQUE,
+  provider_type TEXT,
+  provider_restaurant_id TEXT
 );
 
 -- Cart membership (who can add to the cart)

@@ -61,6 +61,8 @@ const RestaurantGrid = ({
       _items: items,
       _address: r.address || '',
       _coords: null,
+      supported_providers: Array.isArray(r.supported_providers) ? r.supported_providers : ['grubhub'],
+      provider_restaurant_ids: r.provider_restaurant_ids || {},
     };
   };
 
@@ -77,7 +79,7 @@ const RestaurantGrid = ({
           .select(`
             id, name, cuisine_type, rating, image_url, address,
             delivery_fee, minimum_order, is_available, is_favorite,
-            supports_catering,
+            supports_catering, supported_providers, provider_restaurant_ids,
             menu_items ( id, name, description, price, category, image_url, is_available )
           `)
           .order('name', { ascending: true })

@@ -13,6 +13,10 @@ import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import cartDbService from '../../services/cartDBService';
 import { useAuth } from '../../contexts';
+import { useProvider } from '../../contexts/ProviderContext';
+import { useSharedCart } from '../../contexts/SharedCartContext';
+import ProviderToggle from './components/ProviderToggle';
+import { fetchMenu, pickDefaultProvider } from '../../services/menuProviderService';
 
 // helpers
 const pad = (n) => String(n).padStart(2, '0');
@@ -28,6 +32,12 @@ const RestaurantDetailMenu = () => {
   const { restaurantId } = useParams(); // support /restaurant/:restaurantId
   const location = useLocation();
   const { activeTeam } = useAuth();
+  const { provider, setProvider } = useProvider();
+  const [providerFlatMenu, setProviderFlatMenu] = useState([]);
+  const [localProvider, setLocalProvider] = useState(provider); // page-local until user adds to cart
+  const { setActiveCartId } = useSharedCart();
+  const [loadingMenu, setLoadingMenu] = useState(false);
+  const [providerError, setProviderError] = useState('');
 
   const [fulfillment, setFulfillment] = useState(() => {
     const fromState = location.state?.fulfillment;
@@ -82,6 +92,39 @@ const RestaurantDetailMenu = () => {
       menuItemId: editedMenuItemId,
     };
   }, [selectedItem, editState, location.state?.cartId]);
+
+  useEffect(() => {
+    if (!restaurant) return;
+    const providers = restaurant.supported_providers?.length
+      ? restaurant.supported_providers
+      : ['grubhub'];
+    // default provider for this restaurant (grubhub > ue > dd)
+    const def = pickDefaultProvider(providers);
+    setLocalProvider(prev => prev || def);
+  }, [restaurant]);
+
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingMenu(true);
+      setProviderError('');
+      try {
+        if (!restaurant || !localProvider) return;
+        const items = await fetchMenu({
+          provider: localProvider,
+          restaurant,
+        });
+        if (!cancelled) setProviderFlatMenu(items);
+      } catch (e) {
+        if (!cancelled) setProviderError('Failed to load menu for this provider.');
+      } finally {
+        if (!cancelled) setLoadingMenu(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [localProvider, restaurant]);
+
 
   // Pull fulfillment from URL if present
   useEffect(() => {
@@ -176,8 +219,8 @@ const RestaurantDetailMenu = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId]);
 
-  // Transform flat menu into grouped shape your UI expects
-  const { menuItems, menuCategories } = useMemo(() => {
+  // Transform the **DB menu** (menuRaw) – kept for edit flow compatibility
+  const { dbMenuItemsByCat, dbMenuCategories } = useMemo(() => {
     const groups = new Map(); // id -> { id, name, items: [] }
     for (const row of menuRaw) {
       const name = row.category || 'Menu';
@@ -215,24 +258,59 @@ const RestaurantDetailMenu = () => {
       itemsByCat[g.id] = groups.get(g.id).items;
     }
 
-    return { menuItems: itemsByCat, menuCategories: cats };
+    return { dbMenuItemsByCat: itemsByCat, dbMenuCategories: cats };
   }, [menuRaw]);
 
-  // set initial active category after categories are ready
-  useEffect(() => {
-    if (!activeCategory && menuCategories?.length) {
-      setActiveCategory(menuCategories[0].id);
+  // Transform the **provider menu** (flat -> grouped like DB)
+  const { providerItemsByCat, providerCategories } = useMemo(() => {
+    // Expect each provider item to have at least: { id, name, price, category, image, description }
+    const groups = new Map();
+    for (const it of providerFlatMenu || []) {
+      const name = it.category || 'Menu';
+      const id = slugifyId(name);
+      if (!groups.has(id)) groups.set(id, { id, name, items: [] });
+      groups.get(id).items.push({
+        id: it.id,
+        name: it.name,
+        description: it.description || '',
+        price: Number(it.price ?? 0),
+        image: it.image || it.image_url || '',
+        isPopular: !!it.isPopular,
+        calories: it.calories ?? undefined,
+        dietaryInfo: it.dietaryInfo ?? undefined,
+        hasCustomizations: !!(it.options || it.options_json || it.sizes || it.toppings),
+        options: it.options || it.options_json || null,
+        sizes: it.sizes || [],
+        toppings: it.toppings || [],
+        category: it.category || 'Menu',
+      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menuCategories]);
+    const cats = Array.from(groups.values()).map((g) => ({
+      id: g.id,
+      name: g.name,
+      itemCount: g.items.length,
+      description: '',
+    }));
+    cats.sort((a, b) => a.name.localeCompare(b.name));
+    const itemsByCat = {};
+    for (const g of cats) itemsByCat[g.id] = groups.get(g.id).items;
+    return { providerItemsByCat: itemsByCat, providerCategories: cats };
+  }, [providerFlatMenu]);
+
+  // Set initial active category based on provider categories
+  useEffect(() => {
+    if (!activeCategory && providerCategories?.length) {
+      setActiveCategory(providerCategories[0].id);
+    }
+  }, [providerCategories, activeCategory]);
 
   // Filter menu items based on search query
   const filteredMenuItems = useMemo(() => {
-    if (!searchQuery) return menuItems;
+    if (!searchQuery) return providerItemsByCat;
     const q = searchQuery.toLowerCase();
     const filtered = {};
-    Object.keys(menuItems || {}).forEach((cid) => {
-      const items = (menuItems[cid] || []).filter(
+    Object.keys(providerItemsByCat || {}).forEach((cid) => {
+      const items = (providerItemsByCat[cid] || []).filter(
         (item) =>
           item?.name?.toLowerCase()?.includes(q) ||
           item?.description?.toLowerCase()?.includes(q)
@@ -240,7 +318,7 @@ const RestaurantDetailMenu = () => {
       if (items.length) filtered[cid] = items;
     });
     return filtered;
-  }, [menuItems, searchQuery]);
+  }, [providerItemsByCat, searchQuery]);
 
   // Scroll spy for category nav (if you add it back in)
   useEffect(() => {
@@ -341,7 +419,7 @@ const RestaurantDetailMenu = () => {
     let cancelled = false;
     (async () => {
       // lookup only; do NOT create
-      const id = await cartDbService.findActiveCartForRestaurant(activeTeam.id, restaurant.id);
+      const id = await cartDbService.findActiveCartForRestaurant(activeTeam.id, restaurant.id, provider);
       if (!id || cancelled) return;
       setCartId(id);
       const snap = await cartDbService.getCartSnapshot(id);
@@ -361,7 +439,7 @@ const RestaurantDetailMenu = () => {
       }));
     })();
     return () => { cancelled = true; };
-  }, [activeTeam?.id, restaurant?.id]);
+  }, [activeTeam?.id, restaurant?.id, provider]);
 
   // Subscribe to realtime changes to keep drawer fresh (optional but nice)
   useEffect(() => {
@@ -395,9 +473,10 @@ const RestaurantDetailMenu = () => {
       id = await cartDbService.ensureCartForRestaurant(
         activeTeam.id,
         restaurant.id,
-        { title: restaurant.name }
+        { title: `${restaurant.name} • ${localProvider}`, providerType: localProvider, providerRestaurantId: restaurant?.provider_restaurant_ids?.[localProvider] || null, }
       );
       setCartId(id);
+      setProvider(localProvider);
     }
 
     // Build assignment snapshot for header (“For: name(s)” incl. Extra)
@@ -561,6 +640,16 @@ const RestaurantDetailMenu = () => {
                 </div>
               }
             />
+            <ProviderToggle
+              providers={restaurant?.supported_providers || ['grubhub']}
+              selected={localProvider}
+              onChange={setLocalProvider}
+            />
+
+            {providerError && <p className="text-sm text-destructive mt-2">{providerError}</p>}
+            {loadingMenu && (
+              <div className="animate-pulse text-sm text-muted-foreground px-4">Loading menu…</div>
+            )}
 
             {/* Menu Content */}
             <div className="px-4 md:px-6 pb-32">
@@ -577,7 +666,7 @@ const RestaurantDetailMenu = () => {
                 </div>
               ) : (
                 Object.keys(filteredMenuItems).map((categoryId) => {
-                  const category = menuCategories.find((c) => c.id === categoryId);
+                  const category = providerCategories.find((c) => c.id === categoryId);
                   const items = filteredMenuItems[categoryId];
                   return (
                     <MenuSection

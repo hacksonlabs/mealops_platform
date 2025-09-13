@@ -14,7 +14,7 @@ import { supabase } from '../lib/supabase';
  * }
  */
 
-async function findActiveCartForRestaurant(teamId, restaurantId) {
+async function findActiveCartForRestaurant(teamId, restaurantId, providerType = null) {
   const { data, error } = await supabase
     .from('meal_carts')
     .select('id')
@@ -23,13 +23,15 @@ async function findActiveCartForRestaurant(teamId, restaurantId) {
     .eq('status', 'draft')
     .order('created_at', { ascending: false })
     .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return data?.id ?? null;
+    .maybeSingle()
+		.eq('provider_type', providerType);
+		if (error) throw error;
+		if (!data) return null;
+		return data?.id ?? null;
 }
 
-async function ensureCartForRestaurant(teamId, restaurantId, { title = null } = {}) {
-  const existingId = await findActiveCartForRestaurant(teamId, restaurantId);
+async function ensureCartForRestaurant(teamId, restaurantId, { title = null, providerType = null, providerRestaurantId = null } = {}) {
+  const existingId = await findActiveCartForRestaurant(teamId, restaurantId, providerType);
   if (existingId) return existingId;
 
   const { data: created, error: insErr } = await supabase
@@ -38,7 +40,9 @@ async function ensureCartForRestaurant(teamId, restaurantId, { title = null } = 
       team_id: teamId,
       restaurant_id: restaurantId,
       title: title || 'Team Cart',
-      status: 'draft'
+      status: 'draft',
+			provider_type: providerType,
+      provider_restaurant_id: providerRestaurantId,
       // created_by_member_id is auto-validated by trigger; can be NULL
     })
     .select('id')
@@ -53,8 +57,8 @@ async function getCartSnapshot(cartId) {
   const { data: cart, error: cartErr } = await supabase
     .from('meal_carts')
     .select(`
-      id, team_id, restaurant_id,
-      restaurants ( id, name, image_url, address, phone_number ),
+      id, team_id, restaurant_id, provider_type, provider_restaurant_id,
+      restaurants ( id, name, image_url, address, phone_number, rating ),
       status
     `)
     .eq('id', cartId)
@@ -111,6 +115,9 @@ async function getCartSnapshot(cartId) {
           image: cart.restaurants.image_url,
 					address: cart.restaurants.address || null,
           phone: cart.restaurants.phone_number || null,
+					rating: cart.restaurants.rating ?? null,
+					providerType: cart.provider_type,
+          providerRestaurantId: cart.provider_restaurant_id,
         }
       : null,
     items: mapped,

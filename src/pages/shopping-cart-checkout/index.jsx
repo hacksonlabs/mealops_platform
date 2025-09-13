@@ -17,6 +17,9 @@ import { useSharedCart } from '../../contexts/SharedCartContext';
 import { useAuth } from '../../contexts/AuthContext';
 import sharedCartService from '../../services/sharedCartService';
 import cartDbService from '../../services/cartDBService';
+import { paymentService } from '../../services/paymentService';
+import providerService from '../../services/providerService';
+import { PROVIDER_CONFIG } from '../../services/paymentService';
 
 // Small helpers for default date/time
 const pad = (n) => String(n).padStart(2, '0');
@@ -74,10 +77,25 @@ const ShoppingCartCheckout = () => {
   const [deliveryAddress, setDeliveryAddress] = useState(() => inStateFulfillment?.address ?? '');
 
   const [pickupTime, setPickupTime] = useState('asap');
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('card1');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
   const [tipAmount, setTipAmount] = useState(0);
   const [promoDiscount, setPromoDiscount] = useState(0);
   const [estimatedTime, setEstimatedTime] = useState('30-40 min');
+
+  const [savedPaymentMethods, setSavedPaymentMethods] = useState([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+
+  const pad2 = (n) => String(n).padStart(2, '0');
+
+  const mapMethods = (rows = []) => rows.map((m) => ({
+    id: m.id,
+    type: 'card',
+    brand: m.brand,
+    last4: m.last_four,
+    expiry: m.exp_month && m.exp_year ? `${String(m.exp_month).padStart(2,'0')}/${String(m.exp_year).slice(-2)}` : '',
+    isDefault: !!m.is_default,
+    cardName: m.card_name,
+  }));
 
   // Keep order state in sync when user changes the FulfillmentBar
   const handleFulfillmentChange = (next) => {
@@ -271,8 +289,67 @@ const ShoppingCartCheckout = () => {
     }
   }, [urlCartId, activeCartId, setActiveCartId]);
 
+
+  // fetch payments
+  useEffect(() => {
+    const teamId = sharedCartData?.cart?.teamId || null;
+    if (!user?.id) return;
+
+    (async () => {
+      setLoadingPayments(true);
+      try {
+        // if you want team-scoped methods, prefer getTeamPaymentMethods(teamId)
+        const { data, error } = teamId
+          ? await paymentService.getTeamPaymentMethods(teamId)
+          : await paymentService.getPaymentMethods();
+
+        if (error) return; // you can toast error.message if you want
+        const methods = mapMethods(data);
+        setSavedPaymentMethods(methods);
+        setSelectedPaymentMethod((prev) =>
+          prev ||
+          methods.find((m) => m.isDefault)?.id ||
+          methods[0]?.id ||
+          ''
+        );
+      } finally {
+        setLoadingPayments(false);
+      }
+    })();
+  }, [user?.id, sharedCartData?.cart?.teamId]);
+
+  const detectBrand = (digits) => {
+    if (/^4/.test(digits)) return 'visa';
+    if (/^(5[1-5])/.test(digits)) return 'mastercard';
+    if (/^(34|37)/.test(digits)) return 'amex';
+    if (/^6/.test(digits)) return 'discover';
+    return 'card';
+  };
+
+  const handleAddCard = async (form) => {
+    const digits = (form.number || '').replace(/\s+/g, '');
+    const last4 = digits.slice(-4);
+    const payload = {
+      team_id: sharedCartData?.cart?.teamId || null,
+      card_name: form.name?.trim() || 'Card',
+      last_four: last4,
+      is_default: savedPaymentMethods.length === 0, // first card -> default
+    };
+
+    const { data, error } = await paymentService.createPaymentMethod(payload);
+    if (error) throw new Error(error.message || 'Failed to save card');
+
+    // add a UI-only brand for icon (not saved to DB)
+    const created = { ...mapMethods([data])[0], brand: detectBrand(digits) };
+    setSavedPaymentMethods((prev) => [created, ...prev]);
+    return created; // so PaymentSection can auto-select it
+  };
+
+
+  const provider = sharedCartData?.cart?.providerType || 'grubhub'; // default you prefer
+  const paymentMode = PROVIDER_CONFIG[provider]?.paymentMode || 'external_redirect';
   const pickupAddress = sharedCartData?.restaurant?.address || location.state?.restaurant?.address || restaurant?.address || '';
-  
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
@@ -363,10 +440,37 @@ const ShoppingCartCheckout = () => {
                 />
 
                 {/* Payment */}
-                <PaymentSection
-                  selectedPaymentMethod={selectedPaymentMethod}
-                  onPaymentMethodChange={setSelectedPaymentMethod}
-                />
+                {paymentMode === 'self_hosted' ? (
+                  <PaymentSection
+                    selectedPaymentMethod={selectedPaymentMethod}
+                    onPaymentMethodChange={setSelectedPaymentMethod}
+                    savedPaymentMethods={savedPaymentMethods}
+                    loadingPayments={loadingPayments}
+                    onAddCard={handleAddCard} // can be a noop for now
+                  />
+                ) : (
+                  <div className="bg-card border border-border rounded-lg p-4 lg:p-6">
+                    <h2 className="text-lg font-semibold">Payment</h2>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Payment is handled securely by {provider === 'mealme' ? 'MealMe' : provider}.
+                    </p>
+                    <Button
+                      className="mt-4"
+                      onClick={async () => {
+                        // 1) Price/lock the order via provider API
+                        // 2) Get checkout/deeplink URL
+                        const url = await providerService.startCheckout({
+                          provider,
+                          cartId: currentCartId,
+                          providerRestaurantId: sharedCartData?.cart?.providerRestaurantId,
+                        });
+                        window.location.href = url; // send user to hosted checkout
+                      }}
+                    >
+                      Continue to {provider === 'mealme' ? 'MealMe' : 'Checkout'}
+                    </Button>
+                  </div>
+                )}
 
                 {/* Tip */}
                 <TipSelection
