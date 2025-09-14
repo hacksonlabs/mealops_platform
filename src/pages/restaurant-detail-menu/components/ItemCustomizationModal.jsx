@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState, useRef } from 'react';
 import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
 import Button from '../../../components/ui/Button';
-import { Checkbox } from '../../../components/ui/Checkbox';
 import Select from '../../../components/ui/Select';
 import { useAuth } from '../../../contexts';
 import { supabase } from '../../../lib/supabase';
@@ -12,57 +11,96 @@ const EXTRA_SENTINEL = '__EXTRA__'; // guaranteed not to collide with UUIDs
 const slug = (s='') =>
   String(s).toLowerCase().replace(/[^\w]+/g,'-').replace(/(^-|-$)/g,'');
 
-function normalizeOptions(raw) {
-  if (!raw) return [];
+// Basic heuristics so common groups “just work”
+function inferGroupMetaFromName(name) {
+  const n = (name || '').toLowerCase();
+  if (n === 'size' || n === 'sizes') {
+    return { type: 'single', required: true, min: 1, max: 1, pricingMode: 'absolute' };
+  }
+  if (n === 'topping' || n === 'toppings') {
+    return { type: 'multi', required: false, min: 0, max: Infinity, pricingMode: 'additive' };
+  }
+  if (/(bun|bread|tortilla|base|protein|rice|sauce|dressing)/i.test(n)) {
+    return { type: 'single', required: false, min: 0, max: 1, pricingMode: 'additive' };
+  }
+  return { type: 'multi', required: false, min: 0, max: Infinity, pricingMode: 'additive' };
+}
+
+// Build ONE groups array from item.options + item.sizes + item.toppings
+function normalizeOptionGroups(item) {
+  const groups = [];
+  const pushGroup = (id, name, meta, list=[]) => {
+    const m = meta || inferGroupMetaFromName(name);
+    groups.push({
+      id: id || slug(name),
+      name,
+      type: m.type,
+      required: !!m.required,
+      min: m.min ?? (m.required ? 1 : 0),
+      max: m.max ?? (m.type === 'single' ? 1 : Infinity),
+      pricingMode: m.pricingMode || 'additive', // 'absolute' overrides base price, 'additive' adds to it
+      options: (list || []).map((o, i) => ({
+        id: o.id || slug(o.name || `opt-${i}`),
+        name: o.name || `Option ${i+1}`,
+        description: o.description || '',
+        price: Number(o.price || 0),
+      })),
+    });
+  };
+
+  // 1) sizes array -> Size group (absolute price, single, required)
+  if (Array.isArray(item?.sizes) && item.sizes.length) {
+    pushGroup('size', 'Size',
+      { type: 'single', required: true, min: 1, max: 1, pricingMode: 'absolute' },
+      item.sizes
+    );
+  }
+
+  // 2) toppings array -> Toppings group (additive multi)
+  if (Array.isArray(item?.toppings) && item.toppings.length) {
+    pushGroup('toppings', 'Toppings',
+      { type: 'multi', required: false, min: 0, max: Infinity, pricingMode: 'additive' },
+      item.toppings
+    );
+  }
+
+  // 3) options_json (many shapes)
+  const raw = item?.options;
   if (Array.isArray(raw)) {
+    // Either: [{name, options:[...]}] OR a flat list of options
     if (raw[0]?.options) {
-      return raw.map((g, i) => ({
-        id: g.id || slug(g.name || `group-${i}`),
-        name: g.name || `Options ${i+1}`,
-        type: g.type || (g.max && g.max > 1 ? 'multi' : 'single'),
-        required: !!g.required,
-        min: g.min ?? (g.required ? 1 : 0),
-        max: g.max ?? (g.type === 'single' ? 1 : Infinity),
-        options: (g.options || []).map((o, j) => ({
-          id: o.id || slug(o.name || `opt-${j}`),
-          name: o.name || `Option ${j+1}`,
-          description: o.description || '',
-          price: Number(o.price || 0),
-        })),
-      }));
+      raw.forEach((g, i) => {
+        const meta = g.type
+          ? { type: g.type, required: !!g.required, min: g.min, max: g.max, pricingMode: g.pricingMode }
+          : inferGroupMetaFromName(g.name);
+        pushGroup(g.id || slug(g.name || `group-${i}`), g.name || `Options ${i+1}`, meta, g.options);
+      });
+    } else {
+      // Flat list -> one multi group
+      pushGroup('options', 'Options',
+        { type: 'multi', required: false, min: 0, max: Infinity, pricingMode: 'additive' },
+        raw
+      );
     }
-    return [{
-      id: 'options',
-      name: 'Options',
-      type: 'multi',
-      required: false,
-      min: 0,
-      max: Infinity,
-      options: raw.map((o, i) => ({
-        id: o.id || slug(o.name || `opt-${i}`),
-        name: o.name || `Option ${i+1}`,
-        description: o.description || '',
-        price: Number(o.price || 0),
-      })),
-    }];
+  } else if (raw && typeof raw === 'object') {
+    // { groupName: [ {name, price?} ] }
+    Object.entries(raw).forEach(([groupName, arr], gi) => {
+      if (!Array.isArray(arr)) return;
+      // Avoid duplicating if sizes/toppings already added above
+      if (/^sizes?$/.test(groupName) && item?.sizes?.length) return;
+      if (/^toppings?$/.test(groupName) && item?.toppings?.length) return;
+      const meta = inferGroupMetaFromName(groupName);
+      pushGroup(slug(groupName || `group-${gi}`), groupName || `Options ${gi+1}`, meta, arr);
+    });
   }
-  if (typeof raw === 'object') {
-    return Object.entries(raw).map(([groupName, arr], gi) => ({
-      id: slug(groupName || `group-${gi}`),
-      name: groupName || `Options ${gi+1}`,
-      type: 'multi',
-      required: false,
-      min: 0,
-      max: Infinity,
-      options: (arr || []).map((o, i) => ({
-        id: o.id || slug(o.name || `opt-${i}`),
-        name: o.name || `Option ${i+1}`,
-        description: o.description || '',
-        price: Number(o.price || 0),
-      })),
-    }));
-  }
-  return [];
+
+  // Ensure Size (if present) renders first
+  groups.sort((a, b) => {
+    const aAbs = a.pricingMode === 'absolute' ? 1 : 0;
+    const bAbs = b.pricingMode === 'absolute' ? 1 : 0;
+    return bAbs - aAbs;
+  });
+  return groups;
 }
 
 function findOptionIdByAny(group, val) {
@@ -83,7 +121,6 @@ function extractMemberIdsFromPreset(assignedTo, members) {
   if (!assignedTo || !Array.isArray(assignedTo)) return [];
   const ids = [];
   assignedTo.forEach(a => {
-    // handle plain "Extra"
     if (typeof a === 'string') {
       const s = a.trim().toLowerCase();
       if (s === 'extra') {
@@ -94,7 +131,6 @@ function extractMemberIdsFromPreset(assignedTo, members) {
       if (m) ids.push(m.id);
       return;
     }
-    // handle object { id? name? full_name? }
     if (a && typeof a === 'object') {
       const nm = (a.name || a.full_name || '').trim().toLowerCase();
       if (nm === 'extra') {
@@ -116,22 +152,19 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
   const { activeTeam } = useAuth();
   const isEditing = !!preset?.cartRowId;
 
-  // Assignment (multi)
+  // Assignment
   const [membersLoading, setMembersLoading] = useState(false);
   const [members, setMembers] = useState([]); // [{id, full_name, email, role, phone_number}]
   const [assigneeIds, setAssigneeIds] = useState([]);
-
   const [assigneesLocked, setAssigneesLocked] = useState(false);
+  const [memberQuery, setMemberQuery] = useState('');
 
-  // Quantity & options
+  // Quantity & generic selections
   const [quantity, setQuantity] = useState(1);
-  const [selectedSize, setSelectedSize] = useState(null);
-  const [selectedToppings, setSelectedToppings] = useState([]);
-  const groups = useMemo(() => normalizeOptions(item?.options), [item?.options]);
+  const groups = useMemo(() => normalizeOptionGroups(item || {}), [item]);
   const [selections, setSelections] = useState({});
   const [specialInstructions, setSpecialInstructions] = useState('');
 
-  // hydrate-once guard per modal open
   const hydratedRef = useRef(false);
 
   // Close on Escape
@@ -152,20 +185,35 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
     if (!isOpen) return;
     hydratedRef.current = false;
     setQuantity(1);
-    setSelectedSize(item?.sizes?.[0] || null);
-    setSelectedToppings([]);
     setSelections({});
     setSpecialInstructions('');
     setAssigneeIds([]);
     setAssigneesLocked(false);
+    setMemberQuery('');
   }, [isOpen, item]);
+
+  // Default-select required SINGLE groups (e.g., Size) on open
+  useEffect(() => {
+    if (!isOpen) return;
+    setSelections(prev => {
+      const next = { ...prev };
+      groups.forEach(g => {
+        const chosen = next[g.id] || [];
+        if (g.required && g.type === 'single' && chosen.length === 0) {
+          const first = g.options?.[0]?.id;
+          if (first) next[g.id] = [first];
+        }
+      });
+      return next;
+    });
+  }, [isOpen, groups]);
 
   // Trim assignees when quantity decreases
   useEffect(() => {
     setAssigneeIds((prev) => prev.slice(0, quantity));
   }, [quantity]);
 
-  // Load team members (no is_active filter)
+  // Load team members
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -193,38 +241,119 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
     return () => { cancel = true; };
   }, [isOpen, activeTeam?.id]);
 
-  // Base prices
-  const basePrice = useMemo(() => {
-    if (selectedSize) return Number(selectedSize?.price || 0);
-    return Number(item?.price || 0);
-  }, [item?.price, selectedSize]);
-
-  const toppingsPrice = useMemo(
-    () => (selectedToppings || []).reduce((s, t) => s + Number(t?.price || 0), 0),
-    [selectedToppings]
-  );
-
-  const optionsPrice = useMemo(() => {
-    let sum = 0;
+  // Price: base = item.price; absolute groups override base; others add up
+  const unitPrice = useMemo(() => {
+    let base = Number(item?.price || 0);
+    let add = 0;
     for (const g of groups) {
       const chosen = selections[g.id] || [];
-      for (const id of chosen) {
+      if (g.pricingMode === 'absolute') {
+        const id = chosen[0];
         const opt = g.options.find(o => o.id === id);
-        if (opt) sum += Number(opt.price || 0);
+        if (opt) base = Number(opt.price || base);
+      } else {
+        for (const id of chosen) {
+          const opt = g.options.find(o => o.id === id);
+          if (opt) add += Number(opt.price || 0);
+        }
       }
     }
-    return sum;
-  }, [groups, selections]);
+    return base + add;
+  }, [item?.price, groups, selections]);
 
-  const unitPrice = basePrice + toppingsPrice + optionsPrice;
   const total = unitPrice * quantity;
 
-  const toggleTopping = (topping) => {
-    setSelectedToppings(prev => {
-      const exists = prev.some(t => t?.id === topping?.id);
-      return exists ? prev.filter(t => t?.id !== topping?.id) : [...prev, topping];
-    });
-  };
+  // Required check purely from groups now
+  const missingRequired = useMemo(() => {
+    return groups.some(g => g.required && ((selections[g.id]?.length || 0) < (g.min ?? 1)));
+  }, [groups, selections]);
+
+  // ---- HYDRATE FROM PRESET (once per open) ----
+  useEffect(() => {
+    if (!isOpen || hydratedRef.current) return;
+    if (!preset) return;
+    hydratedRef.current = true;
+
+    if (typeof preset.quantity === 'number') setQuantity(Math.max(1, preset.quantity));
+    if (typeof preset.specialInstructions === 'string') setSpecialInstructions(preset.specialInstructions);
+
+    const nextSel = {};
+
+    // 1) Generic selectedOptions (object{groupKey -> val/val[]}, or array)
+    if (preset.selectedOptions) {
+      if (!Array.isArray(preset.selectedOptions) && typeof preset.selectedOptions === 'object') {
+        for (const [key, valsMaybe] of Object.entries(preset.selectedOptions)) {
+          const g =
+            groups.find(gg => gg.id === key) ||
+            groups.find(gg => gg.name?.toLowerCase() === key.toLowerCase()) ||
+            groups.find(gg => slug(gg.name) === key);
+          if (!g) continue;
+          const vals = Array.isArray(valsMaybe) ? valsMaybe : [valsMaybe];
+          const ids = [];
+          vals.forEach(v => {
+            const id = findOptionIdByAny(g, v);
+            if (id) ids.push(id);
+          });
+          if (ids.length) nextSel[g.id] = ids;
+        }
+      } else if (Array.isArray(preset.selectedOptions)) {
+        for (const g of groups) {
+          const ids = [];
+          preset.selectedOptions.forEach(v => {
+            const id = findOptionIdByAny(g, v);
+            if (id) ids.push(id);
+          });
+          if (ids.length) nextSel[g.id] = ids;
+        }
+      }
+    }
+
+    // 2) Legacy fields: selectedSize / selectedToppings -> map into groups
+    const sizeGroup =
+      groups.find(gg => gg.id === 'size') ||
+      groups.find(gg => gg.pricingMode === 'absolute') ||
+      groups.find(gg => /size/i.test(gg.name || ''));
+
+    if (sizeGroup && preset.selectedSize) {
+      const id = findOptionIdByAny(sizeGroup, preset.selectedSize);
+      if (id) nextSel[sizeGroup.id] = [id];
+    }
+
+    const toppingsGroup = groups.find(gg => gg.id === 'toppings') || groups.find(gg => /topping/i.test(gg.name || ''));
+    if (toppingsGroup && Array.isArray(preset.selectedToppings)) {
+      const ids = [];
+      preset.selectedToppings.forEach(v => {
+        const id = findOptionIdByAny(toppingsGroup, v);
+        if (id) ids.push(id);
+      });
+      if (ids.length) nextSel[toppingsGroup.id] = ids;
+    }
+
+    setSelections(prev => ({ ...prev, ...nextSel }));
+
+    // 3) Assignees (same as before)
+    if (preset.assignedTo && Array.isArray(preset.assignedTo)) {
+      const ids = extractMemberIdsFromPreset(preset.assignedTo, members);
+      if (ids.length) {
+        setAssigneeIds(ids.slice(0, Math.max(1, preset.quantity || 1)));
+        setAssigneesLocked(true);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, preset, groups]);
+
+  // If members load after hydration, try mapping assignees again
+  useEffect(() => {
+    if (!isOpen || !preset?.assignedTo) return;
+    if (!members?.length) return;
+    if (assigneeIds?.length) return;
+    if (assigneesLocked) return;
+    const ids = extractMemberIdsFromPreset(preset.assignedTo, members);
+    if (ids.length) {
+      setAssigneeIds(ids.slice(0, quantity));
+      setAssigneesLocked(true);
+    }
+  }, [isOpen, preset?.assignedTo, members, assigneeIds?.length, quantity, assigneesLocked]);
 
   const toggleOption = (group, optId) => {
     setSelections(prev => {
@@ -242,95 +371,28 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
     });
   };
 
-  const missingRequired =
-    (item?.sizes?.length > 0 && !selectedSize) ||
-    groups.some(g => g.required && (selections[g.id]?.length || 0) < (g.min ?? 1));
+  // Build options including a hidden search string
+  const optionsList = useMemo(() => {
+    const base = [{ value: EXTRA_SENTINEL, label: 'Extra', search: 'extra' }];
+    return base.concat(
+      (members || []).map(m => ({
+        value: m.id,
+        label: m.full_name || m.email || 'Unnamed',
+        search: `${m.full_name || ''}`.toLowerCase(),
+      }))
+    );
+  }, [members]);
 
-  // ---- HYDRATE FROM PRESET (once per open) ----
-  useEffect(() => {
-    if (!isOpen || hydratedRef.current) return;
-    if (!preset) return;
-    hydratedRef.current = true;
-
-    // Quantity & notes
-    if (typeof preset.quantity === 'number') setQuantity(Math.max(1, preset.quantity));
-    if (typeof preset.specialInstructions === 'string') setSpecialInstructions(preset.specialInstructions);
-
-    // Size
-    if (item?.sizes?.length && preset.selectedSize) {
-      const byId = item.sizes.find(s => s.id === preset.selectedSize?.id);
-      const byName = item.sizes.find(s => s.name?.toLowerCase() === String(preset.selectedSize?.name).toLowerCase());
-      setSelectedSize(byId || byName || item.sizes[0]);
-    }
-
-    // Toppings
-    if (item?.toppings?.length && Array.isArray(preset.selectedToppings)) {
-      const resolved = [];
-      for (const tv of preset.selectedToppings) {
-        const byId = item.toppings.find(t => t.id === (typeof tv === 'object' ? tv?.id : tv));
-        const byName = item.toppings.find(t => t.name?.toLowerCase() === String(typeof tv === 'object' ? tv?.name : tv).toLowerCase());
-        if (byId || byName) resolved.push(byId || byName);
-      }
-      if (resolved.length) setSelectedToppings(resolved);
-    }
-
-    // Generic options
-    if (preset.selectedOptions) {
-      const nextSel = {};
-      // object mapping (preferred): { groupKey -> [values] }
-      if (typeof preset.selectedOptions === 'object' && !Array.isArray(preset.selectedOptions)) {
-        for (const [key, valsMaybe] of Object.entries(preset.selectedOptions)) {
-          const vals = Array.isArray(valsMaybe) ? valsMaybe : [valsMaybe];
-          const g =
-            groups.find(gg => gg.id === key) ||
-            groups.find(gg => gg.name?.toLowerCase() === key.toLowerCase()) ||
-            groups.find(gg => slug(gg.name) === key);
-          if (!g) continue;
-          const ids = [];
-          vals.forEach(v => {
-            const id = findOptionIdByAny(g, v);
-            if (id) ids.push(id);
-          });
-          if (ids.length) nextSel[g.id] = ids;
-        }
-      } else if (Array.isArray(preset.selectedOptions)) {
-        // array of names/objects -> match across all groups by name
-        const all = preset.selectedOptions;
-        for (const g of groups) {
-          const ids = [];
-          all.forEach(v => {
-            const id = findOptionIdByAny(g, v);
-            if (id) ids.push(id);
-          });
-          if (ids.length) nextSel[g.id] = ids;
-        }
-      }
-      setSelections(nextSel);
-    }
-
-    // Assignees (may be ids or names)
-    if (preset.assignedTo && Array.isArray(preset.assignedTo)) {
-      const ids = extractMemberIdsFromPreset(preset.assignedTo, members);
-      if (ids.length) {
-        setAssigneeIds(ids.slice(0, Math.max(1, preset.quantity || 1)));
-        setAssigneesLocked(true);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, preset, item?.sizes, item?.toppings, groups]);
-
-  // If members load after hydration, try mapping assignees again
-  useEffect(() => {
-    if (!isOpen || !preset?.assignedTo) return;
-    if (!members?.length) return;
-    if (assigneeIds?.length) return; // already set
-    if (assigneesLocked) return; 
-    const ids = extractMemberIdsFromPreset(preset.assignedTo, members);
-    if (ids.length) {
-      setAssigneeIds(ids.slice(0, quantity));
-      setAssigneesLocked(true);
-    }
-  }, [isOpen, preset?.assignedTo, members, assigneeIds?.length, quantity]);
+  // 🔎 Filter options by search query (case-insensitive, matches all tokens)
+  const filteredOptionsList = useMemo(() => {
+    const q = memberQuery.trim().toLowerCase();
+    if (!q) return optionsList;
+    const tokens = q.split(/\s+/);
+    return optionsList.filter(opt => {
+      const hay = (opt.search || opt.label.toLowerCase());
+      return tokens.every(t => hay.includes(t));
+    });
+  }, [optionsList, memberQuery]);
 
   const handleAdd = () => {
     if (missingRequired) return;
@@ -338,37 +400,37 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
     const assigned = assigneeIds
       .map(id => {
         if (id === EXTRA_SENTINEL) {
-          return {
-            id: EXTRA_SENTINEL,
-            name: 'Extra',
-            role: null,
-            email: null,
-            phone: null,
-          };
+          return { id: EXTRA_SENTINEL, name: 'Extra', role: null, email: null, phone: null };
         }
         const m = members.find(mm => mm.id === id);
         return m
-          ? {
-              id: m.id,
-              name: m.full_name,
-              role: m.role,
-              email: m.email,
-              phone: m.phone_number || null,
-            }
+          ? { id: m.id, name: m.full_name, role: m.role, email: m.email, phone: m.phone_number || null }
           : null;
       })
       .filter(Boolean);
 
+    // Derive legacy fields from groups for back-compat
+    const sizeGroup =
+      groups.find(gg => gg.id === 'size') ||
+      groups.find(gg => gg.pricingMode === 'absolute') ||
+      groups.find(gg => /size/i.test(gg.name || ''));
+    const selectedSizeId = sizeGroup ? (selections[sizeGroup.id] || [])[0] : null;
+    const selectedSize = selectedSizeId ? sizeGroup.options.find(o => o.id === selectedSizeId) : null;
+
+    const toppingsGroup = groups.find(gg => gg.id === 'toppings') || groups.find(gg => /topping/i.test(gg.name || ''));
+    const selectedToppings = (toppingsGroup ? (selections[toppingsGroup.id] || []) : [])
+      .map(id => toppingsGroup.options.find(o => o.id === id))
+      .filter(Boolean);
+
     const customizedItem = {
       ...item,
-      selectedSize: selectedSize || null,
-      selectedToppings,
-      selectedOptions: selections,
+      selectedOptions: selections,        // single source of truth now
+      selectedSize: selectedSize || null, // legacy field preserved
+      selectedToppings,                   // legacy field preserved
       specialInstructions: specialInstructions.trim(),
       customizedPrice: unitPrice,
       assignedTo: assigned,
       optionsCatalog: groups,
-      // keep edit context if provided
       cartRowId: preset?.cartRowId || null,
       cartId: preset?.cartId || null,
     };
@@ -376,17 +438,6 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
     onAddToCart?.(customizedItem, quantity);
     onClose?.();
   };
-
-  const optionsList = useMemo(() => {
-    // Always include Extra as an option
-    const base = [{ value: EXTRA_SENTINEL, label: 'Extra' }];
-    return base.concat(
-      (members || []).map(m => ({
-        value: m.id,
-        label: m.full_name || m.email || 'Unnamed',
-      }))
-    );
-  }, [members]);
 
   if (!isOpen) return null;
 
@@ -443,18 +494,25 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
               {membersLoading ? (
                 <div className="text-sm text-muted-foreground">Loading members…</div>
               ) : (
-                <div className="max-w-md">
+                <div className="max-w-sm">
                   <Select
                     multiple
+                    searchable
                     value={assigneeIds}
                     onChange={(vals) => {
                       const arr = Array.isArray(vals) ? vals : (vals ? [vals] : []);
-                      // cap by quantity, but allow clearing to zero
-                      setAssigneeIds(arr.slice(0, quantity));
+                      setAssigneeIds(arr.slice(0, quantity)); // cap by quantity
                     }}
                     placeholder={`Select up to ${quantity} ${quantity > 1 ? 'assignees' : 'assignee'} (optional)`}
                     options={optionsList}
                   />
+
+                  {filteredOptionsList.length === 0 && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      No matches. Try a different search.
+                    </div>
+                  )}
+
                   {assigneeIds.length > quantity && (
                     <div className="mt-1 text-xs text-error">
                       You can assign at most {quantity}.
@@ -464,68 +522,8 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
               )}
             </div>
           )}
-          {/* Size */}
-          {item?.sizes?.length > 0 && (
-            <div className="p-4 border-b border-border">
-              <h4 className="text-lg font-semibold text-foreground mb-3">
-                Choose Size <span className="text-error">*</span>
-              </h4>
-              <div className="space-y-2">
-                {item.sizes.map((size) => (
-                  <label
-                    key={size?.id || size?.name}
-                    className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-micro ${
-                      selectedSize?.id === size?.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="size"
-                        checked={selectedSize?.id === size?.id}
-                        onChange={() => setSelectedSize(size)}
-                        className="w-4 h-4 accent-primary"
-                      />
-                      <div>
-                        <div className="font-medium text-foreground">{size?.name}</div>
-                        {size?.description && <div className="text-sm text-muted-foreground">{size.description}</div>}
-                      </div>
-                    </div>
-                    <div className="font-semibold font-mono">${Number(size?.price || 0).toFixed(2)}</div>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {/* Toppings */}
-          {item?.toppings?.length > 0 && (
-            <div className="p-4 border-b border-border">
-              <h4 className="text-lg font-semibold text-foreground mb-3">Add Toppings</h4>
-              <div className="space-y-2">
-                {item.toppings.map((topping) => (
-                  <label
-                    key={topping?.id || topping?.name}
-                    className="flex items-center justify-between p-3 border border-border rounded-lg cursor-pointer hover:border-primary/50 transition-micro"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Checkbox
-                        checked={selectedToppings.some(t => t?.id === topping?.id)}
-                        onChange={() => toggleTopping(topping)}
-                      />
-                      <div>
-                        <div className="font-medium text-foreground">{topping?.name}</div>
-                        {topping?.description && <div className="text-sm text-muted-foreground">{topping.description}</div>}
-                      </div>
-                    </div>
-                    <div className="font-semibold font-mono">+${Number(topping?.price || 0).toFixed(2)}</div>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Generic option groups */}
+          {/* Generic option groups (covers Size, Toppings, Sauce, etc.) */}
           {groups.length > 0 && (
             <div className="p-4 border-b border-border space-y-4">
               {groups.map((g) => {
@@ -582,7 +580,9 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
                             </div>
                             {typeof o.price === 'number' ? (
                               <div className="text-sm font-mono">
-                                {o.price > 0 ? `+${o.price.toFixed(2)}` : o.price.toFixed(2)}
+                                {g.pricingMode === 'absolute'
+                                  ? `$${o.price.toFixed(2)}`
+                                  : (o.price > 0 ? `+${o.price.toFixed(2)}` : o.price.toFixed(2))}
                               </div>
                             ) : (
                               <div className="text-sm text-muted-foreground">Included</div>
@@ -601,7 +601,7 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
             </div>
           )}
 
-          {/* Special Instructions (always) */}
+          {/* Special Instructions */}
           <div className="p-4 border-b border-border">
             <h4 className="text-lg font-semibold text-foreground mb-3">Special Instructions</h4>
             <textarea
