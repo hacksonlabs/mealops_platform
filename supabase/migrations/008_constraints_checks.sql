@@ -22,6 +22,11 @@ ALTER TABLE public.poll_votes
 ALTER TABLE public.restaurants DROP CONSTRAINT IF EXISTS restaurants_api_id_key;
 ALTER TABLE public.restaurants ADD CONSTRAINT uq_restaurants_api UNIQUE (api_source, api_id);
 
+ALTER TABLE public.meal_cart_items
+  DROP CONSTRAINT IF EXISTS cart_items_cart_id_fkey,
+  ADD CONSTRAINT cart_items_cart_id_fkey
+    FOREIGN KEY (cart_id) REFERENCES public.meal_carts(id) ON DELETE CASCADE;
+
 -- ALTER TABLE public.meal_carts ADD CONSTRAINT ck_cart_team_fk_member CHECK (created_by_member_id IS NULL OR team_id = (SELECT team_id FROM public.team_members tm WHERE tm.id = created_by_member_id));
 -- ALTER TABLE public.meal_cart_items ADD CONSTRAINT fk_item_cart_member_team
 --     CHECK (

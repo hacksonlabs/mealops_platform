@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts';
 import Icon from '../AppIcon';
 import Button from './Button';
 import mealLogo from '../images/meal.png';
+import cartDbService from '../../services/cartDBService';
 
 const Header = ({ notifications = 0, className = '' }) => {
   const { user, userProfile, teams, activeTeam, loadingTeams, switchActiveTeam, signOut } = useAuth();
@@ -16,10 +17,19 @@ const Header = ({ notifications = 0, className = '' }) => {
   const [showTeamMenu, setShowTeamMenu] = useState(false);
   const teamMenuRef = useRef(null);
 
+  const isInlineCartRoute = /\/restaurant\/|\/shopping-cart-checkout/.test(location.pathname);
+
   // cart badge + drawer
   const [cartBadge, setCartBadge] = useState({ count: 0, total: 0, name: 'Cart', cartId: null });
   const [cartPanel, setCartPanel] = useState({ restaurant: null, items: [], fulfillment: null });
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isCartHubOpen, setIsCartHubOpen] = useState(false);
+  const [hubLoading, setHubLoading] = useState(false);
+  const [hubErr, setHubErr] = useState('');
+  const [hubCarts, setHubCarts] = useState([]); // list of draft carts
+  const [viewCartSnapshot, setViewCartSnapshot] = useState(null); // for "View" modal
+
+  
 
   // Close the team menu when clicking outside of it
   useEffect(() => {
@@ -60,6 +70,55 @@ const Header = ({ notifications = 0, className = '' }) => {
       },
     });
   };
+
+  const formatDateTime = (c) => {
+    const d = c?.fulfillment?.date;
+    const t = c?.fulfillment?.time;
+    if (!d && !t) return null;
+    return [d, t].filter(Boolean).join(' • ');
+  };
+
+  const handleHubView = async (cart) => {
+    try {
+      const snap = await cartDbService.getCartSnapshot(cart.id);
+      setViewCartSnapshot(snap); // opens the “View Items” modal
+    } catch (e) {
+      alert(e?.message || 'Failed to open cart.');
+    }
+  };
+
+  const handleHubEdit = (cart) => {
+    setIsCartHubOpen(false);
+    const rid = cart.restaurant?.id;
+    if (!rid) {
+      navigate('/home-restaurant-discovery');
+      return;
+    }
+    navigate(`/restaurant/${rid}`, {
+      state: {
+        cartId: cart.id,
+        restaurant: cart.restaurant,
+        fulfillment: cart.fulfillment || null,
+      },
+    });
+  };
+
+  const handleHubDelete = async (cart) => {
+    const ok = window.confirm('Delete this cart and all its items? This cannot be undone.');
+    if (!ok) return;
+    try {
+      await cartDbService.deleteCart(cart.id);
+      setHubCarts((prev) => prev.filter((c) => c.id !== cart.id));
+      // Clear header badge if it belonged to the currently tracked cart
+      if (cartBadge.cartId === cart.id) {
+        setCartBadge({ count: 0, total: 0, name: 'Cart', cartId: null });
+        setCartPanel({ restaurant: null, items: [], fulfillment: null });
+      }
+    } catch (e) {
+      alert(e?.message || 'Failed to delete cart.');
+    }
+  };
+
 
   const formatCustomizations = (item) => {
     const lines = [];
@@ -141,6 +200,25 @@ const Header = ({ notifications = 0, className = '' }) => {
       window.removeEventListener('closeCartDrawer', onClose);
     };
   }, []);
+
+  // Fetch hub carts any time the hub opens
+  useEffect(() => {
+    if (!isCartHubOpen || !activeTeam?.id) return;
+    let cancelled = false;
+    (async () => {
+      setHubLoading(true);
+      setHubErr('');
+      try {
+        const list = await cartDbService.listOpenCarts(activeTeam.id);
+        if (!cancelled) setHubCarts(list);
+      } catch (e) {
+        if (!cancelled) setHubErr(e?.message || 'Failed to load carts');
+      } finally {
+        if (!cancelled) setHubLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isCartHubOpen, activeTeam?.id]);
 
   const navigationItems = [
     { label: 'Dashboard', path: '/dashboard-home', icon: 'LayoutDashboard', tooltip: 'Team meal overview and quick actions' },
@@ -286,12 +364,17 @@ const Header = ({ notifications = 0, className = '' }) => {
           {/* Cart button (global) */}
           <button
             className="relative p-2 text-muted-foreground hover:text-foreground transition-athletic"
-            onClick={() => setIsCartOpen(true)}
+            onClick={() => {
+              if (isInlineCartRoute) setIsCartOpen(true);
+              else {
+                setIsCartHubOpen(true);
+              }
+            }}
             aria-label={`Open cart${cartBadge.count ? ` (${cartBadge.count})` : ''}`}
             title="Cart"
           >
             <Icon name="ShoppingCart" size={20} className="-scale-x-100" />
-            {cartBadge.count > 0 && (
+            {isInlineCartRoute && cartBadge.count > 0 && (
               <span className="absolute -top-1 -left-1 min-w-[20px] h-5 px-1 rounded-full bg-primary text-primary-foreground text-[11px] font-bold flex items-center justify-center">
                 {cartBadge.count > 99 ? '99+' : cartBadge.count}
               </span>
@@ -515,6 +598,146 @@ const Header = ({ notifications = 0, className = '' }) => {
           </div>,
           document.body
         )}
+      {/* Cart Hub Modal */}
+      {isCartHubOpen &&
+        ReactDOM.createPortal(
+          <div className="fixed inset-0 z-[1200] bg-black/40" onClick={() => setIsCartHubOpen(false)}>
+            <div
+              className="absolute right-0 top-0 h-full w-full max-w-lg bg-card border-l border-border shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Saved Carts"
+            >
+              <div className="p-4 border-b border-border flex items-center justify-between">
+                <div className="font-semibold flex items-center gap-2">
+                  <Icon name="ShoppingCart" size={18} />
+                  <span>Saved Carts</span>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setIsCartHubOpen(false)}>
+                  <Icon name="X" size={18} />
+                </Button>
+              </div>
+
+              <div className="p-4 space-y-4 overflow-y-auto max-h-[calc(100vh-64px)]">
+                {hubLoading && <div className="text-sm text-muted-foreground">Loading…</div>}
+                {hubErr && <div className="text-sm text-destructive">{hubErr}</div>}
+                {!hubLoading && !hubErr && hubCarts.length === 0 && (
+                  <div className="text-sm text-muted-foreground">No open carts yet.</div>
+                )}
+
+                {hubCarts.map((c) => (
+                  <div key={c.id} className="border border-border rounded-md overflow-hidden">
+                    <div className="p-3 flex items-start gap-3">
+                      {c.restaurant?.image && (
+                        <img
+                          src={c.restaurant.image}
+                          alt={c.restaurant?.name}
+                          className="h-16 w-16 rounded object-cover shrink-0"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-foreground truncate">
+                          {c.restaurant?.name || 'Unknown Restaurant'}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {c.title || 'Cart'}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {formatDateTime(c) || 'No date selected'} · {c.providerType || 'provider'} · {c.itemCount} items
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Subtotal: <span className="text-foreground">${c.subtotal.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="border-t border-border p-3 flex items-center justify-end gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => handleHubView(c)}>
+                        View
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={() => handleHubEdit(c)}>
+                        Edit
+                      </Button>
+                      <Button variant="destructive" size="sm" onClick={() => handleHubDelete(c)}>
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+      {/* View Items Modal */}
+      {viewCartSnapshot &&
+        ReactDOM.createPortal(
+          <div className="fixed inset-0 z-[1300] bg-black/40" onClick={() => setViewCartSnapshot(null)}>
+            <div
+              className="absolute inset-0 md:inset-auto md:right-0 md:top-0 md:h-full w-full md:max-w-xl bg-card border-l border-border shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Cart Items"
+            >
+              <div className="p-4 border-b border-border flex items-center justify-between">
+                <div className="font-semibold flex items-center gap-2">
+                  <Icon name="UtensilsCrossed" size={18} />
+                  <span>{viewCartSnapshot.restaurant?.name || 'Cart Items'}</span>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setViewCartSnapshot(null)}>
+                  <Icon name="X" size={18} />
+                </Button>
+              </div>
+
+              <div className="p-4 space-y-3 overflow-y-auto max-h-[calc(100vh-64px)]">
+                {viewCartSnapshot.items?.map((it, idx) => {
+                  const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
+                  const qty = Number(it?.quantity ?? 1);
+                  const lines = formatCustomizations(it);
+                  const assignees =
+                    Array.isArray(it?.assignedTo) && it.assignedTo.length
+                      ? it.assignedTo.map((a) => a?.name).filter(Boolean).join(', ')
+                      : it?.userName || null;
+                  return (
+                    <div key={`${it?.id ?? 'row'}-${idx}`} className="p-3 border border-border rounded-md">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-medium text-foreground truncate">{it?.name || 'Item'}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            x{qty} • ${unit.toFixed(2)}
+                          </div>
+                          {assignees && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              For: <span className="text-foreground">{assignees}</span>
+                            </div>
+                          )}
+                          {lines?.length > 0 && (
+                            <ul className="mt-1 text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
+                              {lines.map((l, i) => (
+                                <li key={i}>{l}</li>
+                              ))}
+                            </ul>
+                          )}
+                          {it?.specialInstructions && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Notes: <span className="text-foreground">{it.specialInstructions}</span>
+                            </div>
+                          )}
+                        </div>
+                        {it?.image && (
+                          <img src={it.image} alt="" className="h-14 w-14 rounded-md object-cover shrink-0" />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
     </header>
   );
 };

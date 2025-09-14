@@ -400,7 +400,13 @@ CREATE TABLE IF NOT EXISTS public.meal_carts (
   updated_at           timestamptz NOT NULL DEFAULT now(),
   share_token          text UNIQUE,
   provider_type TEXT,
-  provider_restaurant_id TEXT
+  provider_restaurant_id TEXT,
+  fulfillment_service TEXT,              -- 'delivery' | 'pickup'
+  fulfillment_address TEXT,
+  fulfillment_latitude DOUBLE PRECISION,
+  fulfillment_longitude DOUBLE PRECISION,
+  fulfillment_date DATE,
+  fulfillment_time TIME WITHOUT TIME ZONE
 );
 
 -- Cart membership (who can add to the cart)

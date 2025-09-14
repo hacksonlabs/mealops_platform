@@ -387,7 +387,7 @@ const RestaurantDetailMenu = () => {
     };
   }, [restaurant]);
 
-  const handleFulfillmentChange = (next) => {
+  const handleFulfillmentChange = async (next) => {
     setFulfillment(next);
     if (next.service !== selectedService) setSelectedService(next.service);
     syncServiceToUrl(next.service);
@@ -396,6 +396,16 @@ const RestaurantDetailMenu = () => {
         detail: { address: next.address, lat: next.coords ?? null },
       })
     );
+    // If there's an active cart on this page, mirror fulfillment to DB
+    try {
+      if (cartId) {
+        await cartDbService.upsertCartFulfillment(cartId, next, {
+          title: `${restaurant?.name || 'Cart'} • ${localProvider}`,
+          providerType: localProvider,
+          providerRestaurantId: restaurant?.provider_restaurant_ids?.[localProvider] || null,
+        });
+      }
+    } catch (_) {}
   };
 
   // Open modal when navigating here from "Edit" in the header drawer
@@ -482,8 +492,18 @@ const RestaurantDetailMenu = () => {
       id = await cartDbService.ensureCartForRestaurant(
         activeTeam.id,
         restaurant.id,
-        { title: `${restaurant.name} • ${localProvider}`, providerType: localProvider, providerRestaurantId: restaurant?.provider_restaurant_ids?.[localProvider] || null, }
+        {
+          title: `${restaurant.name} • ${localProvider}`,
+          providerType: localProvider,
+          providerRestaurantId: restaurant?.provider_restaurant_ids?.[localProvider] || null,
+        }
       );
+      // persist current fulfillment on first create (safe to call on existing, too)
+      await cartDbService.upsertCartFulfillment(id, fulfillment, {
+        title: `${restaurant.name} • ${localProvider}`,
+        providerType: localProvider,
+        providerRestaurantId: restaurant?.provider_restaurant_ids?.[localProvider] || null,
+      });
       setCartId(id);
       setProvider(localProvider);
     }

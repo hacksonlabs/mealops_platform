@@ -15,19 +15,18 @@ import { supabase } from '../lib/supabase';
  */
 
 async function findActiveCartForRestaurant(teamId, restaurantId, providerType = null) {
-  const { data, error } = await supabase
+  let q = supabase
     .from('meal_carts')
     .select('id')
     .eq('team_id', teamId)
     .eq('restaurant_id', restaurantId)
     .eq('status', 'draft')
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-		.eq('provider_type', providerType);
-		if (error) throw error;
-		if (!data) return null;
-		return data?.id ?? null;
+    .limit(1);
+  if (providerType != null) q = q.eq('provider_type', providerType);
+  const { data, error } = await q.maybeSingle();
+  if (error) throw error;
+  return data?.id ?? null;
 }
 
 async function ensureCartForRestaurant(teamId, restaurantId, { title = null, providerType = null, providerRestaurantId = null } = {}) {
@@ -224,6 +223,156 @@ function subscribeToCart(cartId, onChange) {
   return () => supabase.removeChannel(channel);
 }
 
+async function upsertCartFulfillment(cartId, fulfillment = {}, meta = {}) {
+	// fulfillment: { service, address, coords, date, time }
+	// meta: { title, providerType, providerRestaurantId }
+	const payload = {
+		status: 'draft',
+		title: meta?.title ?? null,
+		provider_type: meta?.providerType ?? null,
+		provider_restaurant_id: meta?.providerRestaurantId ?? null,
+		fulfillment_service: fulfillment?.service ?? null,
+		fulfillment_address: fulfillment?.address ?? null,
+		fulfillment_latitude: fulfillment?.coords?.lat ?? null,
+		fulfillment_longitude: fulfillment?.coords?.lng ?? null,
+		fulfillment_date: fulfillment?.date ?? null,
+		fulfillment_time: fulfillment?.time ?? null,
+	};
+	const { error } = await supabase.from('meal_carts').update(payload).eq('id', cartId);
+	if (error) throw error;
+}
+
+async function listOpenCarts(teamId) {
+  // carts (not submitted)
+  const { data: carts, error } = await supabase
+    .from('meal_carts')
+    .select(`
+      id, team_id, restaurant_id, status, title, provider_type, provider_restaurant_id,
+      fulfillment_service, fulfillment_address, fulfillment_latitude, fulfillment_longitude,
+      fulfillment_date, fulfillment_time, created_at, updated_at,
+      restaurants:restaurant_id ( id, name, image_url, cuisine_type )
+    `)
+    .eq('team_id', teamId)
+    .neq('status', 'submitted')
+    .order('updated_at', { ascending: false }); // secondary fallback, we'll sort in JS
+
+  if (error) throw error;
+  if (!carts?.length) return [];
+
+  // totals + count per cart
+  const ids = carts.map((c) => c.id);
+  const { data: items, error: itemsErr } = await supabase
+    .from('meal_cart_items')
+    .select('cart_id, price, quantity')
+    .in('cart_id', ids);
+
+  if (itemsErr) throw itemsErr;
+
+  const aggregates = new Map();
+  for (const row of items || []) {
+    const arr = aggregates.get(row.cart_id) || [];
+    arr.push(row);
+    aggregates.set(row.cart_id, arr);
+  }
+
+  // helper: build a local timestamp (ms) from date + time (if date exists)
+  const toMs = (d, t) => {
+    if (!d) return null;
+    // If time missing, default to midday to keep ordering sane
+    const safeTime = (t && String(t).slice(0, 8)) || '12:00:00';
+    const iso = `${d}T${safeTime}`;
+    const ms = Date.parse(iso);
+    return Number.isNaN(ms) ? null : ms;
+  };
+
+  const list = carts.map((c) => {
+    const li = aggregates.get(c.id) || [];
+    const itemCount = li.reduce((n, it) => n + Number(it.quantity || 0), 0);
+    const subtotal = li.reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0);
+
+    const scheduledAtMs = toMs(c.fulfillment_date, c.fulfillment_time);
+
+    return {
+      id: c.id,
+      restaurant: c.restaurants
+        ? {
+            id: c.restaurants.id,
+            name: c.restaurants.name,
+            image: c.restaurants.image_url,
+            cuisine: c.restaurants.cuisine_type,
+          }
+        : null,
+      title:
+        c.title ||
+        (c.restaurants?.name ? `${c.restaurants.name} • ${c.provider_type || 'Cart'}` : 'Cart'),
+      providerType: c.provider_type,
+      providerRestaurantId: c.provider_restaurant_id,
+      status: c.status,
+      itemCount,
+      subtotal,
+      fulfillment: {
+        service: c.fulfillment_service,
+        address: c.fulfillment_address,
+        coords:
+          c.fulfillment_latitude != null && c.fulfillment_longitude != null
+            ? { lat: c.fulfillment_latitude, lng: c.fulfillment_longitude }
+            : null,
+        date: c.fulfillment_date || null,
+        time: c.fulfillment_time || null,
+      },
+      updatedAt: c.updated_at,
+      createdAt: c.created_at,
+      // internal field for sorting only (not required by UI)
+      _scheduledAtMs: scheduledAtMs,
+    };
+  });
+
+  // Sort order:
+  // 1) carts with a schedule come before unscheduled
+  // 2) among scheduled: soonest upcoming first; then most recent past
+  // 3) among unscheduled: newest updated first (fallback)
+  const now = Date.now();
+  list.sort((a, b) => {
+    const aHas = a._scheduledAtMs != null;
+    const bHas = b._scheduledAtMs != null;
+    if (aHas !== bHas) return aHas ? -1 : 1; // scheduled first
+
+    // both unscheduled -> newest updated first
+    if (!aHas && !bHas) {
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    }
+
+    // both scheduled
+    const aFuture = a._scheduledAtMs >= now;
+    const bFuture = b._scheduledAtMs >= now;
+    if (aFuture !== bFuture) return aFuture ? -1 : 1; // upcoming before past
+
+    // both upcoming -> earlier first
+    if (aFuture) return a._scheduledAtMs - b._scheduledAtMs;
+
+    // both past -> closest to now (most recent past) first
+    return b._scheduledAtMs - a._scheduledAtMs;
+  });
+
+  // strip internal field before returning (optional)
+  return list.map(({ _scheduledAtMs, ...rest }) => rest);
+}
+
+
+async function deleteCart(cartId) {
+	// children cascade via FK; single call
+	const { error } = await supabase.from('meal_carts').delete().eq('id', cartId);
+	if (error) throw error;
+}
+
+async function markSubmitted(cartId) {
+	const { error } = await supabase
+		.from('meal_carts')
+		.update({ status: 'submitted' })
+		.eq('id', cartId);
+	if (error) throw error;
+}
+
 export default {
 	findActiveCartForRestaurant,
   ensureCartForRestaurant,
@@ -232,4 +381,8 @@ export default {
   updateItem,
   removeItem,
   subscribeToCart,
+	upsertCartFulfillment,
+	listOpenCarts,
+	deleteCart,
+	markSubmitted
 };
