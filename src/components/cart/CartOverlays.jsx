@@ -134,6 +134,7 @@ export default function CartOverlays() {
         cartId: cart.id,
         restaurant: cart.restaurant,
         fulfillment: cart.fulfillment || null,
+        openCartOnLoad: true,
       },
     });
   };

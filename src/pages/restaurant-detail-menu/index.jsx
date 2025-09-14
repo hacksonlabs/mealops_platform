@@ -391,6 +391,7 @@ const RestaurantDetailMenu = () => {
   const handleItemClick = (item) => {
     setSelectedItem(item);
     setIsCustomizationModalOpen(true);
+    window.dispatchEvent(new Event('closeCartDrawer'));
   };
 
   const handleBackClick = () => navigate('/home-restaurant-discovery');
@@ -479,11 +480,13 @@ const RestaurantDetailMenu = () => {
 
     setSelectedItem(mapped);
     setIsCustomizationModalOpen(true);
+    window.dispatchEvent(new Event('closeCartDrawer'));
   }, [location.state?.editItem, menuRaw]);
 
   // If we navigated from the hub with a known cartId, hydrate the drawer and open it
   useEffect(() => {
     const incoming = location.state?.cartId;
+    const openCartOnLoad = location.state?.openCartOnLoad === true;
     if (!incoming) return;
 
     setCartId(incoming);
@@ -506,7 +509,9 @@ const RestaurantDetailMenu = () => {
           fulfillment: location.state?.fulfillment || fulfillment,
         },
       }));
-      window.dispatchEvent(new CustomEvent('openCartDrawer'));
+      if (openCartOnLoad) {
+        window.dispatchEvent(new Event('openCartDrawer'));
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state?.cartId]);
@@ -662,6 +667,15 @@ const RestaurantDetailMenu = () => {
     window.addEventListener('cartItemRemove', onRemove);
     return () => window.removeEventListener('cartItemRemove', onRemove);
   }, [cartId]);
+
+  useEffect(() => {
+    if (isCustomizationModalOpen) {
+      window.dispatchEvent(new Event('closeCartDrawer'));
+      window.dispatchEvent(new Event('closeCartHub'));
+    }
+  }, [isCustomizationModalOpen]);
+
+
 
   if (loading) {
     return (
