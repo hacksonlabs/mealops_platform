@@ -17,6 +17,7 @@ import { useSharedCart } from '../../contexts/SharedCartContext';
 import ProviderToggle from './components/ProviderToggle';
 import { fetchMenu, pickDefaultProvider } from '../../services/menuProviderService';
 import InfoTooltip from '../../components/ui/InfoTooltip';
+import { computeDistanceMeters, metersToMiles, geocodeAddress } from '../../utils/googlePlaces';
 
 // helpers
 const pad = (n) => String(n).padStart(2, '0');
@@ -68,6 +69,7 @@ const RestaurantDetailMenu = () => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [isCustomizationModalOpen, setIsCustomizationModalOpen] = useState(false);
   const [showRestaurantInfo, setShowRestaurantInfo] = useState(false);
+  const [computedDistanceMi, setComputedDistanceMi] = useState();
 
   // fetched data
   const [restaurant, setRestaurant] = useState(location.state?.restaurant || null);
@@ -169,7 +171,15 @@ const RestaurantDetailMenu = () => {
     if (svc === 'delivery' || svc === 'pickup') setSelectedService(svc);
   }, [location.search]);
 
-  // fetch restaurant if not passed via state; always fetch menu by restaurant id
+  // add once, near the top of the file
+  const needsHydration = (r) => {
+    if (!r) return true;
+    const hasRating = Number.isFinite(Number(r.rating));
+    const hasLoc = !!(r._coords || (r.lat && r.lng) || r.address);
+    return !hasRating || !hasLoc;
+  };
+
+  // fetch restaurant (only if needed); always fetch menu by restaurant id
   useEffect(() => {
     let cancelled = false;
 
@@ -177,33 +187,24 @@ const RestaurantDetailMenu = () => {
       setLoading(true);
       setErr(null);
       try {
-        // Resolve restaurant record
         let rest = restaurant;
-        if (!rest) {
-          // Try by UUID id param first; fall back to api_id if someone routed that way.
-          const { data: r1, error: e1 } = await supabase
+
+        // Hydrate only if missing rating and/or any loc to compute distance
+        if (!rest || needsHydration(rest)) {
+          const { data, error } = await supabase
             .from('restaurants')
-            .select('*')
-            .eq('id', restaurantId)
+            .select('id, name, image_url, cuisine_type, rating, phone_number, address, is_available, supports_catering, delivery_fee, minimum_order, supported_providers, provider_restaurant_ids, api_id')
+            .or(`id.eq.${restaurantId},api_id.eq.${restaurantId}`)
             .maybeSingle();
 
-          if (e1) throw e1;
+          if (error) throw error;
+          if (!data) throw new Error('Restaurant not found');
 
-          if (!r1) {
-            const { data: r2, error: e2 } = await supabase
-              .from('restaurants')
-              .select('*')
-              .eq('api_id', restaurantId)
-              .maybeSingle();
-            if (e2) throw e2;
-            if (!r2) throw new Error('Restaurant not found');
-            rest = r2;
-          } else {
-            rest = r1;
-          }
+          // IMPORTANT: merge so anything already on rest (e.g., provider ids) survives
+          rest = { ...rest, ...data };
         }
 
-        // Fetch menu items for this restaurant
+        // Always fetch menu once we know rest.id
         const { data: mi, error: miErr } = await supabase
           .from('menu_items')
           .select('*')
@@ -215,10 +216,12 @@ const RestaurantDetailMenu = () => {
 
         if (!cancelled) {
           const inboundDistance = location.state?.restaurant?.distance;
-          const merged = (inboundDistance != null)
-            ? { ...rest, distance: inboundDistance }
-            : rest;
-          setRestaurant(merged);
+          setRestaurant(prev => ({
+            ...prev,
+            ...rest,
+            // keep distance from nav state if present; DB doesn’t store “distance”
+            distance: prev?.distance ?? inboundDistance ?? rest.distance
+          }));
           setMenuRaw(mi || []);
         }
       } catch (e) {
@@ -229,11 +232,34 @@ const RestaurantDetailMenu = () => {
     };
 
     load();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId]);
+
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!restaurant) return;
+
+      // Prefer known coords on both ends
+      const rCoords =
+        restaurant._coords ||
+        (restaurant.lat && restaurant.lng ? { lat: Number(restaurant.lat), lng: Number(restaurant.lng) } : null) ||
+        (restaurant.address ? await geocodeAddress(restaurant.address) : null);
+
+      const uCoords =
+        fulfillment?.coords ||
+        (fulfillment?.address ? await geocodeAddress(fulfillment.address) : null);
+
+      if (!rCoords || !uCoords) return;
+
+      const meters = await computeDistanceMeters(rCoords, uCoords);
+      if (!cancelled) setComputedDistanceMi(metersToMiles(meters));
+    })();
+    return () => { cancelled = true; };
+  }, [restaurant, fulfillment?.coords, fulfillment?.address]);
+
 
   // Transform the **DB menu** (menuRaw) – kept for edit flow compatibility
   const { dbMenuItemsByCat, dbMenuCategories } = useMemo(() => {
@@ -369,6 +395,20 @@ const RestaurantDetailMenu = () => {
 
   const handleBackClick = () => navigate('/home-restaurant-discovery');
 
+  const toNum = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+
+  const inboundDistance = useMemo(
+    () => {
+      const v = location.state?.restaurant?.distance;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    },
+    [location.state?.restaurant?.distance]
+  );
+
   // Map DB restaurant to your hero/info expectations
   const heroRestaurant = useMemo(() => {
     if (!restaurant) return null;
@@ -377,8 +417,8 @@ const RestaurantDetailMenu = () => {
       name: restaurant.name,
       image: restaurant.image || '',
       cuisine: restaurant.cuisine_type || restaurant.cuisine || '',
-      rating: restaurant.rating || undefined,
-      distance: restaurant.distance ?? undefined,
+      rating: toNum(restaurant.rating),
+      distance: inboundDistance ?? toNum(restaurant.distance) ?? computedDistanceMi,
       deliveryFee: restaurant.delivery_fee ?? undefined,
       minimumOrder: restaurant.minimum_order ?? undefined,
       priceRange: undefined,
@@ -393,7 +433,7 @@ const RestaurantDetailMenu = () => {
       ratingBreakdown: [],
       reviews: [],
     };
-  }, [restaurant]);
+  }, [restaurant, inboundDistance, computedDistanceMi]);
 
   const handleFulfillmentChange = async (next) => {
     setFulfillment(next);

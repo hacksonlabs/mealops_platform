@@ -9,6 +9,10 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService, rightCon
   const handleFavoriteToggle = () => {
     setIsFavorite(!isFavorite);
   };
+  const fmt1 = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(1) : '';
+  };
 
   return (
     <div className="relative">
@@ -46,7 +50,7 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService, rightCon
                   <span className="flex-none text-muted-foreground">•</span>
                   <div className="flex items-center gap-1 flex-none whitespace-nowrap">
                     <Icon name="Star" size={16} className="text-accent fill-current" />
-                    <span className="font-semibold">{restaurant?.rating}</span>
+                    <span className="font-semibold">{fmt1(restaurant.rating)}</span>
                     {restaurant?.reviewCount != null && (
                       <span className="text-muted-foreground">({restaurant.reviewCount})</span>
                     )}
@@ -59,7 +63,7 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService, rightCon
                   <span className="flex-none text-muted-foreground">•</span>
                   <div className="flex items-center gap-1 flex-none whitespace-nowrap">
                     <Icon name="MapPin" size={16} className="text-muted-foreground" />
-                    <span className="text-muted-foreground">{restaurant.distance}</span>
+                    <span className="text-muted-foreground">{fmt1(restaurant.distance)}</span>
                   </div>
                 </>
               )}
