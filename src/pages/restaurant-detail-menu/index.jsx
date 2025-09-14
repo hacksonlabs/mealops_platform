@@ -433,7 +433,7 @@ const RestaurantDetailMenu = () => {
       ratingBreakdown: [],
       reviews: [],
     };
-  }, [restaurant, inboundDistance, computedDistanceMi]);
+  }, [restaurant, location.state?.restaurant?.distance, computedDistanceMi]);
 
   const handleFulfillmentChange = async (next) => {
     setFulfillment(next);
