@@ -8,7 +8,6 @@ import RestaurantHero from './components/RestaurantHero';
 import MenuSearch from './components/MenuSearch';
 import MenuSection from './components/MenuSection';
 import ItemCustomizationModal from './components/ItemCustomizationModal';
-import RestaurantInfo from './components/RestaurantInfo';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/custom/Button';
 import ProviderToggle from './components/ProviderToggle';
