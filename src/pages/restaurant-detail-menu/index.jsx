@@ -17,6 +17,7 @@ import { useProvider } from '../../contexts/ProviderContext';
 import { useSharedCart } from '../../contexts/SharedCartContext';
 import ProviderToggle from './components/ProviderToggle';
 import { fetchMenu, pickDefaultProvider } from '../../services/menuProviderService';
+import InfoTooltip from '../../components/ui/InfoTooltip';
 
 // helpers
 const pad = (n) => String(n).padStart(2, '0');
@@ -639,11 +640,22 @@ const RestaurantDetailMenu = () => {
                   />
                 </div>
               }
-            />
-            <ProviderToggle
-              providers={restaurant?.supported_providers || ['grubhub']}
-              selected={localProvider}
-              onChange={setLocalProvider}
+              belowTitleContent={
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                    Order Handled By:
+                    <InfoTooltip
+                      text="Fees and service charges are set by the provider and may vary by location, time, and promotions."
+                    />
+                  </div>
+                  <ProviderToggle
+                    providers={restaurant?.supported_providers || ['grubhub']}
+                    selected={localProvider}
+                    onChange={setLocalProvider}
+                    showIcons={false}
+                  />
+                </div>
+              }
             />
 
             {providerError && <p className="text-sm text-destructive mt-2">{providerError}</p>}
