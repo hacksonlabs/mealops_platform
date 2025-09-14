@@ -367,7 +367,7 @@ const RestaurantDetailMenu = () => {
     return {
       id: restaurant.id,
       name: restaurant.name,
-      image: restaurant.image_url || '',
+      image: restaurant.image || '',
       cuisine: restaurant.cuisine_type || restaurant.cuisine || '',
       rating: restaurant.rating || undefined,
       distance: restaurant.distance ?? undefined,
