@@ -15,14 +15,17 @@ const RestaurantGrid = ({
   selectedService,
   appliedFilters,
   searchQuery,
-  centerCoords,     // {lat,lng} or null
-  radiusMiles = 3,  // number
+  centerCoords, // { lat, lng } or null
+  radiusMiles = 3,
   fulfillment,
+  onLoadingChange,
+  suppressEmptyUntilLoaded = true,
 }) => {
-  const [rows, setRows] = useState([]);          // raw DB rows normalized
-  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState([]);      // normalized restaurants
   const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(true);
   const [distanceReady, setDistanceReady] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   const priceBucket = (avg) => {
     if (avg == null || Number.isNaN(avg)) return null;
@@ -48,7 +51,7 @@ const RestaurantGrid = ({
       rating: r.rating != null ? Number(r.rating) : undefined,
       reviewCount: undefined,
       deliveryTime: undefined,
-      distance: undefined,            // will set later
+      distance: undefined,            // set after distance calc
       _distanceMeters: null,          // internal
       phone_number: r.phone_number || '',
       deliveryFee: r.delivery_fee != null ? String(r.delivery_fee) : undefined,
@@ -61,18 +64,22 @@ const RestaurantGrid = ({
       _items: items,
       _address: r.address || '',
       _coords: null,
-      supported_providers: Array.isArray(r.supported_providers) ? r.supported_providers : ['grubhub'],
+      supported_providers: Array.isArray(r.supported_providers)
+        ? r.supported_providers
+        : ['grubhub'],
       provider_restaurant_ids: r.provider_restaurant_ids || {},
     };
   };
 
-  // Load from DB
+  // Initial load from DB
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       setLoading(true);
       setErr('');
       setDistanceReady(false);
+
       try {
         const { data, error } = await supabase
           .from('restaurants')
@@ -89,6 +96,7 @@ const RestaurantGrid = ({
         if (cancelled) return;
 
         setRows((data || []).map(normalize));
+        setHasLoadedOnce(true);
       } catch (e) {
         if (!cancelled) {
           console.error('Load restaurants failed:', e);
@@ -99,36 +107,38 @@ const RestaurantGrid = ({
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Geocode + compute distance when we have a center
+  // Geocode + compute distance when we have a center (gentle, sequential)
   useEffect(() => {
     let cancelled = false;
+
     if (!centerCoords || rows.length === 0) {
-      setDistanceReady(true); // nothing to do; allow render without distance
+      setDistanceReady(true); // nothing to compute
       return;
     }
 
     (async () => {
       try {
         const updated = [...rows];
-        // Geocode sequentially to be gentle on API; you can parallelize if needed.
+
         for (let i = 0; i < updated.length; i++) {
           if (cancelled) return;
 
           const r = updated[i];
-          // if already have coords, skip; else geocode by address
+
           if (!r._coords && r._address) {
             try {
               r._coords = await geocodeAddress(r._address);
-            } catch (e) {
-              // keep null on failure; silently continue
+            } catch {
               r._coords = null;
             }
           }
 
-          // distance
           if (r._coords) {
             const meters = await computeDistanceMeters(centerCoords, r._coords);
             r._distanceMeters = meters ?? null;
@@ -150,10 +160,19 @@ const RestaurantGrid = ({
       }
     })();
 
-    return () => { cancelled = true; };
-  }, [centerCoords, rows.length]);
+    return () => {
+      cancelled = true;
+    };
+    // Recompute when center changes or list length changes (avoid loops on row mutation)
+  }, [centerCoords?.lat, centerCoords?.lng, rows.length]);
 
-  // Client filtering + radius filter
+  // Let parent know when we are effectively "loading"
+  useEffect(() => {
+    const effectiveLoading = loading || (!!centerCoords && !distanceReady);
+    onLoadingChange?.(effectiveLoading);
+  }, [loading, distanceReady, centerCoords, onLoadingChange]);
+
+  // Client-side filters + radius
   const filtered = useMemo(() => {
     let list = [...rows];
 
@@ -163,7 +182,10 @@ const RestaurantGrid = ({
       list = list.filter((r) => {
         const c = (r.cuisine || '').toLowerCase();
         if (cat === 'pizza') return c.includes('italian') || c.includes('pizza');
-        if (cat === 'asian') return ['chinese','japanese','thai','korean','asian'].some(x => c.includes(x));
+        if (cat === 'asian')
+          return ['chinese', 'japanese', 'thai', 'korean', 'asian'].some((x) =>
+            c.includes(x)
+          );
         return c.includes(cat);
       });
     }
@@ -177,6 +199,7 @@ const RestaurantGrid = ({
           r.cuisine?.toLowerCase().includes(q) ||
           r.description?.toLowerCase().includes(q);
         if (inHeader) return true;
+
         return (r._items || []).some(
           (it) =>
             it.name?.toLowerCase().includes(q) ||
@@ -204,13 +227,15 @@ const RestaurantGrid = ({
       }
     }
 
-    // Radius filter (only when we have a center & (soon) distances computed)
+    // Radius filter
     if (centerCoords && radiusMiles && radiusMiles > 0) {
       const maxMeters = radiusMiles * 1609.344;
-      list = list.filter((r) => r._distanceMeters != null && r._distanceMeters <= maxMeters);
+      list = list.filter(
+        (r) => r._distanceMeters != null && r._distanceMeters <= maxMeters
+      );
     }
 
-    // Sort: if we have distances, sort by distance asc; else rating desc then name
+    // Sort: distance asc, then rating desc, then name
     list.sort((a, b) => {
       const da = a._distanceMeters ?? Infinity;
       const db = b._distanceMeters ?? Infinity;
@@ -224,9 +249,18 @@ const RestaurantGrid = ({
     });
 
     return list;
-  }, [rows, selectedCategory, appliedFilters, searchQuery, centerCoords, radiusMiles]);
+  }, [
+    rows,
+    selectedCategory,
+    appliedFilters,
+    searchQuery,
+    centerCoords,
+    radiusMiles,
+  ]);
 
-  // Render states
+  // ---------------- Render ----------------
+
+  // Initial skeleton (no empty-state flash)
   if ((loading && rows.length === 0) || (!distanceReady && centerCoords)) {
     return (
       <div className="px-4 py-6 lg:px-6">
@@ -253,37 +287,58 @@ const RestaurantGrid = ({
           <div className="w-16 h-16 bg-muted flex items-center justify-center mx-auto mb-4">
             <Icon name="AlertTriangle" size={24} className="text-error" />
           </div>
-          <h3 className="text-lg font-semibold text-foreground mb-2">Couldn’t load restaurants</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-2">
+            Couldn’t load restaurants
+          </h3>
           <p className="text-muted-foreground mb-4">{err}</p>
         </div>
       </div>
     );
   }
 
-  if (filtered.length === 0) {
+  const showEmpty =
+    (!suppressEmptyUntilLoaded || hasLoadedOnce) &&
+    !loading &&
+    filtered.length === 0;
+
+  if (showEmpty) {
     return (
       <div className="px-4 py-12 lg:px-6 text-center">
         <div className="max-w-md mx-auto">
           <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
             <Icon name="Search" size={24} className="text-muted-foreground" />
           </div>
-          <h3 className="text-lg font-semibold text-foreground mb-2">No restaurants found</h3>
-          <p className="text-muted-foreground">Try expanding your radius or adjusting filters.</p>
+          <h3 className="text-lg font-semibold text-foreground mb-2">
+            No restaurants found
+          </h3>
+          <p className="text-muted-foreground">
+            Try expanding your radius or adjusting filters.
+          </p>
         </div>
       </div>
     );
   }
 
+  // Optional tiny “Updating…” chip while refetching in the background
+  const fetchingOverlay =
+    loading && hasLoadedOnce ? (
+      <div className="pointer-events-none fixed inset-x-0 top-[var(--sticky-top,64px)] z-10 flex justify-center">
+        <div className="mt-2 rounded-full px-3 py-1 text-xs bg-muted text-muted-foreground">
+          Updating…
+        </div>
+      </div>
+    ) : null;
+
   return (
-    <div className="px-4 py-6 lg:px-6">
+    <div className="relative px-4 py-6 lg:px-6">
+      {fetchingOverlay}
+
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold text-foreground">
           {filtered.length} restaurants
         </h2>
         {centerCoords && (
-          <div className="text-sm text-muted-foreground">
-            within ~{radiusMiles} mi
-          </div>
+          <div className="text-sm text-muted-foreground">within ~{radiusMiles} mi</div>
         )}
       </div>
 

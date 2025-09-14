@@ -31,6 +31,8 @@ const HomeRestaurantDiscovery = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const [radiusMiles] = useState(3);
+  const [gridLoading, setGridLoading] = useState(true);
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -56,6 +58,7 @@ const HomeRestaurantDiscovery = () => {
           centerCoords={fulfillment.coords}
           radiusMiles={radiusMiles}
           fulfillment={fulfillment}
+          onLoadingChange={setGridLoading}
         />
       </main>
 
