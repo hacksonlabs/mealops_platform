@@ -1,4 +1,3 @@
-// src/pages/restaurant-detail-menu/index.jsx
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -23,6 +22,7 @@ import InfoTooltip from '../../components/ui/InfoTooltip';
 const pad = (n) => String(n).padStart(2, '0');
 const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const toTimeInput = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const EXTRA_SENTINEL = '__EXTRA__'; // keep in sync with modal
 
 function slugifyId(str = '') {
   return String(str).toLowerCase().replace(/[^\w]+/g, '-').replace(/(^-|-$)/g, '');
@@ -85,14 +85,25 @@ const RestaurantDetailMenu = () => {
     const editedMenuItemId = editState.menuItemId || editState.menu_items?.id || editState.id;
     if (editedMenuItemId !== selectedItem.id) return undefined;
 
+    // Prefer authoritative assignment block from selected_options
+    let assignedTo = null;
+    const asg = editState.selectedOptions?.__assignment__ || null;
+    if (asg) {
+      const members = Array.isArray(asg.member_ids) ? asg.member_ids.map((id) => ({ id })) : [];
+      const extras = Array.from({ length: Number(asg.extra_count || 0) }, () => ({ id: EXTRA_SENTINEL, name: 'Extra' }));
+      assignedTo = [...members, ...extras];
+    }
+    if (!assignedTo || assignedTo.length === 0) {
+      assignedTo = editState.assignedTo || (editState.userName ? [{ name: editState.userName }] : null);
+    }
+
     return {
       quantity: Number(editState.quantity || 1),
       selectedOptions: editState.selectedOptions ?? null,
       selectedToppings: editState.selectedToppings ?? null,
       selectedSize: editState.selectedSize ?? null,
       specialInstructions: editState.specialInstructions || '',
-      assignedTo:
-        editState.assignedTo || (editState.userName ? [{ name: editState.userName }] : null),
+      assignedTo,
       // IMPORTANT: these two determine "editing" mode
       cartRowId: editState.rowId || editState.id || null, // local rowId OR shared order_items.id
       cartId: location.state?.cartId || null, // shared cart id if present
@@ -109,7 +120,6 @@ const RestaurantDetailMenu = () => {
     const def = pickDefaultProvider(providers);
     setLocalProvider(prev => prev || def);
   }, [restaurant]);
-
 
   useEffect(() => {
     let cancelled = false;
@@ -131,7 +141,6 @@ const RestaurantDetailMenu = () => {
     })();
     return () => { cancelled = true; };
   }, [localProvider, restaurant]);
-
 
   // Pull fulfillment from URL if present
   useEffect(() => {
@@ -270,7 +279,6 @@ const RestaurantDetailMenu = () => {
 
   // Transform the **provider menu** (flat -> grouped like DB)
   const { providerItemsByCat, providerCategories } = useMemo(() => {
-    // Expect each provider item to have at least: { id, name, price, category, image, description }
     const groups = new Map();
     for (const it of providerFlatMenu || []) {
       const name = it.category || 'Menu';
@@ -433,11 +441,42 @@ const RestaurantDetailMenu = () => {
     setIsCustomizationModalOpen(true);
   }, [location.state?.editItem, menuRaw]);
 
+  // If we navigated from the hub with a known cartId, hydrate the drawer and open it
+  useEffect(() => {
+    const incoming = location.state?.cartId;
+    if (!incoming) return;
+
+    setCartId(incoming);
+    setActiveCartId?.(incoming);
+
+    (async () => {
+      const snap = await cartDbService.getCartSnapshot(incoming);
+      if (!snap) return;
+      const count = snap.items.reduce((n, it) => n + Number(it.quantity || 0), 0);
+      const total = snap.items.reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0);
+      window.dispatchEvent(new CustomEvent('cartBadge', {
+        detail: {
+          count,
+          total,
+          name: snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart',
+          cartId: incoming,
+          restaurant: snap.restaurant,
+          items: snap.items,
+          // use fulfillment passed via navigation if present; fallback to current page state
+          fulfillment: location.state?.fulfillment || fulfillment,
+        },
+      }));
+      window.dispatchEvent(new CustomEvent('openCartDrawer'));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.cartId]);
+
+  // Lookup an existing cart for this restaurant/provider (but don't override a known incoming cartId)
   useEffect(() => {
     if (!activeTeam?.id || !restaurant?.id) return;
+    if (location.state?.cartId) return; // already set from navigation
     let cancelled = false;
     (async () => {
-      // lookup only; do NOT create
       const id = await cartDbService.findActiveCartForRestaurant(activeTeam.id, restaurant.id, provider);
       if (!id || cancelled) return;
       setCartId(id);
@@ -458,7 +497,7 @@ const RestaurantDetailMenu = () => {
       }));
     })();
     return () => { cancelled = true; };
-  }, [activeTeam?.id, restaurant?.id, provider]);
+  }, [activeTeam?.id, restaurant?.id, provider, location.state?.cartId]); // note cartId dependency omitted on purpose
 
   // Subscribe to realtime changes to keep drawer fresh (optional but nice)
   useEffect(() => {
@@ -482,9 +521,6 @@ const RestaurantDetailMenu = () => {
     return unsubscribe;
   }, [cartId]);
 
-  // When user clicks an item, you already open the modal; no change
-
-  // Add / Edit flow — now DB-backed
   const handleAddToCart = async (customizedItem, quantity) => {
     let id = cartId;
     if (!id) {
@@ -511,8 +547,8 @@ const RestaurantDetailMenu = () => {
     // Build assignment snapshot for header (“For: name(s)” incl. Extra)
     const memberIds = (customizedItem.assignedTo || [])
       .map(a => a?.id)
-      .filter(Boolean); // only real member UUIDs
-    const extraCount = (customizedItem.assignedTo || []).filter(a => a?.name === 'Extra').length;
+      .filter(Boolean); // only real member UUIDs (EXTRA sentinel handled below)
+    const extraCount = (customizedItem.assignedTo || []).filter(a => a?.name === 'Extra' || a?.id === EXTRA_SENTINEL).length;
     const displayNames = (customizedItem.assignedTo || []).map(a => a?.name).filter(Boolean);
 
     const selectedOptions = customizedItem.selectedOptions || {};

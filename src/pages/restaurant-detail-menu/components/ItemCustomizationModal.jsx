@@ -332,12 +332,23 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
     setSelections(prev => ({ ...prev, ...nextSel }));
 
     // 3) Assignees (same as before)
+    let ids = [];
     if (preset.assignedTo && Array.isArray(preset.assignedTo)) {
-      const ids = extractMemberIdsFromPreset(preset.assignedTo, members);
-      if (ids.length) {
-        setAssigneeIds(ids.slice(0, Math.max(1, preset.quantity || 1)));
-        setAssigneesLocked(true);
+      ids = extractMemberIdsFromPreset(preset.assignedTo, members);
+    }
+    // fallback: read ids directly from selectedOptions.__assignment__
+    if (!ids.length) {
+      const asg = preset.selectedOptions?.__assignment__;
+      if (asg) {
+        ids = [
+          ...(Array.isArray(asg.member_ids) ? asg.member_ids : []),
+          ...Array.from({ length: Number(asg.extra_count || 0) }, () => EXTRA_SENTINEL),
+        ];
       }
+    }
+    if (ids.length) {
+      setAssigneeIds(ids.slice(0, Math.max(1, preset.quantity || 1)));
+      setAssigneesLocked(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, preset, groups]);
@@ -503,8 +514,10 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
                       const arr = Array.isArray(vals) ? vals : (vals ? [vals] : []);
                       setAssigneeIds(arr.slice(0, quantity)); // cap by quantity
                     }}
-                    placeholder={`Select up to ${quantity} ${quantity > 1 ? 'assignees' : 'assignee'} (optional)`}
+                    // placeholder={`Select up to ${quantity} ${quantity > 1 ? 'assignees' : 'assignee'} (optional)`}
                     options={optionsList}
+                    menuPortalTarget={document.body}
+                    menuPosition="fixed"
                   />
 
                   {filteredOptionsList.length === 0 && (

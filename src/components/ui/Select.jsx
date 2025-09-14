@@ -1,5 +1,6 @@
 // src/components/ui/Select.jsx
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import ReactDOM from "react-dom";
 import { ChevronDown, Check, Search, X } from "lucide-react";
 import { cn } from "../../utils/cn";
 import Button from "./Button";
@@ -26,12 +27,18 @@ const Select = React.forwardRef(({
   onChange,
   onOpenChange,
   selectedNoun = "items",
+  menuPortalTarget,
+  menuPosition = "fixed", // "absolute" | "fixed"
   ...props
 }, ref) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const dropdownRef = useRef(null);     // container for outside-click
+
+  const dropdownRef = useRef(null);     // container for outside-click (trigger area)
   const searchInputRef = useRef(null);  // focus search when opened
+  const buttonRef = useRef(null);       // NEW: measure trigger for fixed menu
+  const menuRef = useRef(null);         // NEW: outside-click when menu is portaled
+  const [menuRect, setMenuRect] = useState(null);
 
   // Generate unique ID if not provided
   const selectId = id || `select-${Math.random()?.toString(36)?.substr(2, 9)}`;
@@ -43,49 +50,63 @@ const Select = React.forwardRef(({
     return Array.isArray(value) ? (value.length > 0 ? value[0] : null) : value;
   }, [value, multiple]);
 
-  // Close on outside click
+  // Close on outside click (consider both trigger area and the portaled menu)
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
-        setSearchTerm("");
-        onOpenChange?.(false);
-      }
+      const inTrigger = dropdownRef.current?.contains(event.target);
+      const inMenu = menuRef.current?.contains(event.target);
+      if (inTrigger || inMenu) return; // don't close if clicking inside either
+      setIsOpen(false);
+      setSearchTerm("");
+      onOpenChange?.(false);
     };
     document.addEventListener("mousedown", handleClickOutside, true);
     return () => document.removeEventListener("mousedown", handleClickOutside, true);
   }, [onOpenChange]);
 
-  // Close on Escape + on resize/scroll (common UX polish)
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKey = (e) => {
-      if (e.key === "Escape") {
-        setIsOpen(false);
-        setSearchTerm("");
-        onOpenChange?.(false);
-      }
-    };
-    const onResize = () => {
+  // Close on Escape; resize/scroll behavior depends on menuPosition
+useEffect(() => {
+  if (!isOpen) return;
+
+  const onKey = (e) => {
+    if (e.key === "Escape") {
+      setIsOpen(false);
+      setSearchTerm("");
+      onOpenChange?.(false);
+    }
+  };
+
+  // For fixed/portaled menus: reposition on resize/scroll instead of closing
+  const onResize = () => {
+    if (menuPosition === "fixed") {
+      updateMenuRect();
+    } else {
       setIsOpen(false);
       onOpenChange?.(false);
-    };
-    const onScroll = () => {
+    }
+  };
+
+  const onScroll = () => {
+    if (menuPosition === "fixed") {
+      // keep open, just follow the trigger
+      updateMenuRect();
+    } else {
       setIsOpen(false);
       onOpenChange?.(false);
-    };
+    }
+  };
 
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("resize", onResize);
-    // capture = true closes even when scrolling parent containers
-    window.addEventListener("scroll", onScroll, true);
+  document.addEventListener("keydown", onKey);
+  window.addEventListener("resize", onResize, true);
+  window.addEventListener("scroll", onScroll, true);
 
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onResize);
-      window.removeEventListener("scroll", onScroll, true);
-    };
-  }, [isOpen, onOpenChange]);
+  return () => {
+    document.removeEventListener("keydown", onKey);
+    window.removeEventListener("resize", onResize, true);
+    window.removeEventListener("scroll", onScroll, true);
+  };
+}, [isOpen, onOpenChange, menuPosition]);
+
 
   // Autofocus search box on open
   useEffect(() => {
@@ -94,6 +115,25 @@ const Select = React.forwardRef(({
       return () => clearTimeout(t);
     }
   }, [isOpen, searchable]);
+
+  // measure trigger rect for fixed-position menu
+  const updateMenuRect = () => {
+    if (!buttonRef.current) return;
+    const r = buttonRef.current.getBoundingClientRect();
+    setMenuRect({ top: r.bottom + 4, left: r.left, width: r.width });
+  };
+
+  useEffect(() => {
+    if (!isOpen || menuPosition !== "fixed") return;
+    updateMenuRect();
+    const onWin = () => updateMenuRect();
+    window.addEventListener("resize", onWin, true);
+    window.addEventListener("scroll", onWin, true);
+    return () => {
+      window.removeEventListener("resize", onWin, true);
+      window.removeEventListener("scroll", onWin, true);
+    };
+  }, [isOpen, menuPosition]);
 
   // Filter options (label, value, description, optional .search blob)
   const filteredOptions = useMemo(() => {
@@ -166,6 +206,97 @@ const Select = React.forwardRef(({
     ? (normalizedValue?.length > 0)
     : (normalizedValue !== undefined && normalizedValue !== null && normalizedValue !== "");
 
+  const menuEl = (
+    <div
+      ref={menuRef}
+      className={
+        menuPosition === "fixed"
+          ? "fixed z-[1200] rounded-md border border-border bg-white text-black shadow-md"
+          : "absolute z-[1200] mt-1 rounded-md border border-border bg-white text-black shadow-md"
+      }
+      style={
+        menuPosition === "fixed" && menuRect
+          ? { top: menuRect.top, left: menuRect.left, width: menuRect.width }
+          : undefined
+      }
+      role="listbox"
+      aria-labelledby={selectId}
+    >
+      {searchable && (
+        <div className="border-b p-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              ref={searchInputRef}
+              placeholder="Search options..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="max-h-60 overflow-auto py-1">
+        {(filteredOptions?.length ?? 0) === 0 ? (
+          <div className="px-3 py-2 text-sm text-muted-foreground">
+            {searchTerm ? "No options found" : "No options available"}
+          </div>
+        ) : (
+          filteredOptions.map((option) => {
+            const selected = isSelected(option?.value);
+
+            return (
+              <div
+                key={option?.value}
+                role="option"
+                aria-selected={selected}
+                tabIndex={0}
+                onClick={() => !option?.disabled && handleOptionSelect(option)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    if (!option?.disabled) handleOptionSelect(option);
+                  }
+                }}
+                className={cn(
+                  "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                  option?.disabled && "pointer-events-none opacity-50",
+                  !multiple && selected && "bg-primary text-primary-foreground"
+                )}
+              >
+                {/* Left: indicator */}
+                {multiple ? (
+                  <div className="pointer-events-none">
+                    <Checkbox checked={selected} readOnly className="mr-0" />
+                  </div>
+                ) : (
+                  <span
+                    className={cn(
+                      "mr-1 inline-block h-2 w-2 rounded-full border border-border",
+                      selected && "border-transparent bg-current"
+                    )}
+                  />
+                )}
+
+                {/* Label & (optional) description */}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate">{option?.label}</div>
+                  {option?.description && (
+                    <div className="truncate text-xs text-muted-foreground">{option?.description}</div>
+                  )}
+                </div>
+
+                {/* Right: checkmark for single */}
+                {!multiple && selected && <Check className="h-4 w-4" />}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className={cn("relative", className)} ref={dropdownRef}>
       {label && (
@@ -181,8 +312,13 @@ const Select = React.forwardRef(({
       )}
 
       <div className="relative">
+        {/* NEW: merge forwarded ref + local buttonRef so we can measure the trigger */}
         <button
-          ref={ref}
+          ref={(el) => {
+            buttonRef.current = el;
+            if (typeof ref === "function") ref(el);
+            else if (ref) ref.current = el;
+          }}
           id={selectId}
           type="button"
           className={cn(
@@ -232,91 +368,11 @@ const Select = React.forwardRef(({
           ))}
         </select>
 
-        {/* Dropdown */}
+        {/* NEW: render dropdown (portaled if requested) */}
         {isOpen && (
-          <div
-            className="absolute z-50 mt-1 rounded-md border border-border bg-white text-black shadow-md"
-            role="listbox"
-            aria-labelledby={selectId}
-          >
-            {searchable && (
-              <div className="border-b p-2">
-                <div className="relative">
-                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    ref={searchInputRef}
-                    placeholder="Search options..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-8"
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="max-h-60 overflow-auto py-1">
-              {(filteredOptions?.length ?? 0) === 0 ? (
-                <div className="px-3 py-2 text-sm text-muted-foreground">
-                  {searchTerm ? "No options found" : "No options available"}
-                </div>
-              ) : (
-                filteredOptions.map((option) => {
-                  const selected = isSelected(option?.value);
-
-                  return (
-                    <div
-                      key={option?.value}
-                      role="option"
-                      aria-selected={selected}
-                      tabIndex={0}
-                      onClick={() => !option?.disabled && handleOptionSelect(option)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          if (!option?.disabled) handleOptionSelect(option);
-                        }
-                      }}
-                      className={cn(
-                        "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
-                        option?.disabled && "pointer-events-none opacity-50",
-                        !multiple && selected && "bg-primary text-primary-foreground"
-                      )}
-                    >
-                      {/* Left: indicator */}
-                      {multiple ? (
-                        // Make checkbox *visual* only; the row handles the click.
-                        <div className="pointer-events-none">
-                          <Checkbox
-                            checked={selected}
-                            readOnly
-                            className="mr-0"
-                          />
-                        </div>
-                      ) : (
-                        <span
-                          className={cn(
-                            "mr-1 inline-block h-2 w-2 rounded-full border border-border",
-                            selected && "border-transparent bg-current"
-                          )}
-                        />
-                      )}
-
-                      {/* Label & (optional) description */}
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate">{option?.label}</div>
-                        {option?.description && (
-                          <div className="truncate text-xs text-muted-foreground">{option?.description}</div>
-                        )}
-                      </div>
-
-                      {/* Right: checkmark for single */}
-                      {!multiple && selected && <Check className="h-4 w-4" />}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+          menuPortalTarget && menuPosition === "fixed"
+            ? ReactDOM.createPortal(menuEl, menuPortalTarget)
+            : menuEl
         )}
       </div>
 
