@@ -1,5 +1,5 @@
 // src/pages/restaurant-detail-menu/index.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import Header from '../../components/ui/Header';
@@ -39,6 +39,12 @@ const RestaurantDetailMenu = () => {
   const { setActiveCartId } = useSharedCart();
   const [loadingMenu, setLoadingMenu] = useState(false);
   const [providerError, setProviderError] = useState('');
+  const syncServiceToUrl = useCallback((svc) => {
+    const qs = new URLSearchParams(location.search);
+    if (svc) qs.set('service', svc);
+    else qs.delete('service');
+    navigate({ search: qs.toString() }, { replace: true });
+  }, [location.search, navigate]);
 
   const [fulfillment, setFulfillment] = useState(() => {
     const fromState = location.state?.fulfillment;
@@ -341,6 +347,7 @@ const RestaurantDetailMenu = () => {
   const handleServiceToggle = (service) => {
     setSelectedService(service);
     setFulfillment((prev) => ({ ...prev, service }));
+    syncServiceToUrl(service);
   };
 
   const handleCategoryChange = (categoryId) => setActiveCategory(categoryId);
@@ -383,6 +390,7 @@ const RestaurantDetailMenu = () => {
   const handleFulfillmentChange = (next) => {
     setFulfillment(next);
     if (next.service !== selectedService) setSelectedService(next.service);
+    syncServiceToUrl(next.service);
     window.dispatchEvent(
       new CustomEvent('deliveryAddressUpdate', {
         detail: { address: next.address, lat: next.coords ?? null },

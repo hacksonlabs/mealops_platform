@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import Header from '../../components/ui/Header';
 import PrimaryTabNavigation from '../../components/ui/PrimaryTabNavigation';
@@ -28,6 +28,13 @@ function countActive(f) {
 
 const HomeRestaurantDiscovery = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const setServiceParam = (svc) => {
+    const qs = new URLSearchParams(location.search);
+    if (svc) qs.set('service', svc);
+    else qs.delete('service');
+    navigate({ search: qs.toString() }, { replace: true });
+  };
   const [selectedService, setSelectedService] = useState('delivery');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
@@ -70,6 +77,7 @@ const HomeRestaurantDiscovery = () => {
   // Handle service change
   const handleServiceChange = (service) => {
     setSelectedService(service);
+    setServiceParam(service);
   };
 
   // Handle category change
@@ -89,12 +97,14 @@ const HomeRestaurantDiscovery = () => {
 
   const handleFulfillmentChange = (next) => {
     setFulfillment(next);
+    setSelectedService(next.service);
     // rebroadcast address changes to legacy listeners
     window.dispatchEvent(
       new CustomEvent('deliveryAddressUpdate', {
         detail: { address: next.address, lat: next.coords ?? null },
       })
     );
+    setServiceParam(next.service);
   };
 
   // Handle search from header
@@ -129,7 +139,7 @@ const HomeRestaurantDiscovery = () => {
       date: date || (fromWhen ? toDateInput(fromWhen) : prev.date),
       time: time || (fromWhen ? toTimeInput(fromWhen) : prev.time),
     }));
-
+    if (service) setSelectedService(service)
     if (address) {
       window.dispatchEvent(
         new CustomEvent('deliveryAddressUpdate', {

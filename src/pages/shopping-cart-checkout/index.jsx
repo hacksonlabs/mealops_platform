@@ -29,6 +29,13 @@ const toTimeInput = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const ShoppingCartCheckout = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const setServiceParam = (svc) => {
+    const qs = new URLSearchParams(location.search);
+    if (svc) qs.set('service', svc);
+    else qs.delete('service');
+    navigate({ search: qs.toString() }, { replace: true });
+  };
+
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const {
@@ -102,6 +109,7 @@ const ShoppingCartCheckout = () => {
     setFulfillment(next);
     // Mirror into existing order state
     setServiceType(next.service);
+    setServiceParam(next.service);
     setDeliveryAddress(next.address || '');
     setEstimatedTime(next.service === 'delivery' ? '30-40 min' : '20-25 min');
     if (next.service === 'pickup') setTipAmount(0);
@@ -110,6 +118,7 @@ const ShoppingCartCheckout = () => {
   // Keep FulfillmentBar in sync when toggles in other components change service type
   const handleServiceTypeChange = (type) => {
     setServiceType(type);
+    setServiceParam(next.service);
     setEstimatedTime(type === 'delivery' ? '30-40 min' : '20-25 min');
     if (type === 'pickup') setTipAmount(0);
     setFulfillment((prev) => (prev.service === type ? prev : { ...prev, service: type }));
