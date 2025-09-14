@@ -1090,3 +1090,59 @@ CREATE POLICY item_assignees_delete
       )
     )
   );
+
+-- Carts: allow team members to delete their team’s carts
+CREATE POLICY cart_delete_for_team
+ON public.meal_carts
+FOR DELETE
+USING (
+  team_id IN (
+    SELECT tm.team_id
+    FROM public.team_members tm
+    WHERE tm.user_id = auth.uid()
+  )
+);
+
+-- Items: allow delete when the parent cart belongs to user’s team
+CREATE POLICY cart_items_delete_via_cart
+ON public.meal_cart_items
+FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.meal_carts c
+    JOIN public.team_members tm ON tm.team_id = c.team_id
+    WHERE c.id = meal_cart_items.cart_id
+      AND tm.user_id = auth.uid()
+  )
+);
+
+-- Assignees: allow delete when the parent item belongs to a cart in user’s team
+CREATE POLICY cart_item_assignees_delete_via_cart
+ON public.meal_cart_item_assignees
+FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.meal_cart_items i
+    JOIN public.meal_carts c ON c.id = i.cart_id
+    JOIN public.team_members tm ON tm.team_id = c.team_id
+    WHERE i.id = meal_cart_item_assignees.cart_item_id
+      AND tm.user_id = auth.uid()
+      AND c.status <> 'submitted'
+  )
+);
+
+/* If meal_cart_members exists and should cascade/delete as well: */
+CREATE POLICY cart_members_delete_via_cart
+ON public.meal_cart_members
+FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.meal_carts c
+    JOIN public.team_members tm ON tm.team_id = c.team_id
+    WHERE c.id = meal_cart_members.cart_id
+      AND tm.user_id = auth.uid()
+  )
+);

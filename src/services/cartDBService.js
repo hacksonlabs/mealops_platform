@@ -360,9 +360,19 @@ async function listOpenCarts(teamId) {
 
 
 async function deleteCart(cartId) {
-	// children cascade via FK; single call
-	const { error } = await supabase.from('meal_carts').delete().eq('id', cartId);
-	if (error) throw error;
+  // Return deleted row id; surface RLS “no-op” as an error so the UI can show it
+  const { data, error, count } = await supabase
+    .from('meal_carts')
+    .delete({ count: 'exact' })
+    .eq('id', cartId)
+    .select('id');
+
+  if (error) throw error;
+
+  const affected = typeof count === 'number' ? count : (data?.length ?? 0);
+  if (affected === 0) {
+    throw new Error('Cart not deleted (not found or insufficient permissions).');
+  }
 }
 
 async function markSubmitted(cartId) {
