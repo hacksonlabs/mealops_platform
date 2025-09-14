@@ -1,7 +1,7 @@
 // src/pages/calendar-order-scheduling/components/OrderDetailsModal.jsx
 import React, { useState, useRef } from 'react';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 import PeopleTooltip from '../../../components/ui/PeopleTooltip';
 import { getStatusBadge, getMealTypeIcon } from '../../../utils/ordersUtils';
 

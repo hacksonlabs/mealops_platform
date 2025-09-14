@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 
 const MenuItemCard = ({ item, onAddToCart, onItemClick }) => {
   const [quantity, setQuantity] = useState(0);

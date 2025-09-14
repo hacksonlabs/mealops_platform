@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../../components/ui/Header';
-import Button from '../../components/ui/Button';
-import Input from '../../components/ui/Input';
-import Select from '../../components/ui/Select';
+import Button from '../../components/ui/custom/Button';
+import Input from '../../components/ui/custom/Input';
+import Select from '../../components/ui/custom/Select';
 import Icon from '../../components/AppIcon';
 import LocationCard from './components/LocationCard';
 import AddLocationAddressModal from './components/AddLocationAddressModal';

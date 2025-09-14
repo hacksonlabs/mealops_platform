@@ -3,9 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts';
 import { supabase } from '../../lib/supabase';
 import Header from '../../components/ui/Header';
-import Button from '../../components/ui/Button';
-import Input from '../../components/ui/Input';
-import Select from '../../components/ui/Select';
+import Button from '../../components/ui/custom/Button';
+import Input from '../../components/ui/custom/Input';
+import Select from '../../components/ui/custom/Select';
 import Icon from '../../components/AppIcon';
 import { toTitleCase, normalizePhoneNumber, normalizeBirthday } from '../../utils/stringUtils'
 import { parseMembersCsv, findIntraListDuplicates, duplicatesMessage } from '../../utils/addingTeamMembersUtils';

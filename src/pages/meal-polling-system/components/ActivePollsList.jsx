@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 
 const ActivePollsList = ({ polls, onSendReminder, onClosePoll }) => {
   const [pollResults, setPollResults] = useState({});

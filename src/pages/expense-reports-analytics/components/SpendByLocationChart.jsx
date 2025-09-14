@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 
 const SpendByLocationChart = ({ locationData, teamMemberData, onDrillDown }) => {
   const [viewMode, setViewMode] = useState('location'); // 'location' or 'team'

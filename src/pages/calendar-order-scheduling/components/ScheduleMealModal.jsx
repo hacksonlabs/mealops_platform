@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
-import Input from '../../../components/ui/Input';
+import Button from '../../../components/ui/custom/Button';
+import Input from '../../../components/ui/custom/Input';
 import { getMealTypeIcon, MEAL_TYPES, SERVICE_TYPES } from '../../../utils/ordersUtils';
 
 import { ensurePlacesLib, newSessionToken, fetchAddressSuggestions, getPlaceDetailsFromPrediction } from '../../../utils/googlePlaces';

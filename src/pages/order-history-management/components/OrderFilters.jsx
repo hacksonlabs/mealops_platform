@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import Button from '../../../components/ui/Button';
-import Input from '../../../components/ui/Input';
-import Select from '../../../components/ui/Select';
+import Button from '../../../components/ui/custom/Button';
+import Input from '../../../components/ui/custom/Input';
+import Select from '../../../components/ui/custom/Select';
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import Icon from '../AppIcon';
-import Button from './Button';
+import Button from './custom/Button';
 
 const FulfillmentBar = ({ value, onChange, onUseCurrentLocation, className = '' }) => {
   const service = value?.service || 'delivery';

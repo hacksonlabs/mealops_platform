@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
-import { Checkbox } from '../../../components/ui/Checkbox';
+import Button from '../../../components/ui/custom/Button';
+import { Checkbox } from '../../../components/ui/custom/Checkbox';
 import PeopleTooltip from '../../../components/ui/PeopleTooltip';
 import { getMealTypeIcon, getStatusBadge, formatDate, formatCurrency } from '../../../utils/ordersUtils';
 import { callCancelAPI } from '../../../utils/ordersApiUtils';

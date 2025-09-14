@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
-import Input from '../../../components/ui/Input';
-import Button from '../../../components/ui/Button';
+import Input from '../../../components/ui/custom/Input';
+import Button from '../../../components/ui/custom/Button';
 
 const MenuSearch = ({ onSearch, searchQuery, onClearSearch }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -94,23 +94,6 @@ const MenuSearch = ({ onSearch, searchQuery, onClearSearch }) => {
             )}
           </div>
         </div>
-
-        {/* Search Results Info */}
-        {searchQuery && (
-          <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
-            <span>
-              Searching for "{searchQuery}"
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleClear}
-              className="text-xs"
-            >
-              Clear search
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   );

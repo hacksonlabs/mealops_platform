@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import Button from '../../../components/ui/Button';
-import Select from '../../../components/ui/Select';
+import Button from '../../../components/ui/custom/Button';
+import Select from '../../../components/ui/custom/Select';
 import Icon from '../../../components/AppIcon';
 
 const TeamAssignmentModal = ({ paymentMethod, teams, onSubmit, onClose }) => {

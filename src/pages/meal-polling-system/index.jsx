@@ -6,7 +6,7 @@ import ActivePollsList from './components/ActivePollsList';
 import PollHistory from './components/PollHistory';
 import DistributionOptions from './components/DistributionOptions';
 import Icon from '../../components/AppIcon';
-import Button from '../../components/ui/Button';
+import Button from '../../components/ui/custom/Button';
 
 const MealPollingSystem = () => {
   const [polls, setPolls] = useState([]);

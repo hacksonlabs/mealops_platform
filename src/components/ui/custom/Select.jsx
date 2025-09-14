@@ -1,8 +1,8 @@
-// src/components/ui/Select.jsx
+// src/components/ui//custom/Select.jsx
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
 import { ChevronDown, Check, Search, X } from "lucide-react";
-import { cn } from "../../utils/cn";
+import { cn } from "../../../utils/cn";
 import Button from "./Button";
 import Input from "./Input";
 import { Checkbox } from "./Checkbox";

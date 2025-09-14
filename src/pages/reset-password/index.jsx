@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef  } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import Input from '../../components/ui/Input';
-import Button from '../../components/ui/Button';
+import Input from '../../components/ui/custom/Input';
+import Button from '../../components/ui/custom/Button';
 import Icon from '../../components/AppIcon';
 import { Helmet } from 'react-helmet';
 

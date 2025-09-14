@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
-import Button from '../../../components/ui/Button';
-import Select from '../../../components/ui/Select';
+import Button from '../../../components/ui/custom/Button';
+import Select from '../../../components/ui/custom/Select';
 import { useAuth } from '../../../contexts';
 import { supabase } from '../../../lib/supabase';
 

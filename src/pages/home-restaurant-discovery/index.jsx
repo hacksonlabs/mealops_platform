@@ -1,17 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Helmet } from 'react-helmet';
 import Header from '../../components/ui/Header';
-import PrimaryTabNavigation from '../../components/ui/PrimaryTabNavigation';
-import CartSummaryFloat from '../../components/ui/CartSummaryFloat';
-import DeliveryAddressBanner from '../../components/ui/DeliveryAddressBanner';
-import ServiceToggle from './components/ServiceToggle';
-import CategoryFilter from './components/CategoryFilter';
-import QuickReorderSection from './components/QuickReorderSection';
 import RestaurantGrid from './components/RestaurantGrid';
 import FilterDrawer from './components/FilterDrawer';
 import Icon from '../../components/AppIcon';
-import Button from '../../components/ui/Button';
+import Button from '../../components/ui/custom/Button';
 import FulfillmentBar from '../../components/ui/FulfillmentBar';
 
 // helpers

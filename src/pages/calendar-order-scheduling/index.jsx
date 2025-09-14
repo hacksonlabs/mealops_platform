@@ -7,7 +7,7 @@ import TopPanel from './components/TopPanel';
 import ScheduleMealModal from './components/ScheduleMealModal';
 import OrderDetailsModal from './components/OrderDetailsModal';
 import OrderDetailModal from '../order-history-management/components/OrderDetailModal';
-import Button from '../../components/ui/Button';
+import Button from '../../components/ui/custom/Button';
 import Icon from '../../components/AppIcon';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';

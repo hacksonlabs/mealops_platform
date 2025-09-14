@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 import Icon from '../../../components/AppIcon';
 import { normalizeBirthday, formatDateToMMDDYYYY } from '../../../utils/stringUtils';
 import { ROLE_CONFIG } from '../../../utils/addingTeamMembersUtils';

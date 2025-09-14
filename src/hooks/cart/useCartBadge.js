@@ -1,4 +1,4 @@
-// /src/components/cart/useCartBadge.js
+// /src/hooks/cart/useCartBadge.js
 
 import { useEffect, useState } from "react";
 

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import Button from '../../../components/ui/Button';
-import Input from '../../../components/ui/Input';
-import Select from '../../../components/ui/Select';
+import Button from '../../../components/ui/custom/Button';
+import Input from '../../../components/ui/custom/Input';
+import Select from '../../../components/ui/custom/Select';
 import Icon from '../../../components/AppIcon';
-import { Checkbox } from '../../../components/ui/Checkbox';
+import { Checkbox } from '../../../components/ui/custom/Checkbox';
 import { toTitleCase, normalizePhoneNumber, normalizeBirthday } from '../../../utils/stringUtils';
 
 const EditMemberModal = ({ member, onClose, onUpdate }) => {

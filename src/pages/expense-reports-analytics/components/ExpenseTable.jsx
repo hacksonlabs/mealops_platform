@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
-import Input from '../../../components/ui/Input';
-import { Checkbox } from '../../../components/ui/Checkbox';
+import Button from '../../../components/ui/custom/Button';
+import Input from '../../../components/ui/custom/Input';
+import { Checkbox } from '../../../components/ui/custom/Checkbox';
 
 const ExpenseTable = ({ 
   expenses, 

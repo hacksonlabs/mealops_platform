@@ -1,5 +1,5 @@
 import React from 'react';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 import Icon from '../../../components/AppIcon';
 
 const BulkActionsBar = ({ selectedCount, onBulkAction, onClearSelection }) => {

@@ -3,8 +3,8 @@ import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts';
 import Icon from '../AppIcon';
 import mealLogo from '../images/meal.png';
-import useCartBadge from '../cart/useCartBadge';
-import CartOverlays from '../cart/CartOverlays';
+import { useCartBadge } from '@/hooks/cart';
+import CartOverlays from './cart/CartOverlays';
 
 const Header = ({ notifications = 0, className = '' }) => {
   const { user, userProfile, teams, activeTeam, loadingTeams, switchActiveTeam, signOut } = useAuth();

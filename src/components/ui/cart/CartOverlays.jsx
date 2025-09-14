@@ -1,13 +1,13 @@
-// /src/components/cart/CartOverlays.jsx
+// /src/components/ui/cart/CartOverlays.jsx
 
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../contexts";
-import cartDbService from "../../services/cartDBService";
-import { formatCustomizations } from "../../utils/cartFormat";
-import Button from "../ui/Button";
-import Icon from "../AppIcon";
+import { useAuth } from "../../../contexts";
+import cartDbService from "../../../services/cartDBService";
+import { formatCustomizations } from "../../../utils/cartFormat";
+import Button from "../custom/Button";
+import Icon from "../../AppIcon";
 
 /** Keep this localized; header no longer needs these states/handlers. */
 export default function CartOverlays() {

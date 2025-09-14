@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import Image from '../../../components/AppImage';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 
 const RestaurantHero = ({ restaurant, onServiceToggle, selectedService, rightContent, belowTitleContent }) => {
   const [isFavorite, setIsFavorite] = useState(false);
@@ -69,7 +69,7 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService, rightCon
               )}
             </div>
 
-            {/* NEW: renders directly under the title/meta */}
+            {/* renders directly under the title/meta */}
             {belowTitleContent && (
               <div className="mt-3">
                 {belowTitleContent}

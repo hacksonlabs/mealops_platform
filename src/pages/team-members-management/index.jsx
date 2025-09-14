@@ -4,7 +4,7 @@ import Header from '../../components/ui/Header';
 import Icon from '../../components/AppIcon';
 import { useAuth } from '../../contexts';
 import { toTitleCase } from '../../utils/stringUtils';
-import Button from '../../components/ui/Button';
+import Button from '../../components/ui/custom/Button';
 
 import MembersTab from './components/MembersTab';
 import GroupsTab from './components/GroupsTab';

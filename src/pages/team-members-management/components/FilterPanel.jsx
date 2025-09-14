@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import Button from '../../../components/ui/Button';
-import { Checkbox } from '../../../components/ui/Checkbox';
+import Button from '../../../components/ui/custom/Button';
+import { Checkbox } from '../../../components/ui/custom/Checkbox';
 import Icon from '../../../components/AppIcon';
 
 const FilterPanel = ({ members, onFilterChange }) => {

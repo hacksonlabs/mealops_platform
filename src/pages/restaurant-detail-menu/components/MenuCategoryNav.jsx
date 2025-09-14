@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 
 const MenuCategoryNav = ({ categories, activeCategory, onCategoryChange, isSticky = false }) => {
   const [scrollPosition, setScrollPosition] = useState(0);

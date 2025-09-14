@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { teamService } from '../../../services/teamService';
 import { useAuth } from '../../../contexts';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 
 export function QuickActions() {
   const { user } = useAuth();

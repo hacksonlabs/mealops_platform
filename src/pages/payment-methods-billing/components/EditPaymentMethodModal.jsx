@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import Button from '../../../components/ui/Button';
-import Input from '../../../components/ui/Input';
-import Select from '../../../components/ui/Select';
-import { Checkbox } from '../../../components/ui/Checkbox';
+import Button from '../../../components/ui/custom/Button';
+import Input from '../../../components/ui/custom/Input';
+import Select from '../../../components/ui/custom/Select';
+import { Checkbox } from '../../../components/ui/custom/Checkbox';
 import Icon from '../../../components/AppIcon';
 
 const EditPaymentMethodModal = ({ method, teams, onSubmit, onClose }) => {
