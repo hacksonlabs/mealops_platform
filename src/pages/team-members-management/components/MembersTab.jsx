@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+// src/pages/team-members-management/tabs/MembersTab.jsx
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts';
@@ -25,7 +26,6 @@ export default function MembersTab() {
 
   // Members state
   const [members, setMembers] = useState([]);
-  const [filteredMembers, setFilteredMembers] = useState([]);
   const [selectedMembers, setSelectedMembers] = useState([]);
 
   // UI filters
@@ -50,12 +50,15 @@ export default function MembersTab() {
     }
   }, [authLoading, loadingTeams, teams, navigate]);
 
-  // --- Load members whenever active team changes ---
+  // Load members whenever active team changes
   const loadMembers = useCallback(async (tid) => {
     if (!tid) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('team_members').select('*').eq('team_id', tid);
+      const { data, error } = await supabase
+        .from('team_members')
+        .select('*')
+        .eq('team_id', tid);
       if (error) throw error;
       setMembers(data || []);
       setSelectedMembers([]);
@@ -72,51 +75,49 @@ export default function MembersTab() {
     loadMembers(activeTeam.id);
   }, [activeTeam?.id, loadMembers]);
 
-  // --- Filtering ---
-  useEffect(() => {
+  // Filtering
+  const filteredMembers = useMemo(() => {
     let filtered = [...members];
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
       filtered = filtered.filter(
-        (m) => m?.full_name?.toLowerCase().includes(q) || m?.email?.toLowerCase().includes(q)
+        (m) =>
+          m?.full_name?.toLowerCase().includes(q) ||
+          m?.email?.toLowerCase().includes(q)
       );
     }
     if (roleFilter.length > 0) {
-      filtered = filtered.filter((m) => roleFilter.includes(m?.role));
+      const set = new Set(roleFilter);
+      filtered = filtered.filter((m) => set.has(m?.role));
     }
-    setFilteredMembers(filtered);
+    return filtered;
   }, [members, searchTerm, roleFilter]);
 
-  // --- Bulk + CRUD ---
-  const handleMemberSelect = (memberId, checked) => {
+  // Simple stats (no is_active)
+  const memberStats = useMemo(
+    () => ({
+      total: members.length,
+      coaches: members.filter((m) => m?.role === 'coach').length,
+      players: members.filter((m) => m?.role === 'player').length,
+      staff: members.filter((m) => m?.role === 'staff').length,
+    }),
+    [members]
+  );
+
+  // Selection
+  const handleMemberSelect = useCallback((memberId, checked) => {
     setSelectedMembers((prev) => (checked ? [...prev, memberId] : prev.filter((id) => id !== memberId)));
-  };
+  }, []);
 
-  const handleSelectAll = (checked) => {
+  const handleSelectAll = useCallback((checked) => {
     setSelectedMembers(checked ? filteredMembers.map((m) => m.id) : []);
-  };
+  }, [filteredMembers]);
 
-
-  const handleBulkAction = async (action) => {
+  // Bulk: only delete/export now
+  const handleBulkAction = useCallback(async (action) => {
     if (!activeTeam?.id || selectedMembers.length === 0) return;
     try {
       setLoading(true);
-
-      if (action === 'activate' || action === 'deactivate') {
-        const makeActive = action === 'activate';
-        const { error } = await supabase
-          .from('team_members')
-          .update({ is_active: makeActive })
-          .eq('team_id', activeTeam?.id)
-          .in('id', selectedMembers);
-
-        if (error) throw error;
-
-        setMembers((prev) =>
-          prev.map((m) => (selectedMembers.includes(m.id) ? { ...m, is_active: makeActive } : m))
-        );
-        setSelectedMembers([]);
-      }
 
       if (action === 'delete') {
         if (!confirm(`Are you sure you want to delete ${selectedMembers.length} member(s)?`)) {
@@ -126,9 +127,8 @@ export default function MembersTab() {
         const { error } = await supabase
           .from('team_members')
           .delete()
-          .eq('team_id', activeTeam?.id)
+          .eq('team_id', activeTeam.id)
           .in('id', selectedMembers);
-
         if (error) throw error;
 
         setMembers((prev) => prev.filter((m) => !selectedMembers.includes(m.id)));
@@ -143,14 +143,15 @@ export default function MembersTab() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTeam?.id, selectedMembers]);
 
-  const handleAddMember = async (memberData) => {
+  // CRUD
+  const handleAddMember = useCallback(async (memberData) => {
     if (!activeTeam?.id) return { success: false, error: 'No team found.' };
     setLoading(true);
     try {
       const row = {
-        team_id: activeTeam?.id,
+        team_id: activeTeam.id,
         user_id: null,
         role: String(memberData?.role || 'player').toLowerCase(),
         full_name: toTitleCase(memberData?.name || ''),
@@ -158,10 +159,14 @@ export default function MembersTab() {
         phone_number: normalizePhoneNumber(memberData?.phone || ''),
         allergies: toTitleCase(memberData?.allergies || ''),
         birthday: memberData?.birthday || null,
-        is_active: true,
+        // no is_active
       };
 
-      const { data, error } = await supabase.from('team_members').insert(row).select().single();
+      const { data, error } = await supabase
+        .from('team_members')
+        .insert(row)
+        .select()
+        .single();
       if (error) throw error;
 
       setMembers((prev) => [data, ...prev]);
@@ -173,14 +178,14 @@ export default function MembersTab() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTeam?.id]);
 
-  const handleEditMember = (member) => {
+  const handleEditMember = useCallback((member) => {
     setSelectedMember(member);
     setShowEditModal(true);
-  };
+  }, []);
 
-  const handleUpdateMember = async (memberData) => {
+  const handleUpdateMember = useCallback(async (memberData) => {
     if (!activeTeam?.id || !selectedMember?.id) return { success: false, error: 'No member selected.' };
     setLoading(true);
     try {
@@ -191,22 +196,16 @@ export default function MembersTab() {
         phone_number: normalizePhoneNumber(memberData?.phone_number ?? selectedMember?.phone_number ?? ''),
         allergies: toTitleCase(memberData?.allergies ?? selectedMember?.allergies ?? ''),
         birthday: memberData?.birthday ?? selectedMember?.birthday ?? null,
-        is_active:
-          typeof memberData?.is_active === 'boolean'
-            ? memberData.is_active
-            : typeof selectedMember?.is_active === 'boolean'
-            ? selectedMember.is_active
-            : true,
+        // no is_active
       };
 
       const { data, error } = await supabase
         .from('team_members')
         .update(patch)
-        .eq('team_id', activeTeam?.id)
+        .eq('team_id', activeTeam.id)
         .eq('id', selectedMember.id)
         .select()
         .single();
-
       if (error) throw error;
 
       setMembers((prev) => prev.map((m) => (m.id === data.id ? data : m)));
@@ -219,9 +218,9 @@ export default function MembersTab() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTeam?.id, selectedMember]);
 
-  const handleRemoveMember = async (member) => {
+  const handleRemoveMember = useCallback(async (member) => {
     if (!activeTeam?.id || !member?.id) return;
     if (!confirm(`Are you sure you want to remove ${member?.full_name || 'this member'} from the team?`)) return;
 
@@ -230,9 +229,8 @@ export default function MembersTab() {
       const { error } = await supabase
         .from('team_members')
         .delete()
-        .eq('team_id', activeTeam?.id)
+        .eq('team_id', activeTeam.id)
         .eq('id', member.id);
-
       if (error) throw error;
 
       setMembers((prev) => prev.filter((m) => m.id !== member.id));
@@ -241,20 +239,19 @@ export default function MembersTab() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTeam?.id]);
 
-  const handleViewDetails = (member) => {
+  const handleViewDetails = useCallback((member) => {
     setSelectedMember(member);
     setShowDetailModal(true);
-  };
+  }, []);
 
-  const handleCreateTeam = () =>
-    navigate('/team-setup', {
-      state: { next: '/team-members-management', source: 'team-tab' },
-    });
+  // Export / CSV
+  const handleExportMembers = useCallback((onlySelected = false) => {
+    const source = onlySelected
+      ? members.filter((m) => selectedMembers.includes(m.id))
+      : filteredMembers;
 
-  const handleExportMembers = (onlySelected = false) => {
-    const source = onlySelected ? members.filter((m) => selectedMembers.includes(m.id)) : filteredMembers;
     const rows = membersToExportRows(source);
     const filename = buildMembersFilename(activeTeam, {
       selectedCount: onlySelected ? rows.length : null,
@@ -262,15 +259,15 @@ export default function MembersTab() {
       ext: 'csv',
     });
     downloadCsv({ rows, filename });
-  };
+  }, [members, selectedMembers, filteredMembers, activeTeam]);
 
-  const handleCSVImport = async (csvData) => {
+  const handleCSVImport = useCallback(async (csvData) => {
     if (!activeTeam?.id) return;
     setLoading(true);
     setShowCSVModal(false);
     try {
       const rows = csvData.map((r) => ({
-        team_id: activeTeam?.id,
+        team_id: activeTeam.id,
         user_id: null,
         role: String(r.role || 'player').toLowerCase(),
         full_name: toTitleCase(r.name || ''),
@@ -278,26 +275,28 @@ export default function MembersTab() {
         phone_number: normalizePhoneNumber(r.phoneNumber || ''),
         allergies: toTitleCase(r.allergies || ''),
         birthday: r.birthday || null,
-        is_active: true,
+        // no is_active
       }));
 
-      const { data, error } = await supabase.from('team_members').insert(rows).select();
+      const { data, error } = await supabase
+        .from('team_members')
+        .insert(rows)
+        .select();
       if (error) throw error;
+
       setMembers((prev) => [...data, ...prev]);
     } catch (e) {
       console.error('Import failed:', e);
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTeam?.id]);
 
-  const memberStats = {
-    total: members?.length || 0,
-    active: members?.filter((m) => m?.is_active)?.length || 0,
-    coaches: members?.filter((m) => m?.role === 'coach')?.length || 0,
-    players: members?.filter((m) => m?.role === 'player')?.length || 0,
-    staff: members?.filter((m) => m?.role === 'staff')?.length || 0,
-  };
+  const handleCreateTeam = useCallback(() => {
+    navigate('/team-setup', {
+      state: { next: '/team-members-management', source: 'team-tab' },
+    });
+  }, [navigate]);
 
   return (
     <div className="space-y-6">
@@ -329,7 +328,7 @@ export default function MembersTab() {
               <p className="text-muted-foreground text-sm">Coaches</p>
               <p className="text-2xl font-bold text-foreground">{memberStats.coaches}</p>
             </div>
-            <Icon name="Trophy" size={24} className="text-purple-600" />
+              <Icon name="Trophy" size={24} className="text-purple-600" />
           </div>
         </div>
 
@@ -347,7 +346,6 @@ export default function MembersTab() {
       {/* Search & Filters */}
       <div className="bg-card border border-border rounded-lg p-6 shadow-athletic">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-          {/* Left: search + role filter */}
           <div className="flex flex-1 items-center space-x-4">
             <div className="relative flex-1">
               <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -362,7 +360,7 @@ export default function MembersTab() {
               <Select
                 value={roleFilter}
                 multiple
-                onChange={(vals) => setRoleFilter(vals)}
+                onChange={setRoleFilter}
                 placeholder="Filter by Role"
                 options={[
                   { value: 'coach', label: 'Coaches' },
@@ -373,14 +371,13 @@ export default function MembersTab() {
             </div>
           </div>
 
-          {/* Right: roster actions */}
           <div className="flex items-center space-x-3">
             {activeTeam?.id && (
               <>
                 <Button variant="outline" onClick={() => setShowCSVModal(true)} iconName="Upload" iconPosition="left">
                   Import CSV
                 </Button>
-                <Button onClick={() => setShowAddModal(true)} iconName="Plus" iconPosition="left" variant="outline">
+                <Button variant="outline" onClick={() => setShowAddModal(true)} iconName="Plus" iconPosition="left">
                   Add Member
                 </Button>
               </>
@@ -390,11 +387,9 @@ export default function MembersTab() {
               onClick={() => handleExportMembers(selectedMembers.length > 0)}
               iconName="Download"
               iconPosition="left"
-              aria-label={
-                selectedMembers.length > 0
-                  ? `Export ${selectedMembers.length} selected members`
-                  : 'Export all members'
-              }
+              aria-label={selectedMembers.length > 0
+                ? `Export ${selectedMembers.length} selected members`
+                : 'Export all members'}
             >
               {selectedMembers.length > 0 ? `Export (${selectedMembers.length} selected)` : 'Export All'}
             </Button>
@@ -402,11 +397,12 @@ export default function MembersTab() {
         </div>
       </div>
 
-      {/* Bulk Actions */}
+      {/* Bulk Actions (Delete / Export only) */}
       {selectedMembers.length > 0 && (
         <BulkActionsBar
           selectedCount={selectedMembers.length}
           onBulkAction={handleBulkAction}
+          actions={['export', 'delete']} // <- see updated BulkActionsBar below
           onClearSelection={() => setSelectedMembers([])}
         />
       )}
@@ -425,7 +421,11 @@ export default function MembersTab() {
 
       {/* Modals */}
       {showAddModal && (
-        <AddMemberModal onClose={() => setShowAddModal(false)} onAdd={handleAddMember} existingMembers={members} />
+        <AddMemberModal
+          onClose={() => setShowAddModal(false)}
+          onAdd={handleAddMember}
+          existingMembers={members}
+        />
       )}
 
       {showEditModal && selectedMember && (
@@ -457,17 +457,6 @@ export default function MembersTab() {
           }}
         />
       )}
-
-      {/* {showEditTeamModal && activeTeam && (
-        <EditTeamModal
-          team={activeTeam}
-          canDelete={Boolean(canDelete)}
-          onDeleteTeam={handleDeleteTeam}
-          onClose={() => setShowEditTeamModal(false)}
-          onUpdate={handleUpdateTeam}
-          loading={loading}
-        />
-      )} */}
     </div>
   );
 }

@@ -19,24 +19,6 @@ const BulkActionsBar = ({ selectedCount, onBulkAction, onClearSelection }) => {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => onBulkAction('activate')}
-            iconName="UserCheck"
-            iconPosition="left"
-          >
-            Activate
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => onBulkAction('deactivate')}
-            iconName="UserX"
-            iconPosition="left"
-          >
-            Deactivate
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
             onClick={() => onBulkAction('export')}
             iconName="Download"
             iconPosition="left"

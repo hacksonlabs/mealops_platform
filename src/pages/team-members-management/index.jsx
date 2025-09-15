@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+// src/pages/team-members-management/index.jsx
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import Icon from '../../components/AppIcon';
@@ -11,13 +12,112 @@ import GroupsTab from './components/GroupsTab';
 import { supabase } from '../../lib/supabase';
 import EditTeamModal from './components/EditTeamModal';
 
+const TABS = { MEMBERS: 'members', GROUPS: 'groups' };
+
+/* ---------- Small presentational pieces ---------- */
+
+function PageHeader({ team, teamsCount, onNewTeam, onEditTeam }) {
+  const titlePieces = [
+    team?.name || 'Team',
+    team?.gender ? toTitleCase(team.gender) : '',
+    team?.sport || '',
+  ].filter(Boolean);
+
+  return (
+    <div className="flex items-center justify-between mb-8">
+      <div className="flex-1">
+        <h1 className="text-4xl font-extrabold text-foreground leading-tight mb-3">
+          {titlePieces.join(' ')}
+        </h1>
+
+        <p className="text-lg text-muted-foreground mb-4">
+          Manage members, roles, contact information, and groups for{' '}
+          <span className="font-semibold text-foreground">
+            {team?.name || 'your team'}
+          </span>.
+        </p>
+
+        {team?.conference_name && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-6">
+            <div className="bg-gradient-to-br from-purple-500/10 to-purple-700/10 border border-purple-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
+              <Icon name="ClipboardList" size={20} className="text-purple-500 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-muted-foreground">Conference</p>
+                <strong className="text-base text-foreground font-semibold">
+                  {team.conference_name}
+                </strong>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-end gap-2">
+        {teamsCount > 0 && (
+          <Button onClick={onNewTeam} iconName="Plus" iconPosition="left" variant="outline">
+            New Team
+          </Button>
+        )}
+        {team?.id && (
+          <Button variant="outline" onClick={onEditTeam} iconName="Edit" iconPosition="left">
+            Edit Team
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TabsNav({ value, onChange }) {
+  const btnBase =
+    'pb-3 px-1 border-b-2 text-sm font-medium transition-colors';
+  const active = 'border-primary text-foreground';
+  const idle = 'border-transparent text-muted-foreground hover:text-foreground';
+
+  return (
+    <div className="mb-6 border-b border-border">
+      <nav className="-mb-px flex space-x-6" aria-label="Team sections">
+        <button
+          type="button"
+          onClick={() => onChange(TABS.MEMBERS)}
+          className={`${btnBase} ${value === TABS.MEMBERS ? active : idle}`}
+        >
+          Members
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(TABS.GROUPS)}
+          className={`${btnBase} ${value === TABS.GROUPS ? active : idle}`}
+        >
+          Groups
+        </button>
+      </nav>
+    </div>
+  );
+}
+
+/* ---------- Container page ---------- */
+
 const TeamMembersManagement = () => {
   const navigate = useNavigate();
-  const { userProfile, teams, activeTeam, loading: authLoading, loadingTeams, user, refreshTeams } = useAuth();
-  const [tab, setTab] = useState('members'); // 'members' | 'groups'
+  const {
+    user,
+    userProfile,
+    teams,
+    activeTeam,
+    loading: authLoading,
+    loadingTeams,
+    refreshTeams,
+  } = useAuth();
+
+  const [tab, setTab] = useState(TABS.MEMBERS);
   const [showEditTeamModal, setShowEditTeamModal] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const canDelete = Boolean(user?.id && activeTeam?.coach_id === user?.id);
+  const [saving, setSaving] = useState(false);
+
+  const canDelete = useMemo(
+    () => Boolean(user?.id && activeTeam?.coach_id === user?.id),
+    [user?.id, activeTeam?.coach_id]
+  );
 
   // If done loading and there are no teams, send user to team setup.
   useEffect(() => {
@@ -30,124 +130,101 @@ const TeamMembersManagement = () => {
     }
   }, [authLoading, loadingTeams, teams, navigate]);
 
-  const handleCreateTeam = () =>
+  const handleCreateTeam = useCallback(() => {
     navigate('/team-setup', {
       state: { next: '/team-members-management', source: 'team-tab' },
     });
+  }, [navigate]);
+
+  const handleOpenEdit = useCallback(() => setShowEditTeamModal(true), []);
+  const handleCloseEdit = useCallback(() => setShowEditTeamModal(false), []);
 
   const handleUpdateTeam = useCallback(
     async (updatedTeamData) => {
       if (!activeTeam?.id) return;
-      setLoading(true);
+      setSaving(true);
       try {
-        const { error } = await supabase.from('teams').update(updatedTeamData).eq('id', activeTeam?.id);
+        const { error } = await supabase
+          .from('teams')
+          .update(updatedTeamData)
+          .eq('id', activeTeam.id);
         if (error) throw error;
         await refreshTeams();
-      } catch (error) {
-        console.error('Error updating team information:', error.message);
+      } catch (e) {
+        console.error('Error updating team information:', e?.message || e);
       } finally {
-        setLoading(false);
+        setSaving(false);
       }
     },
     [activeTeam?.id, refreshTeams]
   );
 
-  const handleDeleteTeam = async (team) => {
-    try {
-      if (!activeTeam?.id) {
-        return { success: false, error: 'Missing team id.' };
+  const handleDeleteTeam = useCallback(
+    async (team) => {
+      try {
+        if (!activeTeam?.id) {
+          return { success: false, error: 'Missing team id.' };
+        }
+        const { error: delErr } = await supabase
+          .from('teams')
+          .delete()
+          .eq('id', team.id);
+        if (delErr) {
+          return {
+            success: false,
+            error: delErr.message || 'Unable to delete team.',
+          };
+        }
+        await refreshTeams();
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: err?.message || 'Failed to delete team.' };
       }
-      // Delete the team (RLS allows only the coach to do this)
-      const { error: delErr } = await supabase.from('teams').delete().eq('id', team.id);
-      if (delErr) {
-        return { success: false, error: delErr.message || 'Unable to delete team.' };
-      }
-      await refreshTeams();
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: err?.message || 'Failed to delete team.' };
-    }
-  };
-  
+    },
+    [activeTeam?.id, refreshTeams]
+  );
+
+  // Light loading shell to avoid layout jump
+  const isBootLoading = authLoading || loadingTeams;
+
   return (
     <div className="min-h-screen bg-background">
       <Header user={userProfile} notifications={2} />
+
       <main className="pt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Page Header */}
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex-1">
-              <h1 className="text-4xl font-extrabold text-foreground leading-tight mb-3">
-                {activeTeam?.name || 'Team'} {toTitleCase(activeTeam?.gender) || ''} {activeTeam?.sport || ''}
-              </h1>
-              <p className="text-lg text-muted-foreground mb-4">
-                Manage members, roles, contact information, and groups for{' '}
-                <span className="font-semibold text-foreground">{activeTeam?.name || 'your team'}</span>.
-              </p>
-
-              {activeTeam?.conference_name && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-6">
-                  <div className="bg-gradient-to-br from-purple-500/10 to-purple-700/10 border border-purple-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
-                    <Icon name="ClipboardList" size={20} className="text-purple-500 flex-shrink-0" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Conference</p>
-                      <strong className="text-base text-foreground font-semibold">{activeTeam.conference_name}</strong>
-                    </div>
-                  </div>
-                </div>
-              )}
+          {isBootLoading ? (
+            <div className="mb-8">
+              <div className="h-9 w-2/3 bg-muted animate-pulse rounded mb-3" />
+              <div className="h-5 w-1/2 bg-muted animate-pulse rounded" />
             </div>
-            <div className="flex items-center justify-end gap-2">
-              {teams?.length > 0 && (
-                <Button onClick={handleCreateTeam} iconName="Plus" iconPosition="left" variant="outline">
-                  New Team
-                </Button>
-              )}
-              {activeTeam?.id && (
-                <Button variant="outline" onClick={() => setShowEditTeamModal(true)} iconName="Edit" iconPosition="left">
-                  Edit Team
-                </Button>
-              )}
-            </div>
-          </div>
+          ) : (
+            <PageHeader
+              team={activeTeam}
+              teamsCount={teams?.length || 0}
+              onNewTeam={handleCreateTeam}
+              onEditTeam={handleOpenEdit}
+            />
+          )}
 
           {/* Tabs */}
-          <div className="mb-6 border-b border-border">
-            <nav className="-mb-px flex space-x-6">
-              <button
-                onClick={() => setTab('members')}
-                className={`pb-3 px-1 border-b-2 text-sm font-medium ${
-                  tab === 'members'
-                    ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Members
-              </button>
-              <button
-                onClick={() => setTab('groups')}
-                className={`pb-3 px-1 border-b-2 text-sm font-medium ${
-                  tab === 'groups'
-                    ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Groups
-              </button>
-            </nav>
-          </div>
+          <TabsNav value={tab} onChange={setTab} />
 
-          {tab === 'members' ? <MembersTab /> : <GroupsTab />}
+          {/* Content */}
+          {tab === TABS.MEMBERS ? <MembersTab /> : <GroupsTab />}
         </div>
       </main>
+
+      {/* Edit team */}
       {showEditTeamModal && activeTeam && (
         <EditTeamModal
           team={activeTeam}
-          canDelete={Boolean(canDelete)}
+          canDelete={canDelete}
           onDeleteTeam={handleDeleteTeam}
-          onClose={() => setShowEditTeamModal(false)}
+          onClose={handleCloseEdit}
           onUpdate={handleUpdateTeam}
-          loading={loading}
+          loading={saving}
         />
       )}
     </div>
