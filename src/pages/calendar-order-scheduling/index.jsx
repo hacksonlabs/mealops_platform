@@ -51,48 +51,6 @@ const CalendarOrderScheduling = () => {
   const [historyDetailOrder, setHistoryDetailOrder] = useState(null);
   const [fullDetailLoading, setFullDetailLoading] = useState(false);
 
-  // ---- upcoming (NOW → +7 days), independent of currentDate ----
-  const [upcomingNow, setUpcomingNow] = useState([]);
-  const [loadingUpcoming, setLoadingUpcoming] = useState(false);
-  useEffect(() => {
-    (async () => {
-      if (!activeTeam?.id) { setUpcomingNow([]); return; }
-      setLoadingUpcoming(true);
-      const today = new Date(); today.setHours(0,0,0,0);
-      const nextWeek = new Date(today); nextWeek.setDate(today.getDate() + 7);
-      const { data, error } = await supabase
-        .from('meal_orders')
-        .select(`
-          id, team_id, title, description, meal_type, scheduled_date,
-          order_status, fulfillment_method, delivery_instructions, created_at,
-          delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-          restaurant:restaurants ( id, name, address ),
-          meal_items:meal_order_items (
-            id, name, quantity, product_marked_price_cents, notes,
-            team_member:team_members ( id, full_name, role )
-          )
-        `)
-        .eq('team_id', activeTeam.id)
-        .gte('scheduled_date', today.toISOString())
-        .lte('scheduled_date', nextWeek.toISOString())
-        .order('scheduled_date', { ascending: true });
-      if (error) { console.error(error); setUpcomingNow([]); }
-      else {
-        setUpcomingNow((data || []).map(r => ({
-          id: r.id,
-          status: r.order_status,
-          mealType: r.meal_type,
-          date: r.scheduled_date,
-          time: fmtTime(r.scheduled_date),
-          restaurant: r?.restaurant?.name || '',
-          attendees: r?.attendees_count ?? 0,
-          originalOrderData: r,
-        })));
-      }
-      setLoadingUpcoming(false);
-    })();
-  }, [activeTeam?.id]);
-
   // data from hook
   const {
     loading,
@@ -100,6 +58,7 @@ const CalendarOrderScheduling = () => {
     orders,
     teamMembers,
     birthdayEvents,
+    upcomingNow,
   } = useCalendarData(activeTeam?.id, currentDate, viewMode);
 
   // merge orders + birthdays
@@ -121,18 +80,6 @@ const CalendarOrderScheduling = () => {
     });
     return events;
   }, [orders, birthdayEvents]);
-
-  // next 7 days
-  const upcomingMeals = orders
-    .filter((order) => {
-      const orderDate = new Date(order.date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const nextWeek = new Date(today);
-      nextWeek.setDate(today.getDate() + 7);
-      return orderDate >= today && orderDate <= nextWeek && order.status !== 'completed';
-    })
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
 
   // responsiveness
   useEffect(() => {
@@ -170,6 +117,7 @@ const CalendarOrderScheduling = () => {
   const handleEditOrder = (order) => console.log('Edit order:', order);
 
   const handleCancelOrder = (orderId) =>
+    // TODO below does not work
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: 'cancelled' } : o)));
 
   const handleScheduleRedirect = (payload) => {
@@ -388,7 +336,7 @@ const CalendarOrderScheduling = () => {
               upcomingMeals={upcomingNow}
               onScheduleNew={handleScheduleNew}
               onOrderClick={handleOrderClick}
-              loading={loading || loadingUpcoming}
+              loading={loading}
             />
           </div>
 
@@ -420,9 +368,9 @@ const CalendarOrderScheduling = () => {
 
                     {loading ? (
                       <div className="text-sm text-muted-foreground py-6">Loading…</div>
-                    ) : upcomingMeals.length > 0 ? (
+                    ) : upcomingNow.length > 0 ? (
                       <div className="space-y-3">
-                        {upcomingMeals.map((meal) => (
+                        {upcomingNow.map((meal) => (
                           <div
                             key={meal.id}
                             className="p-4 border border-border rounded-md hover:bg-muted/50 transition-athletic cursor-pointer"

@@ -76,7 +76,6 @@ const OrderHistoryManagement = () => {
     if (filters.dateTo)   query = query.lte('scheduled_date', filters.dateTo);
 
     const { data, error } = await query;
-    console.log("meal orders", data);
     if (error) {
       console.error('Error fetching orders:', error.message);
       setErrorOrders('Failed to load orders.');

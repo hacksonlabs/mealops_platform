@@ -24,23 +24,66 @@ function inferMealTypeFromText(title, description) {
   return 'other';
 }
 export function useCalendarData(activeTeamId, currentDate, viewMode) {
-  const [loading, setLoading] = useState(false);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [loadingMembers, setLoadingMembers] = useState(false);
   const [error, setErr] = useState('');
   const [orders, setOrders] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
   const [birthdayEvents, setBirthdayEvents] = useState([]);
+
+  // ---- compute union window using primitives (ms/ISO) ----
+  const { startMs, endMs } = useMemo(() => {
+    const { start, end } = getRangeForView(currentDate, viewMode);
+    return { startMs: start.getTime(), endMs: end.getTime() };
+  }, [currentDate, viewMode]);
+  const todayMs = useMemo(() => {
+    const d = new Date(); d.setHours(0,0,0,0); return d.getTime();
+  }, []);
+  const next7Ms = useMemo(() => todayMs + 7 * 24 * 60 * 60 * 1000, [todayMs]);
+  const unionStartMs = Math.min(startMs, todayMs);
+  const unionEndMs   = Math.max(endMs,   next7Ms);
+  const unionStartISO = useMemo(() => new Date(unionStartMs).toISOString(), [unionStartMs]);
+  const unionEndISO   = useMemo(() => new Date(unionEndMs).toISOString(),   [unionEndMs]);
+
+  // ------- TEAM MEMBERS: fetch once per team -------
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setErr('');
-      if (!activeTeamId) {
-        setOrders([]); setTeamMembers([]); setBirthdayEvents([]);
-        return;
-      }
-      setLoading(true);
+      if (!activeTeamId) { if (!cancelled) setTeamMembers([]); return; }
+      setLoadingMembers(true);
       try {
-        const { start, end } = getRangeForView(currentDate, viewMode);
-        // ------- ORDERS (meal_orders + meal_order_items) -------
+        const { data: memberRows, error: membersErr } = await supabase
+          .from('team_members')
+          .select('id, user_id, full_name, role, email, allergies, birthday')
+          .eq('team_id', activeTeamId);
+        if (membersErr) throw membersErr;
+        const simplified = (memberRows ?? []).map((m) => ({
+          id: m.id,
+          name: m.full_name,
+          role: m.role,
+          email: m.email,
+          allergies: m.allergies || null,
+          birthday: m.birthday || null,
+        }));
+        if (!cancelled) setTeamMembers(simplified);
+      } catch (e) {
+        if (!cancelled) { setErr(e?.message || 'Failed to load team members'); setTeamMembers([]); }
+      } finally {
+        if (!cancelled) setLoadingMembers(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTeamId]);
+
+  // ------- ORDERS: single query for union window -------
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setErr('');
+      if (!activeTeamId) { if (!cancelled) setOrders([]); return; }
+      setLoadingOrders(true);
+      try {
         const { data: orderRows, error: orderErr } = await supabase
           .from('meal_orders')
           .select(`
@@ -54,8 +97,8 @@ export function useCalendarData(activeTeamId, currentDate, viewMode) {
             )
           `)
           .eq('team_id', activeTeamId)
-          .gte('scheduled_date', start.toISOString())
-          .lte('scheduled_date', end.toISOString())
+          .gte('scheduled_date', unionStartISO)
+          .lte('scheduled_date', unionEndISO)
           .order('scheduled_date', { ascending: true });
         if (orderErr) throw orderErr;
         const mappedOrders = (orderRows || []).map((row) => {
@@ -101,55 +144,61 @@ export function useCalendarData(activeTeamId, currentDate, viewMode) {
           };
         });
         if (!cancelled) setOrders(mappedOrders);
-        // ------- TEAM MEMBERS (for modal + birthdays) -------
-        const { data: memberRows, error: membersErr } = await supabase
-          .from('team_members')
-          .select('id, user_id, full_name, role, email, allergies, birthday')
-          .eq('team_id', activeTeamId);
-        if (membersErr) throw membersErr;
-        const simplified = (memberRows ?? []).map((m) => ({
-          id: m.id,
-          name: m.full_name,
-          role: m.role,
-          email: m.email,
-          allergies: m.allergies || null,
-          birthday: m.birthday || null,
-        }));
-        if (!cancelled) setTeamMembers(simplified);
-        // ------- BIRTHDAYS IN RANGE -------
-        const years = new Set([start.getUTCFullYear(), end.getUTCFullYear()]);
-        const bdays = [];
-        simplified.forEach((m) => {
-          if (!m.birthday) return;
-          years.forEach((yr) => {
-            const d = mkBirthdayDateForYear(m.birthday, yr);
-            if (d >= start && d <= end) {
-              bdays.push({
-                id: `bday-${m.id}-${yr}`,
-                type: 'birthday',
-                date: d.toISOString(),
-                label: `${m.name}'s Bday!`,
-                memberId: m.id,
-                memberName: m.name,
-                dob: m.birthday,
-                status: 'birthday',
-              });
-            }
-          });
-        });
-        if (!cancelled) setBirthdayEvents(bdays);
       } catch (e) {
         if (!cancelled) {
           console.error('useCalendarData error:', e);
           setErr(e?.message || 'Failed to load calendar data');
-          setOrders([]); setTeamMembers([]); setBirthdayEvents([]);
+          setOrders([]);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadingOrders(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [activeTeamId, currentDate, viewMode]);
-  return { loading, error, orders, teamMembers, birthdayEvents };
+  }, [activeTeamId, unionStartISO, unionEndISO]);
+
+  // ------- BIRTHDAYS derived locally for the same union window -------
+  useEffect(() => {
+    const start = new Date(unionStartMs); 
+    const end = new Date(unionEndMs);
+    const years = new Set([start.getUTCFullYear(), end.getUTCFullYear()]);
+    const bdays = [];
+    (teamMembers || []).forEach((m) => {
+      if (!m.birthday) return;
+      years.forEach((yr) => {
+        const d = mkBirthdayDateForYear(m.birthday, yr);
+        if (d >= start && d <= end) {
+          bdays.push({
+            id: `bday-${m.id}-${yr}`,
+            type: 'birthday',
+            date: d.toISOString(),
+            label: `${m.name}'s Bday!`,
+            memberId: m.id,
+            memberName: m.name,
+            dob: m.birthday,
+            status: 'birthday',
+          });
+        }
+      });
+    });
+    setBirthdayEvents(bdays);
+  }, [teamMembers, unionStartMs, unionEndMs]);
+
+  // ------- Upcoming (NOW → +7) derived from the same orders -------
+  const upcomingNow = useMemo(() => {
+    const todayISO = new Date(todayMs).toISOString();
+    const nextISO  = new Date(next7Ms).toISOString();
+    return (orders || [])
+      .filter(o =>
+        o.type === 'order' &&
+        o.date >= todayISO &&
+        o.date <= nextISO &&
+        String(o.status).toLowerCase() !== 'completed'
+      )
+      .sort((a,b) => new Date(a.date) - new Date(b.date));
+  }, [orders, todayMs, next7Ms]);
+
+  const loading = loadingOrders || loadingMembers;
+  return { loading, error, orders, teamMembers, birthdayEvents, upcomingNow };
 }
 export default useCalendarData;
