@@ -146,7 +146,7 @@ const CalendarGrid = ({
                 {dayEvents.map((evt) => ( // already sorted
                   <div key={evt?.id} className="text-xs mb-1">
                     <EventLabel evt={evt} />
-                    {evt?.type !== 'birthday' && (
+                    {evt?.type === 'order' && (
                       <div className="text-muted-foreground text-center mt-0.5">{evt?.attendees} attendees</div>
                     )}
                   </div>
@@ -269,7 +269,7 @@ const CalendarGrid = ({
                         <div className="font-semibold text-[13px] leading-5 whitespace-normal break-words">
                           {labelFor(evt)}
                         </div>
-                        {evt?.type !== 'birthday' && (
+                        {evt?.type === 'order' && (
                           <div className="text-muted-foreground text-xs text-center">{evt.attendees} attendees</div>
                         )}
                       </div>
