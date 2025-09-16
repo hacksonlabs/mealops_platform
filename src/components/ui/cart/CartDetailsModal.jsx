@@ -4,6 +4,8 @@ import Button from '../custom/Button';
 import Icon from '../../AppIcon';
 import cartDbService from '../../../services/cartDBService';
 import { formatCustomizations } from '../../../utils/cartFormat';
+// NEW: pull in the status meta
+import { STATUS_META } from '../../../utils/ordersUtils';
 
 export default function CartDetailsModal({ isOpen, onClose, cartId }) {
   const [loading, setLoading] = useState(false);
@@ -101,6 +103,11 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
   const itemsLabel = `${itemCount} item${itemCount === 1 ? '' : 's'} · $${grandSubtotal.toFixed(2)}`;
   const dateTimeLabel = `${fmtDateShort(dateStr)} • ${fmtTime(timeStr)}`;
 
+  // status chip from STATUS_META
+  const statusKey = String(snap?.cart?.status || 'draft').toLowerCase();
+  const statusMeta = STATUS_META[statusKey] || STATUS_META.draft;
+  const statusLabel = statusMeta.labelShort || statusMeta.label || (statusKey.charAt(0).toUpperCase() + statusKey.slice(1));
+
   return (
     <div
       className="fixed inset-0 z-[1100] bg-black/40 p-4 sm:p-6 md:p-8 flex items-start sm:items-center justify-center"
@@ -120,9 +127,18 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex items-center gap-2 flex-1">
               <Icon name="ShoppingCart" size={18} />
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border uppercase tracking-wide">
-                {snap?.cart?.status ?? 'draft'}
+
+              {/* STATUS CHIP */}
+              <span
+                className={[
+                  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide ring-1',
+                  statusMeta.bg, statusMeta.text, statusMeta.ring, 'border-transparent'
+                ].join(' ')}
+                title={statusLabel}
+              >
+                <span>{statusLabel}</span>
               </span>
+
               <h2 className="text-lg md:text-xl font-heading font-semibold text-foreground truncate">
                 {snap?.cart?.title?.trim() || snap?.restaurant?.name || 'Draft Cart'}
               </h2>

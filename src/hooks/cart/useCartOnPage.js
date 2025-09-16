@@ -44,7 +44,7 @@ export default function useCartOnPage({
     if (location.state?.cartId) return;
     let cancelled = false;
     (async () => {
-      const id = await cartDbService.findActiveCartForRestaurant(activeTeam.id, restaurant.id, provider);
+      const id = await cartDbService.findActiveCartForRestaurant(activeTeam.id, restaurant.id, provider, fulfillment);
       if (!id || cancelled) return;
       setCartId(id);
       const snap = await cartDbService.getCartSnapshot(id);
@@ -73,7 +73,7 @@ export default function useCartOnPage({
       }));
     })();
     return () => { cancelled = true; };
-  }, [activeTeam?.id, restaurant?.id, provider, location.state?.cartId]); // deliberate omissions
+  }, [activeTeam?.id, restaurant?.id, provider, location.state?.cartId]);
 
   // Subscribe realtime to keep drawer fresh
   useEffect(() => {
@@ -134,6 +134,7 @@ export default function useCartOnPage({
             : `${restaurant.name}`,
           providerType: provider,
           providerRestaurantId: restaurant?.provider_restaurant_ids?.[provider] || null,
+          fulfillment,
         }
       );
       await cartDbService.upsertCartFulfillment(id, fulfillment, {

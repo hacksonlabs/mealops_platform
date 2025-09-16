@@ -14,30 +14,56 @@ import { toTitleCase } from '../utils/stringUtils';
  * }
  */
 
-async function findActiveCartForRestaurant(teamId, restaurantId, providerType = null) {
-  let q = supabase
-    .from('meal_carts')
-    .select('id')
-    .eq('team_id', teamId)
-    .eq('restaurant_id', restaurantId)
-    .eq('status', 'draft')
-    .order('created_at', { ascending: false })
-    .limit(1);
-  if (providerType != null) q = q.eq('provider_type', providerType);
-  const { data, error } = await q.maybeSingle();
-  if (error) throw error;
-  return data?.id ?? null;
-}
-
-
 const normalizeTitle = (t) => {
   const s = (t ?? '').trim();
   if (!s) return 'Team Cart';
   return toTitleCase(s);
 };
 
-async function ensureCartForRestaurant(teamId, restaurantId, { title, providerType = null, providerRestaurantId = null } = {}) {
-  const existingId = await findActiveCartForRestaurant(teamId, restaurantId, providerType);
+const normalizeDbTime = (t) => {
+  if (!t) return null;
+  const parts = String(t).split(':');
+  const [hh = '00', mm = '00', ss = '00'] = parts;
+  return `${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:${(ss || '00').padStart(2, '0')}`;
+};
+
+
+// If date is provided: match that date (and time if provided).
+// If date is not provided: prefer carts with NULL date (unscheduled).
+async function findActiveCartForRestaurant(teamId, restaurantId, providerType = null, fulfillment = {}) {
+  let q = supabase
+    .from('meal_carts')
+    .select('id, fulfillment_date, fulfillment_time, updated_at')
+    .eq('team_id', teamId)
+    .eq('restaurant_id', restaurantId)
+    .eq('status', 'draft');
+
+  if (providerType != null) q = q.eq('provider_type', providerType);
+
+  const hasDate = Boolean(fulfillment?.date);
+  const hasTime = Boolean(fulfillment?.time);
+
+  if (hasDate) {
+    q = q.eq('fulfillment_date', fulfillment.date);
+    if (hasTime) q = q.eq('fulfillment_time', normalizeDbTime(fulfillment.time));
+  } else {
+    // No date selected yet? Prefer unscheduled carts.
+    q = q.is('fulfillment_date', null);
+  }
+
+  q = q.order('updated_at', { ascending: false }).order('created_at', { ascending: false }).limit(1);
+
+  const { data, error } = await q.maybeSingle();
+  if (error) throw error;
+  return data?.id ?? null;
+}
+
+async function ensureCartForRestaurant(
+  teamId,
+  restaurantId,
+  { title, providerType = null, providerRestaurantId = null, fulfillment = {} } = {}
+) {
+  const existingId = await findActiveCartForRestaurant(teamId, restaurantId, providerType, fulfillment);
   if (existingId) return existingId;
 
   const cleanTitle = normalizeTitle(title);
@@ -48,9 +74,14 @@ async function ensureCartForRestaurant(teamId, restaurantId, { title, providerTy
       restaurant_id: restaurantId,
       status: 'draft',
       title: cleanTitle,
-			provider_type: providerType,
+      provider_type: providerType,
       provider_restaurant_id: providerRestaurantId,
-      // created_by_member_id is auto-validated by trigger; can be NULL
+      fulfillment_service: fulfillment?.service ?? null,
+      fulfillment_address: fulfillment?.address ?? null,
+      fulfillment_latitude: fulfillment?.coords?.lat ?? null,
+      fulfillment_longitude: fulfillment?.coords?.lng ?? null,
+      fulfillment_date: fulfillment?.date ?? null,
+      fulfillment_time: normalizeDbTime(fulfillment?.time) ?? null,
     })
     .select('id')
     .single();
