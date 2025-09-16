@@ -198,7 +198,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
             </Button>
           </div>
 
-          <div className="flex items-center space-x-2">
+          {/* <div className="flex items-center space-x-2">
             {canCancel && !showCancelConfirm && (
               <Button
                 variant="destructive"
@@ -227,7 +227,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
                 Edit Order
               </Button>
             )}
-          </div>
+          </div> */}
         </div>
       </div>
     </div>

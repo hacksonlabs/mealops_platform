@@ -55,7 +55,7 @@ function ensureSpace(doc, y, needed, margin) {
 }
 
 function makeFileName(r) {
-  const safeTitle = (r?.title || 'order')
+  const safeTitle = (r?.restaurant.name || 'order')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');

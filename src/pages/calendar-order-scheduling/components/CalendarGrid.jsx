@@ -13,6 +13,12 @@ const CalendarGrid = ({
   loading = false,
 }) => {
   const [hoveredDate, setHoveredDate] = useState(null);
+  // Midnight helper so "today" isn't considered past mid-day.
+  const todayMidnight = () => {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    return t;
+  };
 
   const labelFor = (o) =>
     o?.type === 'birthday'
@@ -22,9 +28,15 @@ const CalendarGrid = ({
   const getDaysInMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   const getFirstDayOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1).getDay();
   const isToday = (date) => date.toDateString() === new Date().toDateString();
-  const isPastDate = (date) => { const t = new Date(); t.setHours(0,0,0,0); return date < t; };
+  const isPastDate = (date) => date < todayMidnight();
   const isSameDate = (a, b) => a?.toDateString() === b?.toDateString();
   const getEventsForDate = (d) => orders?.filter(o => isSameDate(new Date(o.date), d));
+  const isPastEvent = (evt) => {
+    const d = new Date(evt?.date);
+    return Number.isFinite(d.getTime?.()) ? d < todayMidnight() : false;
+  };
+  const pastMod = (evt) => (isPastEvent(evt) ? 'opacity-60' : '');
+
 
   // consistent ordering — birthdays first, then by time, then label
   const eventSort = (a, b) => {
@@ -91,7 +103,7 @@ const CalendarGrid = ({
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
-      const dayEvents = getEventsForDate(date).slice().sort(eventSort); // <<< SORT HERE
+      const dayEvents = getEventsForDate(date).slice().sort(eventSort);
       const isSelected = selectedDate && isSameDate(date, selectedDate);
       const isCurrentDay = isToday(date);
       const isPast = isPastDate(date);
@@ -118,7 +130,7 @@ const CalendarGrid = ({
                 {dayEvents.slice(0, 2).map((evt) => (
                   <div
                     key={evt?.id}
-                    className={`text-xs px-2 py-1 rounded border ${badgeFor(evt)} ${evt?.type === 'birthday' ? 'cursor-pointer ring-1 ring-rose-200/60' : 'cursor-pointer'}`}
+                    className={`text-xs px-2 py-1 rounded border ${badgeFor(evt)} ${pastMod(evt)} ${evt?.type === 'birthday' ? 'cursor-pointer ring-1 ring-rose-200/60' : 'cursor-pointer'}`}
                     onClick={(e) => { e.stopPropagation(); onOrderClick?.(evt); }}
                   >
                     <div className="font-medium truncate"><EventLabel evt={evt} /></div>
@@ -239,7 +251,7 @@ const CalendarGrid = ({
                     {dayEvents.slice(0, 3).map((evt) => (
                       <div
                         key={evt.id}
-                        className={`text-xs px-2 py-1 rounded border ${badgeFor(evt)} cursor-pointer ${evt?.type === 'birthday' ? 'ring-1 ring-rose-200/60' : ''}`}
+                        className={`text-xs px-2 py-1 rounded border ${badgeFor(evt)} ${pastMod(evt)} cursor-pointer ${evt?.type === 'birthday' ? 'ring-1 ring-rose-200/60' : ''}`}
                         onClick={(e) => { e.stopPropagation(); onOrderClick?.(evt); }}
                       >
                         <div className="font-medium truncate">{labelFor(evt)}</div>

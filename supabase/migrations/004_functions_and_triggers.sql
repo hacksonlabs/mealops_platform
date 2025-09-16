@@ -148,20 +148,6 @@ WHERE tm.user_id = auth.uid()
 LIMIT 1
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_access_location_address(location_address_uuid UUID)
-RETURNS BOOLEAN
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-AS $$
-SELECT EXISTS (
-    SELECT 1 FROM public.location_addresses la
-    JOIN public.saved_locations sl ON la.location_id = sl.id
-    WHERE la.id = location_address_uuid
-    AND public.is_team_member(sl.team_id)
-)
-$$;
-
 -- finalize cancellation (called by jobs/webhooks)
 CREATE OR REPLACE FUNCTION public.finalize_order_cancellation(
   p_order_id UUID,
@@ -541,8 +527,6 @@ ALTER FUNCTION public.is_team_coach(UUID)     SET search_path = public;
 ALTER FUNCTION public.handle_new_user_profile SET search_path = public;
 ALTER FUNCTION public.ensure_created_by SET search_path = public;
 ALTER FUNCTION public.set_updated_at     SET search_path = public;
-ALTER FUNCTION public.can_access_location_address(uuid) SET search_path = public;
-
 
 -- Triggers
 drop trigger if exists trg_notifications_set_created_by on public.notifications;
@@ -614,11 +598,6 @@ FOR EACH ROW EXECUTE FUNCTION public.ensure_created_by();
 DROP TRIGGER IF EXISTS trg_member_groups_updated_at ON public.member_groups;
 CREATE TRIGGER trg_member_groups_updated_at
 BEFORE UPDATE ON public.member_groups
-FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
-DROP TRIGGER IF EXISTS trg_location_addresses_updated_at ON public.location_addresses;
-CREATE TRIGGER trg_location_addresses_updated_at
-BEFORE UPDATE ON public.location_addresses
 FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 -- Auto-fill created_by on insert

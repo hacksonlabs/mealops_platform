@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts';
 import { paymentService } from '../../services/paymentService';
-import { teamService } from '../../services/teamService';
+import { teamService } from '../../services/not_used_yet/teamService';
 import Header from '../../components/ui/Header';
 import Button from '../../components/ui/custom/Button';
 import Input from '../../components/ui/custom/Input';

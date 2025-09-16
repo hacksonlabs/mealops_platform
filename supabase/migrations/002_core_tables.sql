@@ -42,20 +42,9 @@ CREATE TABLE public.team_members (
     UNIQUE(team_id, user_id)
 );
 
-CREATE TABLE public.saved_locations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    address TEXT NOT NULL,
-    location_type public.location_type DEFAULT 'school'::public.location_type,
-    notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
 -- restaurants table with API integration fields and restored location_id
 CREATE TABLE public.restaurants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    location_id UUID REFERENCES public.saved_locations(id) ON DELETE CASCADE, -- Restored as per user's base schema
     name TEXT NOT NULL,
     cuisine_type TEXT,
     phone_number TEXT,
@@ -115,7 +104,6 @@ CREATE TABLE public.meal_orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
     restaurant_id UUID REFERENCES public.restaurants(id) ON DELETE SET NULL,
-    location_id UUID REFERENCES public.saved_locations(id) ON DELETE SET NULL, -- Keeping this for internal location tracking
     title TEXT NOT NULL,
     meal_type public.meal_type,
     description TEXT,
@@ -276,20 +264,6 @@ CREATE TABLE public.meal_order_item_options (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE public.order_items (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id UUID REFERENCES public.meal_orders(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
-  team_member_id UUID REFERENCES public.team_members(id) ON DELETE SET NULL,
-  menu_item_id UUID REFERENCES public.menu_items(id) ON DELETE SET NULL,
-  item_name TEXT NOT NULL, -- Kept as a fallback/display name for now
-  quantity INTEGER DEFAULT 1,
-  price DECIMAL(8,2), -- Price at the time of order
-  special_instructions TEXT,
-  selected_options JSONB, -- Store selected options/modifications (e.g., "no onions", "extra cheese")
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE public.meal_polls (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
@@ -376,18 +350,6 @@ create table if not exists public.member_group_members (
   primary key (group_id, member_id)
 );
 
-CREATE TABLE public.location_addresses (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    location_id UUID REFERENCES public.saved_locations(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    address TEXT NOT NULL,
-    address_type public.location_type DEFAULT 'other'::public.location_type,
-    notes TEXT,
-    is_primary BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
 -- Parent cart row (one per restaurant/session)
 CREATE TABLE IF NOT EXISTS public.meal_carts (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -426,7 +388,7 @@ CREATE TABLE IF NOT EXISTS public.meal_cart_items (
   menu_item_id          uuid REFERENCES public.menu_items(id) ON DELETE SET NULL,
   item_name             text NOT NULL,   -- fallback display name
   quantity              integer NOT NULL DEFAULT 1 CHECK (quantity > 0),
-  price                 numeric(8,2) NOT NULL DEFAULT 0,  -- unit price at time of add (decimal like your order_items)
+  price                 numeric(8,2) NOT NULL DEFAULT 0,  -- unit price at time of add
   selected_options      jsonb,            -- normalized options for UI/rehydration
   special_instructions  text,
   created_at            timestamptz NOT NULL DEFAULT now(),

@@ -1,3 +1,4 @@
+// /src/pages/order-history-management/components/OrderDetailModal.jsx
 import React from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/custom/Button';
@@ -8,36 +9,75 @@ import {
   getMealTypeIcon,
 } from '../../../utils/ordersUtils';
 
+const titleCase = (s = '') =>
+  String(s)
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
 const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
   if (!isOpen || !order) return null;
 
-  // Unique attendees by team_member_id or user_id (new aliases only)
-  const uniqueAttendees = React.useMemo(() => {
-    const m = new Map();
-    (order?.order_items || []).forEach((it) => {
-      const key = it.team_member_id || it.user_id || it.id;
-      if (!m.has(key)) {
-        const name =
-          it?.team_member?.full_name ??
-          (it?.user_profile
-            ? `${it.user_profile.first_name} ${it.user_profile.last_name}`
-            : 'Team Member');
-        m.set(key, name);
-      }
+  // Prefer normalized snapshot items. Support a few shapes defensively.
+  const items = React.useMemo(
+    () => order?.items || order?.meal_order_items || order?.meal_items || [],
+    [order]
+  );
+
+  // Helpers to resolve assignee (for display + unique counting)
+  const getAssigneeName = (it) =>
+    it?.team_member?.full_name || // joined alias (team_members)
+    it?.member?.name ||           // fallback from other shapes
+    (it?.user_profile
+      ? `${it.user_profile.first_name || ''} ${it.user_profile.last_name || ''}`.trim()
+      : null);
+
+  const getAssigneeKey = (it) =>
+    it?.team_member_id ||
+    it?.user_id ||
+    it?.team_member?.id ||
+    it?.user_profile?.id ||
+    getAssigneeName(it) || null;
+
+  const { assignedPeople, peopleCount } = React.useMemo(() => {
+    const setKeys = new Set();
+    const seen = new Map(); // key -> display name
+    (items || []).forEach((it) => {
+      const key = getAssigneeKey(it);
+      const name = getAssigneeName(it);
+      if (key) setKeys.add(String(key));
+      if (key && name && !seen.has(String(key))) seen.set(String(key), name);
     });
-    return Array.from(m.values());
-  }, [order]);
+    const names = Array.from(seen.values());
+    return { assignedPeople: names, peopleCount: setKeys.size };
+  }, [items]);
 
-  const pplCount = uniqueAttendees.length || 0;
-
-  // Prefer DB enum; fallback to 'other'
   const mealType = order?.meal_type || 'other';
+  const fulfillment = (order?.fulfillment_method || '').toLowerCase();
+  const isDelivery = fulfillment === 'delivery';
 
   const restaurantName = order?.restaurant?.name || '—';
   const restaurantAddr = order?.restaurant?.address || '';
-  const locationName = order?.location?.name || '—';
-  const locationAddr = order?.location?.address || '';
+
+  // Location rule: delivery => per-order destination; else => restaurant address
+  const deliveryAddress = [
+    order?.delivery_address_line1 || '',
+    order?.delivery_address_line2 || '',
+    [order?.delivery_city, order?.delivery_state, order?.delivery_zip].filter(Boolean).join(', ')
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const locationStr = isDelivery ? deliveryAddress : restaurantAddr;
+
   const paymentMethod = order?.payment_method || null;
+
+  // Render helpers for item pricing (support cents or float)
+  const getUnitPrice = (it) => {
+    const cents =
+      it?.product_marked_price_cents ??
+      it?.unitPriceCents ??
+      (typeof it?.price === 'number' ? Math.round(it.price * 100) : 0);
+    return cents / 100;
+  };
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -66,6 +106,9 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <span className="px-2 py-1 text-xs rounded-full bg-muted text-muted-foreground capitalize">
+                {fulfillment ? titleCase(fulfillment) : '—'}
+              </span>
               <Icon
                 name={getMealTypeIcon(mealType)}
                 size={16}
@@ -96,11 +139,17 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                 <div className="bg-muted rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Icon name="MapPin" size={16} className="text-muted-foreground" />
-                    <span className="text-sm font-medium text-foreground">Location</span>
+                    <span className="text-sm font-medium text-foreground">
+                      {isDelivery ? 'Deliver to' : 'Pickup from'}
+                    </span>
                   </div>
-                  <p className="text-lg font-semibold text-foreground">{locationName}</p>
-                  {locationAddr && (
-                    <p className="text-xs text-muted-foreground mt-1">{locationAddr}</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {locationStr || '—'}
+                  </p>
+                  {!!order?.delivery_instructions && isDelivery && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {order.delivery_instructions}
+                    </p>
                   )}
                 </div>
 
@@ -109,7 +158,7 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                     <Icon name="Users" size={16} className="text-muted-foreground" />
                     <span className="text-sm font-medium text-foreground">Attendees</span>
                   </div>
-                  <p className="text-lg font-semibold text-foreground">{pplCount} people</p>
+                  <p className="text-lg font-semibold text-foreground">{peopleCount}</p>
                 </div>
 
                 <div className="bg-muted rounded-lg p-4">
@@ -123,10 +172,10 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                 </div>
               </div>
 
-              {/* Individual Orders */}
+              {/* Line Items (with assigned member) */}
               <div>
                 <h3 className="text-lg font-heading font-semibold text-foreground mb-4">
-                  Individual Orders
+                  Line Items
                 </h3>
                 <div className="bg-muted rounded-lg overflow-hidden">
                   <div className="overflow-x-auto">
@@ -134,54 +183,64 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                       <thead className="bg-card">
                         <tr>
                           <th className="px-4 py-3 text-left text-sm font-medium text-foreground">
-                            Team Member
+                            Assigned To
                           </th>
                           <th className="px-4 py-3 text-left text-sm font-medium text-foreground">
-                            Order
+                            Item
                           </th>
                           <th className="px-4 py-3 text-left text-sm font-medium text-foreground">
-                            Special Instructions
+                            Notes
                           </th>
                           <th className="px-4 py-3 text-right text-sm font-medium text-foreground">
-                            Cost
+                            Qty
+                          </th>
+                          <th className="px-4 py-3 text-right text-sm font-medium text-foreground">
+                            Unit
+                          </th>
+                          <th className="px-4 py-3 text-right text-sm font-medium text-foreground">
+                            Line Total
                           </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {(order?.order_items ?? []).map((it) => (
-                          <tr key={it.id} className="hover:bg-card/50 transition-athletic">
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
-                                  <Icon name="User" size={14} color="white" />
+                        {(items ?? []).map((it) => {
+                          const unit = getUnitPrice(it);
+                          const qty = it?.quantity ?? 1;
+                          const line = unit * qty;
+                          const assignee = getAssigneeName(it);
+                          return (
+                            <tr key={it.id} className="hover:bg-card/50 transition-athletic">
+                              <td className="px-4 py-3 text-sm text-foreground">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
+                                    <Icon name="User" size={14} color="white" />
+                                  </div>
+                                  <span>{assignee || 'Unassigned'}</span>
                                 </div>
-                                <span className="text-sm font-medium text-foreground">
-                                  {it?.team_member?.full_name ??
-                                    (it?.user_profile
-                                      ? `${it.user_profile.first_name} ${it.user_profile.last_name}`
-                                      : 'Team Member')}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-foreground">
-                              {it.item_name}
-                              {it.quantity > 1 ? ` × ${it.quantity}` : ''}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-muted-foreground">
-                              {it.special_instructions || 'None'}
-                            </td>
-                            <td className="px-4 py-3 text-sm font-medium text-foreground text-right">
-                              {formatCurrency(it.price)}
-                            </td>
-                          </tr>
-                        ))}
-                        {(!order?.order_items || order.order_items.length === 0) && (
+                              </td>
+                              <td className="px-4 py-3 text-sm text-foreground">{it?.name}</td>
+                              <td className="px-4 py-3 text-sm text-muted-foreground">
+                                {it?.notes || '—'}
+                              </td>
+                              <td className="px-4 py-3 text-sm font-medium text-foreground text-right">
+                                {qty}
+                              </td>
+                              <td className="px-4 py-3 text-sm font-medium text-foreground text-right">
+                                {formatCurrency(unit)}
+                              </td>
+                              <td className="px-4 py-3 text-sm font-medium text-foreground text-right">
+                                {formatCurrency(line)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {(!items || items.length === 0) && (
                           <tr>
                             <td
-                              colSpan={4}
+                              colSpan={6}
                               className="px-4 py-6 text-sm text-muted-foreground text-center"
                             >
-                              No individual items recorded for this order.
+                              No line items recorded for this order.
                             </td>
                           </tr>
                         )}

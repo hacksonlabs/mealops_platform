@@ -7,7 +7,9 @@ class SharedCartService {
       const { data: { session } } = await supabase?.auth?.getSession();
       if (!session?.user) throw new Error('User not authenticated');
 
-      const { data, error } = await supabase?.from('meal_orders')?.insert({
+      const { data, error } = await supabase
+        .from('meal_orders')
+        .insert({
           title: 'Shared Cart',
           description: 'Collaborative food ordering',
           restaurant_id: restaurantId,
@@ -16,7 +18,9 @@ class SharedCartService {
           order_status: 'draft',
           is_shared_cart: true,
           scheduled_date: new Date()?.toISOString()
-        })?.select()?.single();
+        })
+        .select()
+        .single();
 
       if (error) throw error;
       return data;
@@ -26,22 +30,23 @@ class SharedCartService {
     }
   }
 
-  // Get shared cart by ID with all related data
+  // Get shared cart by ID with related data (normalized items)
   async getSharedCart(cartId) {
     try {
-      const { data, error } = await supabase?.from('meal_orders')?.select(`
+      const { data, error } = await supabase
+        .from('meal_orders')
+        .select(`
           *,
           restaurants(id, name, image_url, rating, cuisine_type, delivery_fee, address, phone_number),
-          order_items(
+          meal_items:meal_order_items(
             id,
-            item_name,
+            name,
+            description,
+            image_url,
             quantity,
-            price,
-            selected_options,
-            special_instructions,
-            created_at,
-            menu_items(id, name, image_url, category),
-            user_profiles(id, first_name, last_name)
+            product_marked_price_cents,
+            notes,
+            created_at
           ),
           shared_cart_sessions(
             id,
@@ -52,7 +57,10 @@ class SharedCartService {
             last_activity,
             user_profiles(id, first_name, last_name, email)
           )
-        `)?.eq('id', cartId)?.eq('is_shared_cart', true)?.single();
+        `)
+        .eq('id', cartId)
+        .eq('is_shared_cart', true)
+        .single();
 
       if (error) throw error;
       return data;
@@ -62,50 +70,53 @@ class SharedCartService {
     }
   }
 
-  // Add item to shared cart
+  // Add item to shared cart -> meal_order_items
   async addItemToCart(cartId, menuItemId, quantity = 1, selectedOptions = {}, specialInstructions = '') {
     try {
       const { data: { session } } = await supabase?.auth?.getSession();
       if (!session?.user) throw new Error('User not authenticated');
 
-      // Get menu item details
-      const { data: menuItem, error: menuError } = await supabase?.from('menu_items')?.select('name, price')?.eq('id', menuItemId)?.single();
-
+      // Pull menu item details
+      const { data: menuItem, error: menuError } = await supabase
+        .from('menu_items')
+        .select('id, api_id, name, description, image_url, price')
+        .eq('id', menuItemId)
+        .single();
       if (menuError) throw menuError;
 
-      // Calculate price with options
-      let totalPrice = menuItem?.price * quantity;
-      if (selectedOptions && typeof selectedOptions === 'object') {
-        Object.values(selectedOptions)?.forEach(option => {
-          if (option?.price) {
-            totalPrice += option?.price * quantity;
-          }
-        });
+      // Calculate *unit* price (cents). Options are flattened into notes for now.
+      let optionsExtra = 0;
+      const optionList = Array.isArray(selectedOptions)
+        ? selectedOptions
+        : Object.values(selectedOptions || {});
+      for (const opt of optionList) {
+        const p = typeof opt === 'object' ? opt?.price : 0;
+        if (typeof p === 'number' && !Number.isNaN(p)) optionsExtra += p;
       }
+      const unitPriceCents = Math.round((menuItem?.price + optionsExtra) * 100);
+      const combinedNotes = [specialInstructions, optionList.map(o => (typeof o === 'object' ? o?.name : String(o))).filter(Boolean).join(', ')].filter(Boolean).join(' | ');
 
-      // Add item to cart
-      const { data, error } = await supabase?.from('order_items')?.insert({
+      const { data, error } = await supabase
+        .from('meal_order_items')
+        .insert({
           order_id: cartId,
-          menu_item_id: menuItemId,
-          user_id: session?.user?.id,
-          item_name: menuItem?.name,
+          product_id: menuItem?.api_id, // normalized to external/menu API id
+          name: menuItem?.name,
+          description: menuItem?.description || null,
+          image_url: menuItem?.image_url || null,
+          notes: combinedNotes || null,
           quantity,
-          price: totalPrice,
-          selected_options: selectedOptions,
-          special_instructions: specialInstructions
-        })?.select(`
-          *,
-          menu_items(id, name, image_url),
-          user_profiles(id, first_name, last_name)
-        `)?.single();
+          product_marked_price_cents: unitPriceCents
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
-      // Log activity
       await this.logActivity(cartId, 'item_added', {
         item_name: menuItem?.name,
         quantity,
-        price: totalPrice
+        unit_price_cents: unitPriceCents
       });
 
       return data;
@@ -125,23 +136,24 @@ class SharedCartService {
         return this.removeCartItem(cartId, itemId);
       }
 
-      // Get current item details
-      const { data: currentItem } = await supabase?.from('order_items')?.select('item_name, price, quantity, menu_items(price)')?.eq('id', itemId)?.single();
+      const { data: currentItem } = await supabase
+        .from('meal_order_items')
+        .select('name, quantity')
+        .eq('id', itemId)
+        .single();
 
-      // Calculate new price (base price per unit * new quantity)
-      const unitPrice = currentItem?.menu_items?.price || (currentItem?.price / currentItem?.quantity);
-      const newPrice = unitPrice * newQuantity;
-
-      const { data, error } = await supabase?.from('order_items')?.update({ 
-          quantity: newQuantity,
-          price: newPrice
-        })?.eq('id', itemId)?.eq('order_id', cartId)?.select()?.single();
+      const { data, error } = await supabase
+        .from('meal_order_items')
+        .update({ quantity: newQuantity })
+        .eq('id', itemId)
+        .eq('order_id', cartId)
+        .select()
+        .single();
 
       if (error) throw error;
 
-      // Log activity
       await this.logActivity(cartId, 'item_updated', {
-        item_name: currentItem?.item_name,
+        item_name: currentItem?.name,
         old_quantity: currentItem?.quantity,
         new_quantity: newQuantity
       });
@@ -156,17 +168,23 @@ class SharedCartService {
   // Remove item from cart
   async removeCartItem(cartId, itemId) {
     try {
-      // Get item details before deletion
-      const { data: itemToRemove } = await supabase?.from('order_items')?.select('item_name, quantity')?.eq('id', itemId)?.single();
+      const { data: itemToRemove } = await supabase
+        .from('meal_order_items')
+        .select('name, quantity')
+        .eq('id', itemId)
+        .single();
 
-      const { error } = await supabase?.from('order_items')?.delete()?.eq('id', itemId)?.eq('order_id', cartId);
+      const { error } = await supabase
+        .from('meal_order_items')
+        .delete()
+        .eq('id', itemId)
+        .eq('order_id', cartId);
 
       if (error) throw error;
 
-      // Log activity
       if (itemToRemove) {
         await this.logActivity(cartId, 'item_removed', {
-          item_name: itemToRemove?.item_name,
+          item_name: itemToRemove?.name,
           quantity: itemToRemove?.quantity
         });
       }
@@ -178,29 +196,36 @@ class SharedCartService {
     }
   }
 
-  // Get cart totals
+  // Get cart totals (sum normalized items)
   async getCartTotals(cartId) {
     try {
-      const { data, error } = await supabase?.from('order_items')?.select('price, quantity')?.eq('order_id', cartId);
+      const { data: items, error: itemsErr } = await supabase
+        .from('meal_order_items')
+        .select('product_marked_price_cents, quantity')
+        .eq('order_id', cartId);
 
-      if (error) throw error;
+      if (itemsErr) throw itemsErr;
 
-      const subtotal = data?.reduce((sum, item) => sum + (item?.price || 0), 0) || 0;
-      
-      // Get restaurant delivery fee
-      const { data: cartData } = await supabase?.from('meal_orders')?.select('restaurants(delivery_fee)')?.eq('id', cartId)?.single();
+      const subtotalCents =
+        (items || []).reduce(
+          (sum, it) => sum + (it?.product_marked_price_cents ?? 0) * (it?.quantity ?? 1),
+          0
+        ) || 0;
+
+      const { data: cartData } = await supabase
+        .from('meal_orders')
+        .select('restaurants(delivery_fee)')
+        .eq('id', cartId)
+        .single();
 
       const deliveryFee = cartData?.restaurants?.delivery_fee || 0;
+      const subtotal = subtotalCents / 100;
       const tax = subtotal * 0.08; // 8% tax
       const total = subtotal + deliveryFee + tax;
 
-      return {
-        subtotal,
-        deliveryFee,
-        tax,
-        total,
-        itemCount: data?.length || 0
-      };
+      const itemCount = (items || []).reduce((sum, it) => sum + (it?.quantity ?? 1), 0);
+
+      return { subtotal, deliveryFee, tax, total, itemCount };
     } catch (error) {
       console.error('Error calculating cart totals:', error);
       return { subtotal: 0, deliveryFee: 0, tax: 0, total: 0, itemCount: 0 };
@@ -223,10 +248,16 @@ class SharedCartService {
   // Get cart by share token
   async getCartByShareToken(shareToken) {
     try {
-      const { data, error } = await supabase?.from('meal_orders')?.select(`
+      const { data, error } = await supabase
+        .from('meal_orders')
+        .select(`
           *,
           restaurants(id, name, image_url, rating, cuisine_type, delivery_fee)
-        `)?.eq('share_token', shareToken)?.eq('is_shared_cart', true)?.gte('share_expires_at', new Date()?.toISOString())?.single();
+        `)
+        .eq('share_token', shareToken)
+        .eq('is_shared_cart', true)
+        .gte('share_expires_at', new Date()?.toISOString())
+        .single();
 
       if (error) throw error;
       return data;
@@ -239,7 +270,13 @@ class SharedCartService {
   // Update cart permissions
   async updateCartPermission(cartId, userId, permission) {
     try {
-      const { data, error } = await supabase?.from('shared_cart_sessions')?.update({ permission })?.eq('meal_order_id', cartId)?.eq('user_id', userId)?.select()?.single();
+      const { data, error } = await supabase
+        .from('shared_cart_sessions')
+        .update({ permission })
+        .eq('meal_order_id', cartId)
+        .eq('user_id', userId)
+        .select()
+        .single();
 
       if (error) throw error;
       return data;
@@ -249,23 +286,29 @@ class SharedCartService {
     }
   }
 
-  // Get user's shared carts
+  // Get user's shared carts (normalized)
   async getUserSharedCarts() {
     try {
       const { data: { session } } = await supabase?.auth?.getSession();
       if (!session?.user) throw new Error('User not authenticated');
 
-      const { data, error } = await supabase?.from('meal_orders')?.select(`
+      const { data, error } = await supabase
+        .from('meal_orders')
+        .select(`
           *,
           restaurants(id, name, image_url, cuisine_type),
-          order_items(id),
+          meal_order_items(id),
           shared_cart_sessions(
             id,
             user_id,
             permission,
             user_profiles(id, first_name, last_name)
           )
-        `)?.eq('is_shared_cart', true)?.or(`created_by.eq.${session?.user?.id},shared_cart_sessions.user_id.eq.${session?.user?.id}`)?.eq('order_status', 'draft')?.order('updated_at', { ascending: false });
+        `)
+        .eq('is_shared_cart', true)
+        .or(`created_by.eq.${session?.user?.id},shared_cart_sessions.user_id.eq.${session?.user?.id}`)
+        .eq('order_status', 'draft')
+        .order('updated_at', { ascending: false });
 
       if (error) throw error;
       return data || [];
@@ -278,18 +321,25 @@ class SharedCartService {
   // Convert cart to order
   async convertCartToOrder(cartId, deliveryInfo = {}) {
     try {
-      const { data, error } = await supabase?.from('meal_orders')?.update({
+      const { data, error } = await supabase
+        .from('meal_orders')
+        .update({
           order_status: 'pending_confirmation',
           is_shared_cart: false,
           share_token: null,
           share_expires_at: null,
           ...deliveryInfo
-        })?.eq('id', cartId)?.select()?.single();
+        })
+        .eq('id', cartId)
+        .select()
+        .single();
 
       if (error) throw error;
 
-      // Deactivate all sessions
-      await supabase?.from('shared_cart_sessions')?.update({ is_active: false })?.eq('meal_order_id', cartId);
+      await supabase
+        .from('shared_cart_sessions')
+        .update({ is_active: false })
+        .eq('meal_order_id', cartId);
 
       return data;
     } catch (error) {

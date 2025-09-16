@@ -1,20 +1,26 @@
 // cartService.js
 import { supabase } from '../lib/supabase';
 
+// We now mutate rows in meal_order_items (normalized snapshot).
+// - quantity -> quantity
+// - special_instructions -> notes
+// - price (decimal) -> product_marked_price_cents (integer cents)
+// - selected_options: not persisted here (use customizations/options if/when needed)
+
 export async function updateCartItemDetails(cartId, orderItemId, patch) {
-  // patch: { quantity, selected_options, special_instructions, price }
   const payload = {
     ...(typeof patch.quantity === 'number' ? { quantity: patch.quantity } : {}),
-    ...(patch.selected_options !== undefined ? { selected_options: patch.selected_options } : {}),
-    ...(typeof patch.special_instructions === 'string' ? { special_instructions: patch.special_instructions } : {}),
-    ...(typeof patch.price === 'number' ? { price: patch.price } : {}),
+    ...(typeof patch.special_instructions === 'string' ? { notes: patch.special_instructions } : {}),
+    ...(typeof patch.price === 'number'
+      ? { product_marked_price_cents: Math.round(patch.price * 100) }
+      : {}),
   };
 
   const { data, error } = await supabase
-    .from('order_items')
+    .from('meal_order_items')
     .update(payload)
     .eq('id', orderItemId)
-    .eq('cart_id', cartId)
+    .eq('order_id', cartId)
     .select()
     .single();
 

@@ -1,5 +1,5 @@
 -- supabase/migrations/010_receipts.sql
--- Receipt RPC + helper views (uses existing RLS; no bypass)
+-- Receipt RPC + helper view (uses existing RLS; no bypass)
 
 create or replace function public.get_order_receipt(p_order_id uuid)
 returns jsonb
@@ -31,8 +31,8 @@ begin
       mo.*,
       coalesce(mo.api_order_id, 'ORD-'||substr(mo.id::text,1,8)) as order_number,
       t.name  as team_name,
-			t.sport as sport,
-			t.gender as gender,
+      t.sport as sport,
+      t.gender as gender,
       r.name  as restaurant_name,
       r.address as restaurant_address,
       pm.card_name,
@@ -41,7 +41,7 @@ begin
       up.last_name  as placed_by_last_name,
       up.email      as placed_by_email,
       up.phone      as placed_by_phone,
-			up.school_name as placed_by_school_name
+      up.school_name as placed_by_school_name
     from public.meal_orders mo
     left join public.teams t            on t.id = mo.team_id
     left join public.restaurants r      on r.id = mo.restaurant_id
@@ -50,66 +50,7 @@ begin
     where mo.id = p_order_id
   ),
 
-  -- ---------- LEGACY ITEMS (fallback path) ----------
-  oi_opts as (
-    select
-      oi.id as order_item_id,
-      case
-        when jsonb_typeof(oi.selected_options) = 'array' then coalesce(oi.selected_options, '[]'::jsonb)
-        when oi.selected_options is null then '[]'::jsonb
-        else jsonb_build_array(oi.selected_options)
-      end as options_array
-    from public.order_items oi
-    where oi.order_id = p_order_id
-  ),
-  opt_from_oi as (
-    select
-      o.order_item_id,
-      coalesce(
-        jsonb_agg(
-          jsonb_strip_nulls(
-            jsonb_build_object(
-              'name', case jsonb_typeof(opt)
-                        when 'object' then nullif(opt->>'name','')
-                        when 'string' then trim(both '"' from opt::text)
-                        else null
-                      end,
-              'option_id', case when jsonb_typeof(opt)='object' then coalesce(opt->>'option_id', opt->>'id') end,
-              'quantity', case when jsonb_typeof(opt)='object' then coalesce(nullif(opt->>'quantity','')::int, 1) else 1 end,
-              'price_cents', null
-            )
-          )
-        ) filter (
-          where
-            (case jsonb_typeof(opt)
-               when 'object' then nullif(opt->>'name','')
-               when 'string' then nullif(trim(both '"' from opt::text),'')
-               else null
-             end) is not null
-        ),
-        '[]'::jsonb
-      ) as options_json
-    from oi_opts o
-    left join lateral jsonb_array_elements(o.options_array) as opt on true
-    group by o.order_item_id
-  ),
-  li_oi as (
-    select
-      oi.id,
-      coalesce(oi.item_name, mi.name) as name,
-      greatest(oi.quantity,1) as quantity,
-      round(coalesce(oi.price,0)::numeric * 100)::int as base_price_cents,
-      null::int as options_total_cents,
-      round(coalesce(oi.price,0)::numeric * 100)::int as unit_price_cents,
-      round(coalesce(oi.price,0)::numeric * 100)::int * greatest(oi.quantity,1) as line_total_cents,
-      coalesce(ofo.options_json, '[]'::jsonb) as options
-    from public.order_items oi
-    left join public.menu_items mi on mi.id = oi.menu_item_id
-    left join opt_from_oi ofo       on ofo.order_item_id = oi.id
-    where oi.order_id = p_order_id
-  ),
-
-  -- ---------- TYPED ITEMS (preferred path) ----------
+  -- ---------- TYPED ITEMS (normalized path) ----------
   moi_opts as (
     select
       c.order_item_id,
@@ -143,12 +84,8 @@ begin
     where i.order_id = p_order_id
   ),
 
-  -- Prefer typed items; fall back to legacy only if none exist for this order
   lines as (
     select * from li_moi
-    union all
-    select * from li_oi
-    where not exists (select 1 from li_moi limit 1)
   ),
   tot as (
     select coalesce(sum(line_total_cents),0)::int as computed_subtotal_cents
@@ -169,8 +106,8 @@ begin
     'order_number', f.order_number,
     'title', f.title,
     'team', f.team_name,
-		'sport', f.sport,
-		'gender', f.gender,
+    'sport', f.sport,
+    'gender', f.gender,
     'restaurant', jsonb_strip_nulls(jsonb_build_object(
       'name', f.restaurant_name,
       'address', f.restaurant_address
@@ -194,7 +131,7 @@ begin
       'last_name',  f.placed_by_last_name,
       'email',      f.placed_by_email,
       'phone',      f.placed_by_phone,
-    	'school_name', f.placed_by_school_name
+      'school_name', f.placed_by_school_name
     )),
     'payment', jsonb_strip_nulls(jsonb_build_object(
       'card_name', f.card_name,
@@ -229,7 +166,7 @@ begin
       'pickup_tip_cents', f.pickup_tip_cents
     )),
     'totals', jsonb_build_object(
-      -- Prefer computed subtotal (from line items), DoorDash-style
+      -- Subtotal from normalized line items
       'subtotal_cents', (select computed_subtotal_cents from tot),
       'total_without_tips_cents',
           (select computed_subtotal_cents from tot)
@@ -273,64 +210,35 @@ grant execute on function public.get_order_receipt(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Flat line-item view (CSV/admin)
--- Prefer typed items per order; fall back to legacy rows only if that order has none
-create or replace view public.v_order_receipt_lines WITH (security_invoker = true) AS
-with
-  li_moi as (
-    select
-      mo.id as order_id,
-      mo.title,
-      mo.order_status,
-      mo.payment_status,
-      mo.currency_code,
-      t.name as team_name,
-      r.name as restaurant_name,
-      i.name as item_name,
-      greatest(i.quantity,1) as quantity,
-      coalesce(i.product_marked_price_cents,0)::int as base_price_cents,
-      coalesce(sum(io.price_cents * io.quantity),0)::int as options_total_cents,
-      (coalesce(i.product_marked_price_cents,0)
-       + coalesce(sum(io.price_cents * io.quantity),0))::int as unit_price_cents,
-      ((coalesce(i.product_marked_price_cents,0)
-       + coalesce(sum(io.price_cents * io.quantity),0)) * greatest(i.quantity,1))::int as line_total_cents,
-      i.created_at as item_created_at
-    from public.meal_orders mo
-    join public.meal_order_items i on i.order_id = mo.id
-    left join public.meal_order_item_customizations c on c.order_item_id = i.id
-    left join public.meal_order_item_options io on io.customization_id = c.id
-    left join public.teams t on t.id = mo.team_id
-    left join public.restaurants r on r.id = mo.restaurant_id
-    group by mo.id, mo.title, mo.order_status, mo.payment_status, mo.currency_code,
-             t.name, r.name, i.id
-  ),
-  li_oi as (
-    select
-      mo.id as order_id,
-      mo.title,
-      mo.order_status,
-      mo.payment_status,
-      mo.currency_code,
-      t.name as team_name,
-      r.name as restaurant_name,
-      coalesce(oi.item_name, mi.name) as item_name,
-      greatest(oi.quantity,1) as quantity,
-      round(coalesce(oi.price,0)::numeric * 100)::int as base_price_cents,
-      null::int as options_total_cents,
-      round(coalesce(oi.price,0)::numeric * 100)::int as unit_price_cents,
-      round(coalesce(oi.price,0)::numeric * 100)::int * greatest(oi.quantity,1) as line_total_cents,
-      oi.created_at as item_created_at
-    from public.meal_orders mo
-    join public.order_items oi on oi.order_id = mo.id
-    left join public.menu_items mi on mi.id = oi.menu_item_id
-    left join public.teams t on t.id = mo.team_id
-    left join public.restaurants r on r.id = mo.restaurant_id
-  )
-select * from li_moi
-union all
-select * from li_oi
-where not exists (
-  select 1 from li_moi where li_moi.order_id = li_oi.order_id
-);
+-- Only normalized items (meal_order_items). No legacy fallback.
+create or replace view public.v_order_receipt_lines
+WITH (security_invoker = true) AS
+select
+  mo.id as order_id,
+  mo.title,
+  mo.order_status,
+  mo.payment_status,
+  mo.currency_code,
+  t.name as team_name,
+  r.name as restaurant_name,
+  i.name as item_name,
+  greatest(i.quantity,1) as quantity,
+  coalesce(i.product_marked_price_cents,0)::int as base_price_cents,
+  coalesce(sum(io.price_cents * io.quantity),0)::int as options_total_cents,
+  (coalesce(i.product_marked_price_cents,0)
+    + coalesce(sum(io.price_cents * io.quantity),0))::int as unit_price_cents,
+  ((coalesce(i.product_marked_price_cents,0)
+    + coalesce(sum(io.price_cents * io.quantity),0)) * greatest(i.quantity,1))::int as line_total_cents,
+  i.created_at as item_created_at
+from public.meal_orders mo
+join public.meal_order_items i on i.order_id = mo.id
+left join public.meal_order_item_customizations c on c.order_item_id = i.id
+left join public.meal_order_item_options io on io.customization_id = c.id
+left join public.teams t on t.id = mo.team_id
+left join public.restaurants r on r.id = mo.restaurant_id
+group by mo.id, mo.title, mo.order_status, mo.payment_status, mo.currency_code,
+         t.name, r.name, i.id;
 
+-- Helpful index for options rollups
 create index if not exists idx_meal_order_item_options_customization_id_qty
   on public.meal_order_item_options(customization_id, quantity);

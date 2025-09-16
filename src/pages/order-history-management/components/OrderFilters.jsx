@@ -20,55 +20,51 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
     setLocalFilters(filters);
   }, [filters]);
 
-  // Load vendors (names only, deduped across addresses) for the active team
   useEffect(() => {
     const loadVendors = async () => {
       if (!teamId) {
         setVendorOptions(DEFAULT_VENDOR_OPTIONS);
         return;
       }
-
       setLoadingLookups(true);
       try {
-        // Find this team's saved location IDs
-        const { data: locs, error: locErr } = await supabase
-          .from('saved_locations')
-          .select('id')
-          .eq('team_id', teamId);
+        // Get the set of restaurant_ids used by this team
+        const { data: orderIds, error: orderErr } = await supabase
+          .from('meal_orders')
+          .select('restaurant_id')
+          .eq('team_id', teamId)
+          .not('restaurant_id', 'is', null); // only orders that reference a restaurant
 
-        if (locErr) throw locErr;
+        if (orderErr) throw orderErr;
 
-        const locationIds = (locs ?? []).map((l) => l.id);
-        if (locationIds.length === 0) {
+        const ids = Array.from(
+          new Set((orderIds ?? []).map((r) => r.restaurant_id).filter(Boolean))
+        );
+
+        if (ids.length === 0) {
           setVendorOptions(DEFAULT_VENDOR_OPTIONS);
           return;
         }
 
-        // Pull restaurants for those locations (names only)
+        // Look up those restaurants' names
         const { data: rests, error: restErr } = await supabase
           .from('restaurants')
-          .select('name, location_id')
-          .in('location_id', locationIds)
+          .select('id, name')
+          .in('id', ids)
           .order('name', { ascending: true });
 
         if (restErr) throw restErr;
 
-        // De-dupe by normalized name so "Chipotle" in multiple cities is one option
+        // De-dupe by normalized name
         const byName = new Map();
         (rests ?? []).forEach((r) => {
-          const normalized = (r?.name || '').trim().toLowerCase();
-          if (normalized && !byName.has(normalized)) {
-            byName.set(normalized, r.name.trim());
-          }
+          const norm = (r?.name || '').trim().toLowerCase();
+          if (norm && !byName.has(norm)) byName.set(norm, r.name.trim());
         });
 
-        // Build options (names only)
         const vendOpts = [
           ...DEFAULT_VENDOR_OPTIONS,
-          ...Array.from(byName.values()).map((name) => ({
-            value: name,
-            label: name,
-          })),
+          ...Array.from(byName.values()).map((name) => ({ value: name, label: name })),
         ];
 
         setVendorOptions(vendOpts);
@@ -183,7 +179,8 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
 
             <div className="self-end">
               <Select
-                label="Restaurant"
+                label="Restaruant"
+                searchable
                 options={vendorOptions}
                 value={localFilters?.vendor || ''}
                 onChange={(value) => handleFilterChange('vendor', value)}

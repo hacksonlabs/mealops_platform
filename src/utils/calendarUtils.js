@@ -1,8 +1,7 @@
 // src/utils/calendarUtils.js
 export function getRangeForView(currentDate, viewMode) {
-  const start = new Date(currentDate);
+  const start = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
   start.setHours(0, 0, 0, 0);
-
   if (viewMode === 'twoWeeks') {
     const dow = start.getDay();
     start.setDate(start.getDate() - dow);
@@ -11,26 +10,27 @@ export function getRangeForView(currentDate, viewMode) {
     end.setHours(23, 59, 59, 999);
     return { start, end };
   }
-
   const mStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
   const mEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59, 999);
   return { start: mStart, end: mEnd };
 }
-
 export const fmtTime = (iso) => {
   const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
 };
-
 export function mkBirthdayDateForYear(birthdayISO, year) {
   const b = new Date(birthdayISO);
-  const m = b.getMonth();
-  const d = b.getDate();
+  const m = b.getUTCMonth();
+  const d = b.getUTCDate();
   const candidate = new Date(year, m, d);
-  if (candidate.getMonth() !== m) return new Date(year, m, d - 1);
+  // Correct for months that don't have this day (e.g., Feb 29 in a non-leap year)
+  if (candidate.getMonth() !== m) {
+    return new Date(year, m, d - 1);
+  }
   return candidate;
 }
-
 export function computeAge(onDateISO, dobISO) {
   const d = new Date(onDateISO);
   const dob = new Date(dobISO);
@@ -39,7 +39,6 @@ export function computeAge(onDateISO, dobISO) {
   if (m < 0 || (m === 0 && d.getDate() < dob.getDate())) age--;
   return age;
 }
-
 export function toE164US(raw) {
   if (!raw) return null;
   const trimmed = String(raw).trim();

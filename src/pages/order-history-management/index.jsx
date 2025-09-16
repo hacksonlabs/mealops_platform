@@ -59,15 +59,14 @@ const OrderHistoryManagement = () => {
       .select(`
         id, team_id, title, description, meal_type, scheduled_date, order_status,
         total_amount, api_order_id,
+        delivery_address_line1, delivery_city, delivery_state, delivery_zip, delivery_instructions,
 
         restaurant:restaurants ( id, name, address ),
-        location:saved_locations ( id, name, address ),
         payment_method:payment_methods ( id, card_name, last_four, is_default ),
 
-        order_items:order_items (
-          id, user_id, team_member_id, item_name, quantity, price, special_instructions,
-          user_profile:user_profiles ( first_name, last_name ),
-          team_member:team_members ( full_name )
+        meal_items:meal_order_items (
+          id, name, quantity, product_marked_price_cents, notes,
+          team_member:team_members ( id, full_name )
         )
       `)
       .eq('team_id', teamId)
@@ -77,28 +76,38 @@ const OrderHistoryManagement = () => {
     if (filters.dateTo)   query = query.lte('scheduled_date', filters.dateTo);
 
     const { data, error } = await query;
+    console.log("meal orders", data);
     if (error) {
       console.error('Error fetching orders:', error.message);
       setErrorOrders('Failed to load orders.');
       setOrders([]);
     } else {
       const transformedOrders = (data || []).map(order => {
-        // unique attendees by user_id / team_member_id
-        const uniqueUsers = new Map();
-        (order.order_items || []).forEach((it) => {
-          const key = it.team_member_id || it.user_id || it.id;
-          if (!uniqueUsers.has(key)) {
-            const name = it.team_member?.full_name ?? (it.user_profile ? `${it.user_profile.first_name} ${it.user_profile.last_name}` : 'Team Member');
-            uniqueUsers.set(key, name);
-          }
-        });
+        const items = order.meal_items || [];
+
+        // unique assignees (by team member)
+        const uniqNames = new Set(
+          items.map(i => i?.team_member?.full_name).filter(Boolean)
+        );
+
+        const attendees =
+          uniqNames.size > 0
+            ? uniqNames.size
+            : items.reduce((sum, it) => sum + (it?.quantity ?? 1), 0);
+
+        const locationStr = [
+          order?.delivery_address_line1,
+          order?.delivery_city,
+          order?.delivery_state,
+          order?.delivery_zip
+        ].filter(Boolean).join(', ');
 
         return {
           id: order.id,
           date: order.scheduled_date,
           restaurant: order.restaurant?.name || 'Unknown Restaurant',
           mealType: (() => {
-            if (order.meal_type) return order.meal_type; // enum from DB
+            if (order.meal_type) return order.meal_type;
             const haystack = `${order.title ?? ''} ${order.description ?? ''}`.toLowerCase();
             if (/\bbreakfast\b/.test(haystack)) return 'breakfast';
             if (/\blunch\b/.test(haystack))     return 'lunch';
@@ -106,12 +115,12 @@ const OrderHistoryManagement = () => {
             if (/\bsnacks?\b/.test(haystack))   return 'snack';
             return 'other';
           })(),
-          location: order.location?.name || 'Unknown Location',
-          attendees: uniqueUsers.size,
+          location: locationStr || '—',
+          attendees,
           totalCost: Number(order.total_amount) || 0,
           status: order.order_status,
           orderNumber: order.api_order_id || `ORD-${String(order.id).substring(0, 8)}`,
-          teamMembers: Array.from(uniqueUsers.values()),
+          teamMembers: Array.from(uniqNames),
           paymentMethod: order.payment_method
             ? `${order.payment_method.card_name} (**** ${order.payment_method.last_four})`
             : '—',
@@ -124,7 +133,6 @@ const OrderHistoryManagement = () => {
     setLoadingOrders(false);
   }, [teamId, filters]);
 
-  // Keep a ref to the latest fetcher so the realtime callback doesn't resubscribe on every change
   const fetchOrdersRef = useRef(() => {});
   useEffect(() => { fetchOrdersRef.current = fetchOrders; }, [fetchOrders]);
 
@@ -145,7 +153,6 @@ const OrderHistoryManagement = () => {
       )
       .subscribe();
 
-    // Also listen for custom event from children
     const customHandler = () => fetchOrdersRef.current();
     window.addEventListener('orders:refresh', customHandler);
 

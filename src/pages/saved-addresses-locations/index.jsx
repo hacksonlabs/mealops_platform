@@ -9,8 +9,8 @@ import AddLocationAddressModal from './components/AddLocationAddressModal';
 import AddLocationModal from './components/AddLocationModal';
 import EditLocationModal from './components/EditLocationModal';
 import AddRestaurantModal from './components/AddRestaurantModal';
-import { locationService } from '../../services/locationService';
-import { teamService } from '../../services/teamService';
+import { locationService } from '../../services/not_used_yet/locationService';
+import { teamService } from '../../services/not_used_yet/teamService';
 import { useAuth } from '../../contexts';
 
 const SavedAddressesLocations = () => {
