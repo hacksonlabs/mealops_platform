@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 export default function useCartOnPage({
   activeTeam, restaurant, provider, fulfillment,
   setProvider, setActiveCartId, location,
-  cartDbService, EXTRA_SENTINEL
+  cartDbService, EXTRA_SENTINEL,
+  initialCartTitle,
 }) {
   const [cartId, setCartId] = useState(null);
 
@@ -25,7 +26,7 @@ export default function useCartOnPage({
       window.dispatchEvent(new CustomEvent('cartBadge', {
         detail: {
           count, total,
-          name: snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart',
+          name: snap.cart?.title?.trim() ? `${snap.cart.title} • Cart` : (snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart'),
           cartId: incoming,
           restaurant: snap.restaurant,
           items: snap.items,
@@ -48,12 +49,22 @@ export default function useCartOnPage({
       setCartId(id);
       const snap = await cartDbService.getCartSnapshot(id);
       if (!snap || cancelled) return;
+      // Set title if we have an initial title and the cart has none or just the fallback
+      const desired = initialCartTitle?.trim();
+      if (desired && (!snap.cart?.title || snap.cart.title === snap.restaurant?.name)) {
+        try {
+          await cartDbService.updateCartTitle(id, desired);
+          snap.cart.title = desired;
+        } catch (e) {
+          console.warn('Could not set existing cart title:', e);
+        }
+      }
       const count = snap.items.reduce((n, it) => n + Number(it.quantity || 0), 0);
       const total = snap.items.reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0);
       window.dispatchEvent(new CustomEvent('cartBadge', {
         detail: {
           count, total,
-          name: snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart',
+          name: snap.cart?.title?.trim() ? `${snap.cart.title} • Cart` : (snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart'),
           cartId: snap.cart.id,
           restaurant: snap.restaurant,
           items: snap.items,
@@ -75,7 +86,7 @@ export default function useCartOnPage({
       window.dispatchEvent(new CustomEvent('cartBadge', {
         detail: {
           count, total,
-          name: snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart',
+          name: snap.cart?.title?.trim() ? `${snap.cart.title} • Cart` : (snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart'),
           cartId: snap.cart.id,
           restaurant: snap.restaurant,
           items: snap.items,
@@ -98,7 +109,7 @@ export default function useCartOnPage({
       window.dispatchEvent(new CustomEvent('cartBadge', {
         detail: {
           count, total,
-          name: snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart',
+          name: snap.cart?.title?.trim() ? `${snap.cart.title} • Cart` : (snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart'),
           cartId: snap.cart.id,
           restaurant: snap.restaurant,
           items: snap.items,
@@ -118,13 +129,14 @@ export default function useCartOnPage({
       id = await cartDbService.ensureCartForRestaurant(
         activeTeam.id, restaurant.id,
         {
-          title: `${restaurant.name} • ${provider}`,
+          title: (initialCartTitle && initialCartTitle.trim())
+            ? initialCartTitle.trim()
+            : `${restaurant.name}`,
           providerType: provider,
           providerRestaurantId: restaurant?.provider_restaurant_ids?.[provider] || null,
         }
       );
       await cartDbService.upsertCartFulfillment(id, fulfillment, {
-        title: `${restaurant.name} • ${provider}`,
         providerType: provider,
         providerRestaurantId: restaurant?.provider_restaurant_ids?.[provider] || null,
       });
@@ -170,7 +182,7 @@ export default function useCartOnPage({
       window.dispatchEvent(new CustomEvent('cartBadge', {
         detail: {
           count, total,
-          name: snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart',
+          name: snap.cart?.title?.trim() ? `${snap.cart.title} • Cart` : (snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart'),
           cartId: id,
           restaurant: snap.restaurant,
           items: snap.items,

@@ -33,6 +33,8 @@ const HomeRestaurantDiscovery = () => {
   const [radiusMiles] = useState(3);
   const [gridLoading, setGridLoading] = useState(true);
 
+  const params = new URLSearchParams(location.search);
+  const initialCartTitle = params.get('title') || '';
 
   return (
     <div className="min-h-screen bg-background">
@@ -59,6 +61,7 @@ const HomeRestaurantDiscovery = () => {
           radiusMiles={radiusMiles}
           fulfillment={fulfillment}
           onLoadingChange={setGridLoading}
+          initialCartTitle={initialCartTitle}
         />
       </main>
 

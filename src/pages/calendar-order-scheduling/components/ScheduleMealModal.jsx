@@ -26,6 +26,7 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
 
   // --- core form state ---
   const [formData, setFormData] = useState({
+    title: '',
     mealType: 'lunch',
     date: formatDateInputValue(selectedDate || new Date()),
     time: '12:00',
@@ -171,6 +172,7 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
     const coords  = pickedPlace?.location || null;
 
     const payload = {
+      title: (formData.title || '').trim(),
       mealType: formData.mealType,
       date: formData.date,               // YYYY-MM-DD
       time: formData.time,               // HH:mm
@@ -231,6 +233,17 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
         {/* Content */}
         <div className="overflow-y-auto max-h-[calc(90vh-140px)]">
           <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            {/* Meal Title*/}
+            <div className="space-y-1">
+              <Input
+                label="Meal Title"
+                type="text"
+                placeholder="e.g., SD Post Game"
+                value={formData.title}
+                maxLength={80}
+                onChange={(e) => setFormData((prev) => ({ ...prev, title: e?.target?.value }))}
+              />
+            </div>
             {/* Meal Type and Date/Time */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Meal type */}

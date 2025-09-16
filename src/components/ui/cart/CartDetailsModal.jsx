@@ -1,7 +1,7 @@
-// src/pages/calendar-order-scheduling/components/CartDetailsModal.jsx
+// src/components/components/ui/cart/CartDetailsModal.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Button from '../../../components/ui/custom/Button';
-import Icon from '../../../components/AppIcon';
+import Button from '../custom/Button';
+import Icon from '../../AppIcon';
 import cartDbService from '../../../services/cartDBService';
 import { formatCustomizations } from '../../../utils/cartFormat';
 

@@ -1,6 +1,6 @@
 // src/services/cartDBService.js
 import { supabase } from '../lib/supabase';
-
+import { toTitleCase } from '../utils/stringUtils';
 /**
  * We keep the payload for "who it's for" in selected_options.__assignment__
  * so you don't need to change tables again:
@@ -29,17 +29,25 @@ async function findActiveCartForRestaurant(teamId, restaurantId, providerType = 
   return data?.id ?? null;
 }
 
-async function ensureCartForRestaurant(teamId, restaurantId, { title = null, providerType = null, providerRestaurantId = null } = {}) {
+
+const normalizeTitle = (t) => {
+  const s = (t ?? '').trim();
+  if (!s) return 'Team Cart';
+  return toTitleCase(s);
+};
+
+async function ensureCartForRestaurant(teamId, restaurantId, { title, providerType = null, providerRestaurantId = null } = {}) {
   const existingId = await findActiveCartForRestaurant(teamId, restaurantId, providerType);
   if (existingId) return existingId;
 
+  const cleanTitle = normalizeTitle(title);
   const { data: created, error: insErr } = await supabase
     .from('meal_carts')
     .insert({
       team_id: teamId,
       restaurant_id: restaurantId,
-      title: title || 'Team Cart',
       status: 'draft',
+      title: cleanTitle,
 			provider_type: providerType,
       provider_restaurant_id: providerRestaurantId,
       // created_by_member_id is auto-validated by trigger; can be NULL
@@ -51,12 +59,19 @@ async function ensureCartForRestaurant(teamId, restaurantId, { title = null, pro
   return created.id;
 }
 
+
+export async function updateCartTitle(cartId, title) {
+  const { error } = await supabase.from('meal_carts').update({ title }).eq('id', cartId);
+  if (error) throw error;
+}
+
+
 async function getCartSnapshot(cartId) {
   // cart & its restaurant
   const { data: cart, error: cartErr } = await supabase
     .from('meal_carts')
     .select(`
-      id, team_id, restaurant_id, provider_type, provider_restaurant_id,
+      id, team_id, restaurant_id, provider_type, provider_restaurant_id, title,
       restaurants ( id, name, image_url, address, phone_number, rating ),
       status
     `)
@@ -106,6 +121,7 @@ async function getCartSnapshot(cartId) {
       id: cart.id,
       teamId: cart.team_id,
       status: cart.status ?? 'draft',
+      title: cart.title ?? cart.restaurants.name ?? null,
     },
     restaurant: cart.restaurants
       ? {
@@ -228,7 +244,6 @@ async function upsertCartFulfillment(cartId, fulfillment = {}, meta = {}) {
 	// meta: { title, providerType, providerRestaurantId }
 	const payload = {
 		status: 'draft',
-		title: meta?.title ?? null,
 		provider_type: meta?.providerType ?? null,
 		provider_restaurant_id: meta?.providerRestaurantId ?? null,
 		fulfillment_service: fulfillment?.service ?? null,
@@ -394,5 +409,6 @@ export default {
 	upsertCartFulfillment,
 	listOpenCarts,
 	deleteCart,
-	markSubmitted
+	markSubmitted,
+  updateCartTitle
 };

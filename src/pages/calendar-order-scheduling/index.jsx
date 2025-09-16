@@ -17,7 +17,7 @@ import { getStatusBadge } from '../../utils/ordersUtils';
 import { downloadReceiptPdf } from '../../utils/receipts';
 import { useCalendarData } from '@/hooks/calendar-order-scheduling';
 import { computeAge, toE164US, fmtTime } from '../../utils/calendarUtils';
-import CartDetailsModal from './components/CartDetailsModal';
+import CartDetailsModal from '../../components/ui/cart/CartDetailsModal';
 
 /* ----------------- component ----------------- */
 
@@ -126,6 +126,7 @@ const CalendarOrderScheduling = () => {
 
   const handleScheduleRedirect = (payload) => {
     const params = new URLSearchParams({
+      title: payload.title,
       mealType: payload.mealType,
       date: payload.date,
       time: payload.time,
