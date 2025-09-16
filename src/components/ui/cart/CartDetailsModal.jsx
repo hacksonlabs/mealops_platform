@@ -3,9 +3,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Button from '../custom/Button';
 import Icon from '../../AppIcon';
 import cartDbService from '../../../services/cartDBService';
-import { formatCustomizations } from '../../../utils/cartFormat';
 // NEW: pull in the status meta
 import { STATUS_META } from '../../../utils/ordersUtils';
+import { toTitleCase } from '@/utils/stringUtils';
 
 export default function CartDetailsModal({ isOpen, onClose, cartId }) {
   const [loading, setLoading] = useState(false);
@@ -51,9 +51,15 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
         : (it?.userName ? [it.userName] : []);
       const perPerson = (unit * qty) / Math.max(names.length || 1, 1);
       const assignees = names.length ? names : ['Unassigned'];
-      const lines = formatCustomizations(it);
+      const special = (toTitleCase(it?.specialInstructions) || '').trim();
+
       for (const person of assignees) {
-        rows.push({ person, itemName: it?.name || 'Item', customizations: lines, cost: perPerson });
+        rows.push({
+          person,
+          itemName: it?.name || 'Item',
+          special,
+          cost: perPerson
+        });
       }
     }
     return rows.sort((a, b) => {
@@ -200,7 +206,7 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
                       Item
                     </th>
                     <th className="hidden md:table-cell text-left py-2.5 px-3 font-medium text-muted-foreground uppercase text-[11px] tracking-wide">
-                      Customizations
+                      Special requests
                     </th>
                     <th className="text-right py-2.5 px-3 font-medium text-muted-foreground uppercase text-[11px] tracking-wide">
                       Cost
@@ -215,8 +221,8 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
                         <span className="text-foreground font-medium">{r.itemName}</span>
                       </td>
                       <td className="hidden md:table-cell py-2.5 px-3">
-                        {r.customizations?.length ? (
-                          <div className="text-muted-foreground">{r.customizations.join(', ')}</div>
+                        {r.special ? (
+                          <div className="text-muted-foreground">{r.special}</div>
                         ) : (
                           <span className="text-muted-foreground/70">—</span>
                         )}
