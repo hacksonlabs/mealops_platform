@@ -444,14 +444,14 @@ const OrderHistoryManagement = () => {
               <div className="text-sm text-muted-foreground">
                 Showing {filteredOrders?.length} of {totalInTab} orders
               </div>
-              <div className="flex items-center space-x-2">
+              {/* <div className="flex items-center space-x-2">
                 <Button variant="outline" size="sm" disabled iconName="ChevronLeft">
                   Previous
                 </Button>
                 <Button variant="outline" size="sm" disabled iconName="ChevronRight">
                   Next
                 </Button>
-              </div>
+              </div> */}
             </div>
           )}
         </div>

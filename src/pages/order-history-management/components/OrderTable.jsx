@@ -98,14 +98,15 @@ const OrderTable = ({
       return (
         <div className="flex items-center space-x-1">
           <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', order)} iconName="Eye" />
-          <Button
+          <Button variant="ghost" size="sm" onClick={() => onOrderAction('receipt', order)} iconName="Download" />
+          {/* <Button
             variant="ghost"
             size="sm"
             onClick={() => openCancelConfirm(order)}
             iconName="X"
             title="Cancel Record"
             className="text-red-600 hover:text-red-700"
-          />
+          /> */}
         </div>
       );
     } else if (activeTab === 'completed' || activeTab === 'all') {
@@ -119,6 +120,7 @@ const OrderTable = ({
     return (
       <div className="flex items-center space-x-1">
         <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', order)} iconName="Eye" />
+        <Button variant="ghost" size="sm" onClick={() => onOrderAction('receipt', order)} iconName="Download" />
       </div>
     );
   };
