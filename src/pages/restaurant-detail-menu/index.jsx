@@ -17,6 +17,7 @@ import { useAuth } from '../../contexts';
 import { useProvider } from '../../contexts/ProviderContext';
 import { useSharedCart } from '../../contexts/SharedCartContext';
 import { pickDefaultProvider } from '../../services/menuProviderService';
+import ShareCartButton from './components/ShareCartButton';
 
 // hooks
 import { useProviderMenu, useRestaurantWithDbMenu, useEditModal, useMenuFiltering, useFulfillmentUrlSync } from '@/hooks/restaurant-details';
@@ -212,6 +213,13 @@ const RestaurantDetailMenu = () => {
                     searchQuery={searchQuery}
                     onSearch={handleSearch}
                     onClearSearch={handleClearSearch}
+                  />
+                  <ShareCartButton
+                    cartId={cartId}
+                    restaurant={restaurant}
+                    providerType={localProvider}
+                    fulfillment={fulfillment}
+                    onCreated={(newId) => setActiveCartId?.(newId)}
                   />
                 </div>
               }

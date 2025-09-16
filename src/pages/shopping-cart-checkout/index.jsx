@@ -11,7 +11,7 @@ import DeliveryInformation from './components/DeliveryInformation';
 import PaymentSection from './components/PaymentSection';
 import TipSelection from './components/TipSelection';
 import CheckoutButton from './components/CheckoutButton';
-import ShareCartButton from './components/ShareCartButton';
+// import ShareCartButton from './components/ShareCartButton';
 import SharedCartBanner from '../../components/ui/cart/SharedCartBanner';
 import { useSharedCart } from '../../contexts/SharedCartContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -409,7 +409,7 @@ const ShoppingCartCheckout = () => {
 
               {currentCartId && (
                 <div className="ml-4">
-                  <ShareCartButton cartId={currentCartId} />
+                  {/* <ShareCartButton cartId={currentCartId} /> */}
                 </div>
               )}
             </div>
