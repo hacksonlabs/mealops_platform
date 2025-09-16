@@ -5,54 +5,6 @@ import Icon from '../../../components/AppIcon';
 import cartDbService from '../../../services/cartDBService';
 import { formatCustomizations } from '../../../utils/cartFormat';
 
-function groupItemsByPerson(items = []) {
-  const groups = new Map();
-
-  const push = (name, row, { shared = false } = {}) => {
-    if (!groups.has(name)) groups.set(name, []);
-    groups.get(name).push({ ...row, __shared: shared });
-  };
-
-  for (const it of items) {
-    const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
-    const qty = Number(it?.quantity ?? 1);
-    const lines = formatCustomizations(it);
-    const base = {
-      id: it?.id,
-      name: it?.name || 'Item',
-      qty,
-      unit,
-      lines,
-      image: it?.image || null,
-      notes: it?.specialInstructions || '',
-    };
-
-    const names = Array.isArray(it?.assignedTo)
-      ? it.assignedTo.map((a) => a?.name).filter(Boolean)
-      : (it?.userName ? [it.userName] : []);
-
-    if (names.length === 0) {
-      push('Unassigned', base);
-      continue;
-    }
-
-    // Split across people. If more than one, mark as shared.
-    const shared = names.length > 1;
-    for (const n of names) push(n, base, { shared });
-  }
-
-  // Bubble Extras to the bottom and keep alphabetical elsewhere
-  const sorted = [...groups.entries()].sort(([a], [b]) => {
-    const ax = a.toLowerCase() === 'extra';
-    const bx = b.toLowerCase() === 'extra';
-    if (ax && !bx) return 1;
-    if (!ax && bx) return -1;
-    return a.localeCompare(b);
-  });
-
-  return sorted; // [ [personName, items[]], ... ]
-}
-
 export default function CartDetailsModal({ isOpen, onClose, cartId }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
@@ -85,10 +37,43 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
     return () => { cancelled = true; };
   }, [isOpen, cartId]);
 
-  const byPerson = useMemo(
-    () => (isOpen ? groupItemsByPerson(snap?.items || []) : []),
-    [isOpen, snap?.items]
-  );
+	const tableRows = useMemo(() => {
+		if (!isOpen) return [];
+		const items = snap?.items || [];
+		const rows = [];
+
+		for (const it of items) {
+			const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
+			const qty  = Number(it?.quantity ?? 1);
+			const lines = formatCustomizations(it);
+			const names = Array.isArray(it?.assignedTo)
+				? it.assignedTo.map(a => a?.name).filter(Boolean)
+				: (it?.userName ? [it.userName] : []);
+
+			const assignees = names.length ? names : ['Unassigned'];
+			const shared = names.length > 1;
+			const total = (unit * qty) / Math.max(names.length || 1, 1);
+
+			for (const person of assignees) {
+				rows.push({
+					person,
+					itemName: it?.name || 'Item',
+					customizations: lines,
+					cost: total,
+					shared,
+				});
+			}
+		}
+
+		// Sort: A→Z, push "Extra" and "Unassigned" to the bottom
+		return rows.sort((a, b) => {
+			const ax = /^(extra|unassigned)$/i.test(a.person);
+			const bx = /^(extra|unassigned)$/i.test(b.person);
+			if (ax !== bx) return ax ? 1 : -1;
+			return a.person.localeCompare(b.person);
+		});
+	}, [isOpen, snap?.items]);
+
 
   const grandSubtotal = useMemo(() => {
     if (!isOpen) return 0;
@@ -114,7 +99,7 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        className="w-full max-w-2xl bg-card border border-border rounded-xl shadow-athletic-lg"
+        className="w-full max-w-4xl bg-card border border-border rounded-xl shadow-athletic-lg"
       >
         {/* Header */}
         <div className="p-4 border-b border-border flex items-center justify-between">
@@ -132,66 +117,63 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
         </div>
 
         {/* Body */}
-        <div className="p-4 max-h-[70vh] overflow-y-auto space-y-4">
+        <div className="p-4 max-h-[70vh] overflow-y-auto">
           {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
           {err && <div className="text-sm text-destructive">{err}</div>}
 
           {!loading && !err && (
-            <>
-              {/* Grouped by person */}
-              {byPerson.map(([person, items]) => {
-                const subtotal = items.reduce((s, it) => s + it.unit * it.qty, 0);
-                return (
-                  <div key={person} className="border border-border rounded-md overflow-hidden">
-                    <div className="px-3 py-2 bg-muted/60 flex items-center justify-between">
-                      <div className="font-medium">{person}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {/* Subtotal: <span className="text-foreground">${subtotal.toFixed(2)}</span> */}
-                      </div>
-                    </div>
-                    <div className="divide-y divide-border">
-                      {items.map((it, idx) => (
-                        <div key={`${it.id}-${idx}`} className="p-3 flex items-start gap-3">
-                          {it.image && (
-                            <img src={it.image} alt="" className="h-12 w-12 rounded object-cover shrink-0" />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium text-foreground truncate">
-                              {it.name}{' '}
-                              {it.__shared && (
-                                <span className="ml-1 text-[11px] px-1 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
-                                  shared
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-xs text-muted-foreground">x{it.qty} • ${it.unit.toFixed(2)}</div>
-                            {it.lines?.length > 0 && (
-                              <ul className="mt-1 text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
-                                {it.lines.map((l, i) => <li key={i}>{l}</li>)}
-                              </ul>
-                            )}
-                            {it.notes && (
-                              <div className="text-xs text-muted-foreground mt-1">
-                                Notes: <span className="text-foreground">{it.notes}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Overall */}
-              <div className="pt-1 text-sm text-muted-foreground flex items-center justify-between">
-                <span>Items: {(snap?.items || []).reduce((n, it) => n + Number(it?.quantity || 0), 0)}</span>
-                <span>
-                  Subtotal: <span className="text-foreground">${grandSubtotal.toFixed(2)}</span>
-                </span>
-              </div>
-            </>
-          )}
+						<>
+							<div className="overflow-x-auto">
+								<table className="w-full text-sm border-collapse">
+									<thead className="sticky top-0 bg-card">
+										<tr className="border-b border-border">
+											<th className="text-left py-2 px-3 font-medium text-muted-foreground">Team member</th>
+											<th className="text-left py-2 px-3 font-medium text-muted-foreground">Item</th>
+											<th className="text-left py-2 px-3 font-medium text-muted-foreground">Customizations</th>
+											<th className="text-right py-2 px-3 font-medium text-muted-foreground">Cost</th>
+										</tr>
+									</thead>
+									<tbody>
+										{tableRows.map((r, i) => (
+											<tr key={i} className="border-b border-border">
+												<td className="py-2 px-3 whitespace-nowrap text-foreground">{r.person}</td>
+												<td className="py-2 px-3">
+													<div className="flex items-center gap-2">
+														<span className="text-foreground font-medium">{r.itemName}</span>
+													</div>
+												</td>
+												<td className="py-2 px-3">
+													{r.customizations?.length ? (
+														<div className="text-muted-foreground">
+															{r.customizations.join(', ')}
+														</div>
+													) : (
+														<span className="text-muted-foreground/70">—</span>
+													)}
+												</td>
+												<td className="py-2 px-3 text-right tabular-nums text-foreground">
+													${r.cost.toFixed(2)}
+												</td>
+											</tr>
+										))}
+									</tbody>
+									{/* Footer subtotal */}
+									<tfoot>
+										<tr>
+											<td colSpan={3} className="py-2 px-3 text-right text-muted-foreground">Subtotal</td>
+											<td className="py-2 px-3 text-right font-semibold">
+												${(snap?.items || []).reduce((s, it) => {
+													const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
+													const qty  = Number(it?.quantity ?? 1);
+													return s + unit * qty;
+												}, 0).toFixed(2)}
+											</td>
+										</tr>
+									</tfoot>
+								</table>
+							</div>
+						</>
+					)}
         </div>
 
         {/* Footer (optional actions) */}
