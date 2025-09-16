@@ -52,7 +52,7 @@ const CalendarOrderScheduling = () => {
   const [fullDetailLoading, setFullDetailLoading] = useState(false);
 
   // data from hook
-  const { loading, error: loadErr, orders, teamMembers, birthdayEvents, upcomingNow, getOrderDetail } = useCalendarData(activeTeam?.id, currentDate, viewMode);
+  const { loading, error: loadErr, orders, teamMembers, birthdayEvents, upcomingNow, getOrderDetail, cancelOrder, remindCoaches } = useCalendarData(activeTeam?.id, currentDate, viewMode);
 
   // merge orders + birthdays
   const calendarEvents = useMemo(() => {
@@ -109,9 +109,10 @@ const CalendarOrderScheduling = () => {
 
   const handleEditOrder = (order) => console.log('Edit order:', order);
 
-  const handleCancelOrder = (orderId) =>
-    // TODO below does not work
-    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: 'cancelled' } : o)));
+  const handleCancelOrder = async (orderId) => {
+    const ok = await cancelOrder(orderId);
+    if (!ok) alert('Could not cancel order. Please try again.');
+  };
 
   const handleScheduleRedirect = (payload) => {
     const params = new URLSearchParams({
@@ -128,80 +129,15 @@ const CalendarOrderScheduling = () => {
     setIsScheduleModalOpen(false);
   };
 
-  async function handleRemindCoaches(bdayEvt) {
-    if (!activeTeam?.id) return;
-    const { data: coaches, error: coachErr } = await supabase
-      .from('team_members')
-      .select('user_id, full_name, email, phone_number')
-      .eq('team_id', activeTeam.id)
-      .eq('role', 'coach');
-
-    if (coachErr) {
-      alert('Could not load coaches: ' + coachErr.message);
-      return;
+  const handleRemindCoaches = async (bdayEvt) => {
+    try {
+      const res = await remindCoaches(bdayEvt);
+      alert(`Reminder sent.\nSMS: ${res.sentSms}/${res.totalSms}\nEmail fallback: ${res.sentEmail}`);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to send birthday reminders.');
     }
-
-    const recipients = (coaches ?? []).filter(
-      (c) => (user?.id ? c.user_id !== user.id : true) && (user?.email ? c.email !== user.email : true)
-    );
-
-    if (recipients.length === 0) {
-      alert('No other coaches to notify.');
-      return;
-    }
-
-    const age = computeAge(bdayEvt.date, bdayEvt.dob);
-    const smsText = `🎂 ${bdayEvt.memberName} turns ${age} today!`;
-
-    const recWithPhones = recipients.map((r) => ({ ...r, phone_e164: toE164US(r.phone_number) }));
-    const smsTargets = recWithPhones.filter((r) => !!r.phone_e164).map((r) => r.phone_e164);
-
-    let failedE164 = new Set();
-    let invalidE164 = new Set();
-
-    if (smsTargets.length) {
-      const { data: smsRes, error: smsErr } = await supabase.functions.invoke('send-sms', {
-        body: { to: smsTargets, text: smsText },
-      });
-      if (smsErr) {
-        console.error('send-sms error', smsErr);
-        smsTargets.forEach((n) => failedE164.add(n));
-      } else {
-        const toValue = (x) => (typeof x === 'string' ? x : x?.to);
-        (smsRes?.failed ?? []).map(toValue).filter(Boolean).forEach((n) => failedE164.add(n));
-        (smsRes?.invalid ?? []).map(toValue).filter(Boolean).forEach((n) => invalidE164.add(n));
-      }
-    }
-
-    const emailFallback = recWithPhones
-      .filter((r) => !r.phone_e164 || failedE164.has(r.phone_e164) || invalidE164.has(r.phone_e164))
-      .map((r) => r.email)
-      .filter(Boolean);
-
-    if (emailFallback.length) {
-      const subject = `Birthday reminder: ${bdayEvt.memberName}`;
-      const { error: emailErr } = await supabase.functions.invoke('send-email', {
-        body: {
-          to: emailFallback,
-          subject,
-          html: `<h2>${bdayEvt.memberName} turns ${age} today! 🎉</h2>`,
-          text: `${bdayEvt.memberName} turns ${age} today! 🎉`,
-        },
-      });
-      if (emailErr) console.error('send-email error', emailErr);
-    }
-
-    const message = `${bdayEvt.memberName} has a birthday today!`;
-    const payload = { memberId: bdayEvt.memberId, memberName: bdayEvt.memberName, dob: bdayEvt.dob, date: bdayEvt.date, type: 'birthday_reminder' };
-    const { error: notifErr } = await supabase
-      .from('notifications')
-      .insert({ team_id: activeTeam.id, type: 'birthday_reminder', message, payload });
-    if (notifErr) console.warn('notifications insert failed:', notifErr.message);
-
-    const deliveredSms = smsTargets.length - failedE164.size - invalidE164.size;
-    const deliveredEmail = emailFallback.length;
-    alert(`Reminder sent.\nSMS: ${Math.max(deliveredSms, 0)}/${smsTargets.length}\nEmail fallback: ${deliveredEmail}`);
-  }
+  };
 
   // open full detail modal (fetch full record)
   const handleOpenDetail = async (orderId) => {

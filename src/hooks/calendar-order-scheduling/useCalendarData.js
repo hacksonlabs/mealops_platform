@@ -1,9 +1,8 @@
 // /src/hooks/calendar-order-scheduling/useCalendarData.js
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { getRangeForView, fmtTime, mkBirthdayDateForYear } from '@/utils/calendarUtils';
+import { getRangeForView, fmtTime, mkBirthdayDateForYear, computeAge, toE164US } from '@/utils/calendarUtils';
 
-// Reuse your helpers
 function _locationDisplayFromOrder(row) {
   const deliveryAddress = row?.delivery_address_line1
     ? [
@@ -25,7 +24,13 @@ function inferMealTypeFromText(title, description) {
   return 'other';
 }
 
-export function useCalendarData(activeTeamId, currentDate, viewMode) {
+/**
+ * @param {string|null} activeTeamId
+ * @param {Date} currentDate
+ * @param {'twoWeeks'|'month'} viewMode
+ * @param {object} currentUser  // pass user from useAuth(); used by remindCoaches filtering
+ */
+export function useCalendarData(activeTeamId, currentDate, viewMode, currentUser = null) {
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [error, setErr] = useState('');
@@ -33,7 +38,7 @@ export function useCalendarData(activeTeamId, currentDate, viewMode) {
   const [teamMembers, setTeamMembers] = useState([]);
   const [birthdayEvents, setBirthdayEvents] = useState([]);
 
-  // ---- compute union window (use primitives, not Date objects)
+  // ---- union time window (stable primitives to avoid re-renders) ----
   const { startMs, endMs } = useMemo(() => {
     const { start, end } = getRangeForView(currentDate, viewMode);
     return { startMs: start.getTime(), endMs: end.getTime() };
@@ -54,12 +59,18 @@ export function useCalendarData(activeTeamId, currentDate, viewMode) {
       try {
         const { data: memberRows, error: membersErr } = await supabase
           .from('team_members')
-          .select('id, user_id, full_name, role, email, allergies, birthday')
+          .select('id, user_id, full_name, role, email, allergies, birthday, phone_number')
           .eq('team_id', activeTeamId);
         if (membersErr) throw membersErr;
         const simplified = (memberRows ?? []).map((m) => ({
-          id: m.id, name: m.full_name, role: m.role, email: m.email,
-          allergies: m.allergies || null, birthday: m.birthday || null,
+          id: m.id,
+          user_id: m.user_id,
+          name: m.full_name,
+          role: m.role,
+          email: m.email,
+          phone_number: m.phone_number || null,
+          allergies: m.allergies || null,
+          birthday: m.birthday || null,
         }));
         if (!cancelled) setTeamMembers(simplified);
       } catch (e) {
@@ -269,7 +280,122 @@ export function useCalendarData(activeTeamId, currentDate, viewMode) {
     return shaped;
   }, [activeTeamId]);
 
+  // ------- Cancel order (optimistic update + cache patch) -------
+  const cancelOrder = useCallback(async (orderId) => {
+    if (!orderId || !activeTeamId) return false;
+
+    // Optimistic state update
+    setOrders(prev => prev.map(o => (o.id === orderId ? { ...o, status: 'cancelled' } : o)));
+
+    try {
+      const { error } = await supabase
+        .from('meal_orders')
+        .update({ order_status: 'cancelled' })
+        .eq('team_id', activeTeamId)
+        .eq('id', orderId);
+
+      if (error) throw error;
+
+      // Patch detail cache if present
+      if (detailCache.current.has(orderId)) {
+        const cached = detailCache.current.get(orderId);
+        detailCache.current.set(orderId, { ...cached, order_status: 'cancelled', status: 'cancelled' });
+      }
+      return true;
+    } catch (e) {
+      // Revert optimistic update on failure
+      setOrders(prev => prev.map(o => (o.id === orderId ? { ...o, status: o.status || 'scheduled' } : o)));
+      console.error('cancelOrder failed:', e);
+      return false;
+    }
+  }, [activeTeamId]);
+
+  // ------- Birthday reminder (SMS + email fallback + notification) -------
+  const remindCoaches = useCallback(async (bdayEvt) => {
+    if (!activeTeamId || !bdayEvt) return { sentSms: 0, totalSms: 0, sentEmail: 0 };
+
+    // coaches on team
+    const { data: coaches, error: coachErr } = await supabase
+      .from('team_members')
+      .select('user_id, full_name, email, phone_number')
+      .eq('team_id', activeTeamId)
+      .eq('role', 'coach');
+
+    if (coachErr) throw coachErr;
+
+    // exclude current user
+    const recipients = (coaches ?? []).filter((c) =>
+      (currentUser?.id ? c.user_id !== currentUser.id : true) &&
+      (currentUser?.email ? c.email !== currentUser.email : true)
+    );
+
+    const age = computeAge(bdayEvt.date, bdayEvt.dob);
+    const smsText = `🎂 ${bdayEvt.memberName} turns ${age} today!`;
+
+    // phone formatting + SMS
+    const recWithPhones = recipients.map((r) => ({ ...r, phone_e164: toE164US(r.phone_number) }));
+    const smsTargets = recWithPhones.filter((r) => !!r.phone_e164).map((r) => r.phone_e164);
+
+    let failed = new Set();
+    let invalid = new Set();
+
+    if (smsTargets.length) {
+      const { data: smsRes, error: smsErr } = await supabase.functions.invoke('send-sms', {
+        body: { to: smsTargets, text: smsText },
+      });
+      if (smsErr) {
+        console.error('send-sms error', smsErr);
+        smsTargets.forEach((n) => failed.add(n));
+      } else {
+        const toValue = (x) => (typeof x === 'string' ? x : x?.to);
+        (smsRes?.failed ?? []).map(toValue).filter(Boolean).forEach((n) => failed.add(n));
+        (smsRes?.invalid ?? []).map(toValue).filter(Boolean).forEach((n) => invalid.add(n));
+      }
+    }
+
+    const emailFallback = recWithPhones
+      .filter((r) => !r.phone_e164 || failed.has(r.phone_e164) || invalid.has(r.phone_e164))
+      .map((r) => r.email)
+      .filter(Boolean);
+
+    let sentEmail = 0;
+    if (emailFallback.length) {
+      const subject = `Birthday reminder: ${bdayEvt.memberName}`;
+      const { error: emailErr } = await supabase.functions.invoke('send-email', {
+        body: {
+          to: emailFallback,
+          subject,
+          html: `<h2>${bdayEvt.memberName} turns ${age} today! 🎉</h2>`,
+          text: `${bdayEvt.memberName} turns ${age} today! 🎉`,
+        },
+      });
+      if (emailErr) console.error('send-email error', emailErr);
+      else sentEmail = emailFallback.length;
+    }
+
+    // notification record
+    const message = `${bdayEvt.memberName} has a birthday today!`;
+    const payload = { memberId: bdayEvt.memberId, memberName: bdayEvt.memberName, dob: bdayEvt.dob, date: bdayEvt.date, type: 'birthday_reminder' };
+    const { error: notifErr } = await supabase
+      .from('notifications')
+      .insert({ team_id: activeTeamId, type: 'birthday_reminder', message, payload });
+    if (notifErr) console.warn('notifications insert failed:', notifErr.message);
+
+    const deliveredSms = smsTargets.length - failed.size - invalid.size;
+    return { sentSms: Math.max(deliveredSms, 0), totalSms: smsTargets.length, sentEmail };
+  }, [activeTeamId, currentUser]);
+
   const loading = loadingOrders || loadingMembers;
-  return { loading, error, orders, teamMembers, birthdayEvents, upcomingNow, getOrderDetail };
+  return {
+    loading,
+    error,
+    orders,
+    teamMembers,
+    birthdayEvents,
+    upcomingNow,
+    getOrderDetail,
+    cancelOrder,
+    remindCoaches,
+  };
 }
 export default useCalendarData;
