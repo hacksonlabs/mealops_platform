@@ -14,11 +14,19 @@ export function getRangeForView(currentDate, viewMode) {
   const mEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59, 999);
   return { start: mStart, end: mEnd };
 }
+// export const fmtTime = (iso) => {
+//   const d = new Date(iso);
+//   const hours = String(d.getHours()).padStart(2, '0');
+//   const minutes = String(d.getMinutes()).padStart(2, '0');
+//   return `${hours}:${minutes}`;
+// };
 export const fmtTime = (iso) => {
   const d = new Date(iso);
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  return `${hours}:${minutes}`;
+  let h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12; // 0 -> 12
+  return `${h}:${m} ${ampm}`;
 };
 export function mkBirthdayDateForYear(birthdayISO, year) {
   const b = new Date(birthdayISO);

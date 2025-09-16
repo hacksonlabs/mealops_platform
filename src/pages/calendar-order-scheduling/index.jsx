@@ -17,6 +17,7 @@ import { getStatusBadge } from '../../utils/ordersUtils';
 import { downloadReceiptPdf } from '../../utils/receipts';
 import { useCalendarData } from '@/hooks/calendar-order-scheduling';
 import { computeAge, toE164US, fmtTime } from '../../utils/calendarUtils';
+import CartDetailsModal from './components/CartDetailsModal';
 
 /* ----------------- component ----------------- */
 
@@ -42,6 +43,8 @@ const CalendarOrderScheduling = () => {
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
   const [isHistoryDetailOpen, setIsHistoryDetailOpen] = useState(false);
   const [isBirthdayModalOpen, setIsBirthdayModalOpen] = useState(false);
+  const [selectedCartId, setSelectedCartId] = useState(null);
+  const [isCartModalOpen, setIsCartModalOpen] = useState(false);
 
   // selections
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -52,27 +55,31 @@ const CalendarOrderScheduling = () => {
   const [fullDetailLoading, setFullDetailLoading] = useState(false);
 
   // data from hook
-  const { loading, error: loadErr, orders, teamMembers, birthdayEvents, upcomingNow, getOrderDetail, cancelOrder, remindCoaches } = useCalendarData(activeTeam?.id, currentDate, viewMode);
+  const { loading, error: loadErr, orders, teamMembers, birthdayEvents, upcomingNow, getOrderDetail, cancelOrder, remindCoaches, carts } = useCalendarData(activeTeam?.id, currentDate, viewMode);
 
   // merge orders + birthdays
   const calendarEvents = useMemo(() => {
-    const events = [...orders, ...birthdayEvents];
+    const events = [...orders, ...birthdayEvents, ...(carts ?? [])];
+    const typePriority = (t) => (t === 'birthday' ? 0 : t === 'cart' ? 1 : 2);
     events.sort((a, b) => {
-      const da = new Date(a.date);
-      const db = new Date(b.date);
+      const da = new Date(a.date); const db = new Date(b.date);
       const dayA = new Date(da.getFullYear(), da.getMonth(), da.getDate()).getTime();
       const dayB = new Date(db.getFullYear(), db.getMonth(), db.getDate()).getTime();
       if (dayA !== dayB) return dayA - dayB;
-      const pa = a.type === 'birthday' ? 0 : 1;
-      const pb = b.type === 'birthday' ? 0 : 1;
+
+      const pa = typePriority(a.type); const pb = typePriority(b.type);
       if (pa !== pb) return pa - pb;
-      if (a.type === 'birthday' && b.type === 'birthday') return 0;
+
       const ta = da.getHours() * 60 + da.getMinutes();
       const tb = db.getHours() * 60 + db.getMinutes();
-      return ta - tb;
+      if (ta !== tb) return ta - tb;
+
+      const la = (a.restaurant ?? a.label ?? '').toString();
+      const lb = (b.restaurant ?? b.label ?? '').toString();
+      return la.localeCompare(lb);
     });
     return events;
-  }, [orders, birthdayEvents]);
+  }, [orders, birthdayEvents, carts]);
 
   // responsiveness
   useEffect(() => {
@@ -101,7 +108,10 @@ const CalendarOrderScheduling = () => {
     if (evt?.type === 'birthday') {
       setSelectedBirthday(evt);
       setIsBirthdayModalOpen(true);
-    } else {
+    } else if (evt?.type === 'cart') {
+      setSelectedCartId(evt.cartId);
+      setIsCartModalOpen(true);
+   } else {
       setSelectedOrder(evt?.originalOrderData || null);
       setIsOrderDetailsModalOpen(true);
     }
@@ -356,6 +366,12 @@ const CalendarOrderScheduling = () => {
         onClose={() => setIsBirthdayModalOpen(false)}
         event={selectedBirthday}
         onRemindCoaches={handleRemindCoaches}
+      />
+
+      <CartDetailsModal
+        isOpen={isCartModalOpen}
+        onClose={() => setIsCartModalOpen(false)}
+        cartId={selectedCartId}
       />
     </div>
   );

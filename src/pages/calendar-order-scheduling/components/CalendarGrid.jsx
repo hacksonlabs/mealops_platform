@@ -23,7 +23,9 @@ const CalendarGrid = ({
   const labelFor = (o) =>
     o?.type === 'birthday'
       ? `🎂 ${o?.label ?? ''}`
-      : `${o?.time ?? ''} - ${o?.restaurant ?? o?.label ?? ''}`;
+      : o?.type === 'cart'
+        ? `🛒 ${o?.time ?? ''} - ${o?.restaurant ?? o?.label ?? 'Draft Cart'}`
+        : `${o?.time ?? ''} - ${o?.restaurant ?? o?.label ?? ''}`;
 
   const getDaysInMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   const getFirstDayOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1).getDay();
@@ -54,19 +56,13 @@ const CalendarGrid = ({
   };
 
   const badgeFor = (evt) => {
-   // Special styling for birthdays (not in STATUS_META)
-   if (evt?.type === 'birthday') {
-     return 'bg-rose-50 text-rose-700 border-rose-200';
-   }
-   // Pull bg/text/ring from STATUS_META; fall back to 'scheduled' or a neutral style
-   const meta =
-     STATUS_META[evt?.status] ??
-     STATUS_META.scheduled ??
-     { bg: 'bg-zinc-50', text: 'text-zinc-700', ring: 'ring-zinc-200' };
-
-   // Convert ring-* to matching border-* for your badge border
-   const border = meta.ring?.replace(/^ring-/, 'border-') || 'border-transparent';
-   return `${meta.bg} ${meta.text} ${border}`;
+    if (evt?.type === 'birthday') return 'bg-rose-50 text-rose-700 border-rose-200';
+    const meta =
+      STATUS_META[evt?.status] ??
+      STATUS_META.scheduled ??
+      { bg: 'bg-zinc-50', text: 'text-zinc-700', ring: 'ring-zinc-200' };
+    const border = meta.ring?.replace(/^ring-/, 'border-') || 'border-transparent';
+    return `${meta.bg} ${meta.text} ${border}`;
   };
 
   const EventLabel = ({ evt }) => (

@@ -3,6 +3,16 @@ import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getRangeForView, fmtTime, mkBirthdayDateForYear, computeAge, toE164US } from '@/utils/calendarUtils';
 
+// helper: make ISO from date (DATE) + time (TIME)
+function isoFromPgDateTime(pgDate, pgTime) {
+  if (!pgDate) return null;            // unscheduled cart -> keep off calendar
+  const date = typeof pgDate === 'string' ? pgDate : pgDate.toISOString().slice(0,10);
+  const time = pgTime ? String(pgTime).slice(0,8) : '12:00:00'; // midday default if time missing
+  const isoLocal = `${date}T${time}`;
+  const d = new Date(isoLocal);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
 function _locationDisplayFromOrder(row) {
   const deliveryAddress = row?.delivery_address_line1
     ? [
@@ -37,6 +47,7 @@ export function useCalendarData(activeTeamId, currentDate, viewMode, currentUser
   const [orders, setOrders] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
   const [birthdayEvents, setBirthdayEvents] = useState([]);
+  const [carts, setCarts] = useState([]);
 
   // ---- union time window (stable primitives to avoid re-renders) ----
   const { startMs, endMs } = useMemo(() => {
@@ -385,6 +396,62 @@ export function useCalendarData(activeTeamId, currentDate, viewMode, currentUser
     return { sentSms: Math.max(deliveredSms, 0), totalSms: smsTargets.length, sentEmail };
   }, [activeTeamId, currentUser]);
 
+  // ------- DRAFT CARTS: single query in union window -------
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!activeTeamId) { if (!cancelled) setCarts([]); return; }
+      try {
+        // NOTE: fulfillment_date is a DATE column, so compare with YYYY-MM-DD
+        const dStart = unionStartISO;
+        const dEnd   = unionEndISO;
+
+        const { data: cartRows, error: cartErr } = await supabase
+          .from('meal_carts')
+          .select(`
+            id, team_id, title, status, created_at,
+            restaurant:restaurants ( id, name, address ),
+            fulfillment_date, fulfillment_time
+          `)
+          .eq('team_id', activeTeamId)
+          .eq('status', 'draft')
+          .not('fulfillment_date', 'is', null)
+          .gte('fulfillment_date', dStart)
+          .lte('fulfillment_date', dEnd)
+          .order('fulfillment_date', { ascending: true })
+          .order('fulfillment_time', { ascending: true });
+
+        if (cartErr) throw cartErr;
+
+        const mapped = (cartRows ?? [])
+          .map((row) => {
+            const iso = isoFromPgDateTime(row.fulfillment_date, row.fulfillment_time);
+            if (!iso) return null; // guard
+            return {
+              id: `cart-${row.id}`,
+              type: 'cart',
+              cartId: row.id,
+              status: 'draft',
+              date: iso,
+              time: iso ? fmtTime(iso) : 'TBD',
+              restaurant: row.restaurant?.name || 'Draft Cart',
+              label: row.title || 'Draft Cart',
+              originalCartData: row,
+            };
+          })
+          .filter(Boolean);
+
+        if (!cancelled) setCarts(mapped);
+      } catch (e) {
+        if (!cancelled) {
+          console.warn('load carts error:', e);
+          setCarts([]);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTeamId, unionStartISO, unionEndISO]);
+
   const loading = loadingOrders || loadingMembers;
   return {
     loading,
@@ -396,6 +463,7 @@ export function useCalendarData(activeTeamId, currentDate, viewMode, currentUser
     getOrderDetail,
     cancelOrder,
     remindCoaches,
+    carts
   };
 }
 export default useCalendarData;
