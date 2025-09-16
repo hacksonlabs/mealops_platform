@@ -1,4 +1,4 @@
-// src/components/components/ui/cart/CartDetailsModal.jsx
+// src/components/ui/cart/CartDetailsModal.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Button from '../custom/Button';
 import Icon from '../../AppIcon';
@@ -11,7 +11,7 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
   const [snap, setSnap] = useState(null);
   const panelRef = useRef(null);
 
-  // Close on Escape
+  // Close on Esc
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e) => e.key === 'Escape' && onClose?.();
@@ -37,43 +37,30 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
     return () => { cancelled = true; };
   }, [isOpen, cartId]);
 
-	const tableRows = useMemo(() => {
-		if (!isOpen) return [];
-		const items = snap?.items || [];
-		const rows = [];
-
-		for (const it of items) {
-			const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
-			const qty  = Number(it?.quantity ?? 1);
-			const lines = formatCustomizations(it);
-			const names = Array.isArray(it?.assignedTo)
-				? it.assignedTo.map(a => a?.name).filter(Boolean)
-				: (it?.userName ? [it.userName] : []);
-
-			const assignees = names.length ? names : ['Unassigned'];
-			const shared = names.length > 1;
-			const total = (unit * qty) / Math.max(names.length || 1, 1);
-
-			for (const person of assignees) {
-				rows.push({
-					person,
-					itemName: it?.name || 'Item',
-					customizations: lines,
-					cost: total,
-					shared,
-				});
-			}
-		}
-
-		// Sort: A→Z, push "Extra" and "Unassigned" to the bottom
-		return rows.sort((a, b) => {
-			const ax = /^(extra|unassigned)$/i.test(a.person);
-			const bx = /^(extra|unassigned)$/i.test(b.person);
-			if (ax !== bx) return ax ? 1 : -1;
-			return a.person.localeCompare(b.person);
-		});
-	}, [isOpen, snap?.items]);
-
+  // Build per-person rows
+  const tableRows = useMemo(() => {
+    if (!isOpen) return [];
+    const rows = [];
+    for (const it of (snap?.items || [])) {
+      const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
+      const qty  = Number(it?.quantity ?? 1);
+      const names = Array.isArray(it?.assignedTo)
+        ? it.assignedTo.map(a => a?.name).filter(Boolean)
+        : (it?.userName ? [it.userName] : []);
+      const perPerson = (unit * qty) / Math.max(names.length || 1, 1);
+      const assignees = names.length ? names : ['Unassigned'];
+      const lines = formatCustomizations(it);
+      for (const person of assignees) {
+        rows.push({ person, itemName: it?.name || 'Item', customizations: lines, cost: perPerson });
+      }
+    }
+    return rows.sort((a, b) => {
+      const ax = /^(extra|unassigned)$/i.test(a.person);
+      const bx = /^(extra|unassigned)$/i.test(b.person);
+      if (ax !== bx) return ax ? 1 : -1;
+      return a.person.localeCompare(b.person);
+    });
+  }, [isOpen, snap?.items]);
 
   const grandSubtotal = useMemo(() => {
     if (!isOpen) return 0;
@@ -86,12 +73,37 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
 
   if (!isOpen) return null;
 
-  const dateStr = snap?.fulfillment?.date || snap?.cart?.fulfillment_date || null;
-  const timeStr = snap?.fulfillment?.time || snap?.cart?.fulfillment_time || null;
+  // ---- formatting helpers ----
+  const fmtDateShort = (dateStr) => {
+    if (!dateStr) return '—';
+    const d = new Date(`${dateStr}T00:00:00`);
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  };
+  const fmtTime = (timeStr) => {
+    if (!timeStr) return '—';
+    const [hh = '12', mm = '00'] = String(timeStr).split(':');
+    const d = new Date();
+    d.setHours(Number(hh) || 0, Number(mm) || 0, 0, 0);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  };
+
+  const serviceRaw = snap?.cart?.fulfillment_service || '—';
+  const service = typeof serviceRaw === 'string'
+    ? serviceRaw.charAt(0).toUpperCase() + serviceRaw.slice(1)
+    : '—';
+
+  const isDelivery = String(serviceRaw).toLowerCase() === 'delivery';
+  const address = snap?.cart?.fulfillment_address || '';
+  const dateStr = snap?.cart?.fulfillment_date || null;
+  const timeStr = snap?.cart?.fulfillment_time || null;
+
+  const itemCount = (snap?.items || []).reduce((n, it) => n + Number(it?.quantity || 0), 0);
+  const itemsLabel = `${itemCount} item${itemCount === 1 ? '' : 's'} · $${grandSubtotal.toFixed(2)}`;
+  const dateTimeLabel = `${fmtDateShort(dateStr)} • ${fmtTime(timeStr)}`;
 
   return (
     <div
-      className="fixed inset-0 z-[1100] bg-black/40 flex items-center justify-center"
+      className="fixed inset-0 z-[1100] bg-black/40 p-4 sm:p-6 md:p-8 flex items-start sm:items-center justify-center"
       onClick={onClose}
     >
       <div
@@ -99,85 +111,121 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        className="w-full max-w-4xl bg-card border border-border rounded-xl shadow-athletic-lg"
+        aria-label="Cart details"
+        className="w-full max-w-[880px] bg-card border border-border rounded-xl shadow-athletic-lg overflow-hidden flex flex-col max-h-[80vh]"
       >
         {/* Header */}
-        <div className="p-4 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Icon name="ShoppingCart" size={18} />
-            <div className="min-w-0">
-              <div className="font-semibold leading-5 truncate">
-                {snap?.restaurant?.name || 'Draft Cart'}
+        <div className="p-4 md:p-5 border-b border-border">
+          {/* Top line: icon • status • Title */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0 flex items-center gap-2 flex-1">
+              <Icon name="ShoppingCart" size={18} />
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border uppercase tracking-wide">
+                {snap?.cart?.status ?? 'draft'}
+              </span>
+              <h2 className="text-lg md:text-xl font-heading font-semibold text-foreground truncate">
+                {snap?.cart?.title?.trim() || snap?.restaurant?.name || 'Draft Cart'}
+              </h2>
+            </div>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+              <Icon name="X" size={18} />
+            </Button>
+          </div>
+
+          {/* Sub line: restaurant name */}
+          <p className="mt-1 text-xs md:text-sm text-muted-foreground truncate">
+            {snap?.restaurant?.name || '—'}
+          </p>
+
+          {/* Meta line: Service • Items/Total • Date/Time */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border bg-muted/40">
+              <Icon name={isDelivery ? 'Truck' : 'Store'} size={14} className="text-muted-foreground" />
+              <span className="font-medium">{service}</span>
+            </span>
+            <span className="text-muted-foreground">•</span>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border bg-muted/40 tabular-nums">
+              <Icon name="Package" size={14} className="text-muted-foreground" />
+              <span className="font-medium">{itemsLabel}</span>
+            </span>
+            <span className="text-muted-foreground">•</span>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border bg-muted/40">
+              <Icon name="Calendar" size={14} className="text-muted-foreground" />
+              <span className="font-medium">{dateTimeLabel}</span>
+            </span>
+          </div>
+
+          {/* Address (only for delivery) */}
+          {isDelivery && (
+            <div className="mt-2 flex items-start gap-2 p-2.5 rounded-md border border-border bg-muted/30">
+              <Icon name="MapPin" size={16} className="mt-0.5 text-muted-foreground" />
+              <div className="min-w-0">
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Delivery Address</div>
+                <div className="text-sm font-medium break-words">{address || '—'}</div>
               </div>
             </div>
-          </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close cart details">
-            <Icon name="X" size={18} />
-          </Button>
+          )}
         </div>
 
         {/* Body */}
-        <div className="p-4 max-h-[70vh] overflow-y-auto">
+        <div className="p-4 md:p-5 flex-1 overflow-auto overscroll-contain">
           {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
           {err && <div className="text-sm text-destructive">{err}</div>}
 
           {!loading && !err && (
-						<>
-							<div className="overflow-x-auto">
-								<table className="w-full text-sm border-collapse">
-									<thead className="sticky top-0 bg-card">
-										<tr className="border-b border-border">
-											<th className="text-left py-2 px-3 font-medium text-muted-foreground">Team member</th>
-											<th className="text-left py-2 px-3 font-medium text-muted-foreground">Item</th>
-											<th className="text-left py-2 px-3 font-medium text-muted-foreground">Customizations</th>
-											<th className="text-right py-2 px-3 font-medium text-muted-foreground">Cost</th>
-										</tr>
-									</thead>
-									<tbody>
-										{tableRows.map((r, i) => (
-											<tr key={i} className="border-b border-border">
-												<td className="py-2 px-3 whitespace-nowrap text-foreground">{r.person}</td>
-												<td className="py-2 px-3">
-													<div className="flex items-center gap-2">
-														<span className="text-foreground font-medium">{r.itemName}</span>
-													</div>
-												</td>
-												<td className="py-2 px-3">
-													{r.customizations?.length ? (
-														<div className="text-muted-foreground">
-															{r.customizations.join(', ')}
-														</div>
-													) : (
-														<span className="text-muted-foreground/70">—</span>
-													)}
-												</td>
-												<td className="py-2 px-3 text-right tabular-nums text-foreground">
-													${r.cost.toFixed(2)}
-												</td>
-											</tr>
-										))}
-									</tbody>
-									{/* Footer subtotal */}
-									<tfoot>
-										<tr>
-											<td colSpan={3} className="py-2 px-3 text-right text-muted-foreground">Subtotal</td>
-											<td className="py-2 px-3 text-right font-semibold">
-												${(snap?.items || []).reduce((s, it) => {
-													const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
-													const qty  = Number(it?.quantity ?? 1);
-													return s + unit * qty;
-												}, 0).toFixed(2)}
-											</td>
-										</tr>
-									</tfoot>
-								</table>
-							</div>
-						</>
-					)}
+            <div className="overflow-x-auto rounded-md border border-border">
+              <table className="w-full text-[13px] md:text-sm border-collapse">
+                <thead className="sticky top-0 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/75">
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2.5 px-3 font-medium text-muted-foreground uppercase text-[11px] tracking-wide">
+                      Team member
+                    </th>
+                    <th className="text-left py-2.5 px-3 font-medium text-muted-foreground uppercase text-[11px] tracking-wide">
+                      Item
+                    </th>
+                    <th className="hidden md:table-cell text-left py-2.5 px-3 font-medium text-muted-foreground uppercase text-[11px] tracking-wide">
+                      Customizations
+                    </th>
+                    <th className="text-right py-2.5 px-3 font-medium text-muted-foreground uppercase text-[11px] tracking-wide">
+                      Cost
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tableRows.map((r, i) => (
+                    <tr key={i} className={`border-b border-border ${i % 2 ? 'bg-muted/20' : ''}`}>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-foreground">{r.person}</td>
+                      <td className="py-2.5 px-3">
+                        <span className="text-foreground font-medium">{r.itemName}</span>
+                      </td>
+                      <td className="hidden md:table-cell py-2.5 px-3">
+                        {r.customizations?.length ? (
+                          <div className="text-muted-foreground">{r.customizations.join(', ')}</div>
+                        ) : (
+                          <span className="text-muted-foreground/70">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-foreground">
+                        ${r.cost.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-card">
+                  <tr>
+                    <td colSpan={3} className="py-2.5 px-3 text-right text-muted-foreground">Subtotal</td>
+                    <td className="py-2.5 px-3 text-right font-semibold tabular-nums">
+                      ${grandSubtotal.toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
         </div>
 
-        {/* Footer (optional actions) */}
-        <div className="p-3 border-t border-border flex items-center justify-end gap-2">
+        {/* Footer */}
+        <div className="p-3 md:p-4 border-t border-border flex items-center justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
       </div>

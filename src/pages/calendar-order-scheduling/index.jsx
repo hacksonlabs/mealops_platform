@@ -5,7 +5,7 @@ import Header from '../../components/ui/Header';
 import CalendarHeader from './components/CalendarHeader';
 import CalendarGrid from './components/CalendarGrid';
 import TopPanel from './components/TopPanel';
-import ScheduleMealModal from './components/ScheduleMealModal';
+import ScheduleMealModal from '../../components/ui/schedule-meals/ScheduleMealModal';
 import OrderDetailsModal from './components/OrderDetailsModal';
 import OrderDetailModal from '../order-history-management/components/OrderDetailModal';
 import Button from '../../components/ui/custom/Button';

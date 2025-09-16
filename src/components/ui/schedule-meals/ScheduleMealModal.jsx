@@ -1,7 +1,9 @@
+// /src/components/ui/schedule-meals/ScheduleMealModal.jsx
+
 import React, { useEffect, useRef, useState } from 'react';
-import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/custom/Button';
-import Input from '../../../components/ui/custom/Input';
+import Icon from '../../AppIcon';
+import Button from '../custom/Button';
+import Input from '../custom/Input';
 import { getMealTypeIcon, MEAL_TYPES, SERVICE_TYPES } from '../../../utils/ordersUtils';
 
 import { ensurePlacesLib, newSessionToken, fetchAddressSuggestions, getPlaceDetailsFromPrediction } from '../../../utils/googlePlaces';

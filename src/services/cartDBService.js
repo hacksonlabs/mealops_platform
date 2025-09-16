@@ -72,6 +72,8 @@ async function getCartSnapshot(cartId) {
     .from('meal_carts')
     .select(`
       id, team_id, restaurant_id, provider_type, provider_restaurant_id, title,
+      fulfillment_service, fulfillment_address, fulfillment_latitude, fulfillment_longitude,
+      fulfillment_date, fulfillment_time,
       restaurants ( id, name, image_url, address, phone_number, rating ),
       status
     `)
@@ -122,6 +124,12 @@ async function getCartSnapshot(cartId) {
       teamId: cart.team_id,
       status: cart.status ?? 'draft',
       title: cart.title ?? cart.restaurants.name ?? null,
+      fulfillment_service: cart.fulfillment_service ?? null,
+      fulfillment_address: cart.fulfillment_address ?? null,
+      fulfillment_latitude: cart.fulfillment_latitude ?? null,
+      fulfillment_longitude: cart.fulfillment_longitude ?? null,
+      fulfillment_date: cart.fulfillment_date ?? null,
+      fulfillment_time: cart.fulfillment_time ?? null,
     },
     restaurant: cart.restaurants
       ? {

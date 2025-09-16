@@ -402,11 +402,6 @@ export default function CartOverlays() {
                               ))}
                             </ul>
                           )}
-                          {it?.specialInstructions && (
-                            <div className="text-xs text-muted-foreground mt-1">
-                              Notes: <span className="text-foreground">{it.specialInstructions}</span>
-                            </div>
-                          )}
                         </div>
                         {it?.image && (
                           <img src={it.image} alt="" className="h-14 w-14 rounded-md object-cover shrink-0" />

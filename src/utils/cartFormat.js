@@ -124,7 +124,8 @@ export const formatCustomizations = (item) => {
 
   // Notes last
   if (item.specialInstructions) {
-    lines.push(`Notes: ${item.specialInstructions}`);
+    const formatedInstructions = toTitleCase(item.specialInstructions)
+    lines.push(formatedInstructions);
   }
 
   return lines.filter(Boolean);
