@@ -52,14 +52,7 @@ const CalendarOrderScheduling = () => {
   const [fullDetailLoading, setFullDetailLoading] = useState(false);
 
   // data from hook
-  const {
-    loading,
-    error: loadErr,
-    orders,
-    teamMembers,
-    birthdayEvents,
-    upcomingNow,
-  } = useCalendarData(activeTeam?.id, currentDate, viewMode);
+  const { loading, error: loadErr, orders, teamMembers, birthdayEvents, upcomingNow, getOrderDetail } = useCalendarData(activeTeam?.id, currentDate, viewMode);
 
   // merge orders + birthdays
   const calendarEvents = useMemo(() => {
@@ -131,12 +124,10 @@ const CalendarOrderScheduling = () => {
       ...(payload.coords ? { lat: String(payload.coords.lat), lng: String(payload.coords.lng) } : {}),
       whenISO: payload.whenISO,
     });
-
     navigate(`/home-restaurant-discovery?${params.toString()}`);
     setIsScheduleModalOpen(false);
   };
 
-  // remove is_active from this query per your decision to drop that flag
   async function handleRemindCoaches(bdayEvt) {
     if (!activeTeam?.id) return;
     const { data: coaches, error: coachErr } = await supabase
@@ -217,80 +208,9 @@ const CalendarOrderScheduling = () => {
     if (!orderId || !activeTeam?.id) return;
     setFullDetailLoading(true);
     setIsOrderDetailsModalOpen(false);
-
     try {
-      const { data, error } = await supabase
-       .from('meal_orders')
-       .select(`
-         id, team_id, title, description, meal_type, scheduled_date, created_at,
-         order_status, total_amount, api_order_id, fulfillment_method,
-         delivery_instructions,
-         delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-         subtotal_cents, total_without_tips_cents, total_with_tip_cents, sales_tax_cents, service_fee_cents, delivery_fee_cents,
-
-         restaurant:restaurants!meal_orders_restaurant_id_fkey ( id, name, address ),
-         payment_method:payment_methods ( id, card_name, last_four, is_default ),
-
-         items:meal_order_items (
-           id, team_member_id, product_id, name, description, image_url, notes,
-           quantity, product_marked_price_cents, created_at,
-           team_member:team_members ( id, full_name, role ),
-           customizations:meal_order_item_customizations (
-             id, name,
-             options:meal_order_item_options (
-               option_id, name, price_cents, quantity, metadata
-             )
-           )
-         )
-       `)
-       .eq('team_id', activeTeam.id)
-       .eq('id', orderId)
-       .single();
-
-      if (error) throw error;
-
-      const deliveryAddress = data?.delivery_address_line1
-       ? [
-           data.delivery_address_line1 + (data.delivery_address_line2 ? ` ${data.delivery_address_line2}` : ''),
-           [data.delivery_city, data.delivery_state, data.delivery_zip].filter(Boolean).join(', ')
-         ].filter(Boolean).join(' • ')
-       : null;
-
-      const locationDisplay =
-        data?.fulfillment_method === 'delivery'
-          ? (deliveryAddress || 'Delivery address TBD')
-          : (data?.restaurant?.address || 'Restaurant address TBD');
-
-      const shaped = {
-        ...data,
-        restaurantName: data?.restaurant?.name ?? null,
-        restaurantAddress: data?.restaurant?.address ?? null,
-        fulfillment_method: data?.fulfillment_method ?? null,
-        locationDisplay,
-        orderItems: (data?.items || []).map((it) => ({
-          id: it.id,
-          name: it.name,
-          notes: it.notes || null,
-          quantity: it.quantity || 0,
-          unitPriceCents: it.product_marked_price_cents ?? null,
-          member: it.team_member
-            ? { id: it.team_member.id, name: it.team_member.full_name, role: it.team_member.role || '' }
-            : null,
-          customizations: (it.customizations || []).map((c) => ({
-            id: c.id,
-            name: c.name,
-            options: (c.options || []).map((o) => ({
-              optionId: o.option_id,
-              name: o.name,
-              priceCents: o.price_cents ?? 0,
-              quantity: o.quantity ?? 1,
-              metadata: o.metadata ?? {},
-            })),
-          })),
-        })),
-      };
-
-      setHistoryDetailOrder(shaped);
+      const detail = await getOrderDetail(orderId);
+      setHistoryDetailOrder(detail);
       setIsHistoryDetailOpen(true);
     } catch (e) {
       console.error('Failed to load full order:', e);
