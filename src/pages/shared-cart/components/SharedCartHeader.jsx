@@ -7,8 +7,12 @@ import Button from '@/components/ui/custom/Button';
 import mealLogo from '@/components/images/meal.png';
 import { useAuth } from '@/contexts';
 
-export default function SharedCartHeader({ onOpenCart, className = '' }) {
+export default function SharedCartHeader({ onOpenCart, className = '', badgeCount = 0, verifiedIdentity, }) {
   const { loadingTeams, activeTeam } = useAuth();
+  const displayName =
+    (verifiedIdentity?.fullName || '').trim() ||
+    (verifiedIdentity?.email ? verifiedIdentity.email.split('@')[0] : '');
+  const firstName = displayName.split(/\s+/)[0] || null;
 
   return (
     <header className={`fixed top-0 left-0 right-0 z-50 bg-card border-b border-border shadow-athletic ${className}`}>
@@ -50,20 +54,30 @@ export default function SharedCartHeader({ onOpenCart, className = '' }) {
                 </div>
               </>
             )}
+            {firstName && (
+              <>
+                <div className="h-10 border-l border-border" />
+                <div className="text-sm text-muted-foreground">
+                  Hi, <span className="font-semibold text-foreground">{firstName}</span> 👋
+                </div>
+              </>
+            )}
           </div>
         </div>
 
         {/* Right: Cart */}
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Open cart"
-          title="Open cart"
+        <button
           onClick={onOpenCart}
-          className="text-muted-foreground hover:text-foreground"
+          className="relative inline-flex items-center justify-center"
+          aria-label="Open cart"
         >
-          <Icon name="ShoppingCart" size={20} className="-scale-x-100" />
-        </Button>
+          <Icon name="ShoppingCart" size={20} className="-scale-x-100"/>
+          {!!badgeCount && (
+            <span className="absolute -top-2 -left-2 min-w-[16px] h-[16px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] leading-[16px] text-center">
+              {badgeCount}
+            </span>
+          )}
+        </button>
       </div>
     </header>
   );

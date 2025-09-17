@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import Button from '../../../components/ui/custom/Button';
-import Input from '../../../components/ui/custom/Input';
-import Select from '../../../components/ui/custom/Select';
-import Icon from '../../../components/AppIcon';
-import { Checkbox } from '../../../components/ui/custom/Checkbox';
+import Button from '../../../../components/ui/custom/Button';
+import Input from '../../../../components/ui/custom/Input';
+import Select from '../../../../components/ui/custom/Select';
+import Icon from '../../../../components/AppIcon';
+import { Checkbox } from '../../../../components/ui/custom/Checkbox';
 
 const AddRestaurantModal = ({ onClose, onAdd, locations, preSelectedLocation }) => {
   const [formData, setFormData] = useState({

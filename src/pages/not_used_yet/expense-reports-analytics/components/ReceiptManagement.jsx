@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/custom/Button';
-import Select from '../../../components/ui/custom/Select';
-import Input from '../../../components/ui/custom/Input';
+import Icon from '../../../../components/AppIcon';
+import Button from '../../../../components/ui/custom/Button';
+import Select from '../../../../components/ui/custom/Select';
+import Input from '../../../../components/ui/custom/Input';
 
 const ReceiptManagement = ({ 
   onBulkDownload, 

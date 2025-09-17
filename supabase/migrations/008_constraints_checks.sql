@@ -26,3 +26,7 @@ ALTER TABLE public.meal_cart_items
 ALTER TABLE public.meal_cart_members
   ADD CONSTRAINT meal_cart_members_user_id_fkey
   FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE public.meal_cart_members
+  ADD CONSTRAINT meal_cart_members_cart_id_member_id_key
+  UNIQUE (cart_id, member_id);

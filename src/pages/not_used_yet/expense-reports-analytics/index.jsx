@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Header from '../../components/ui/Header';
+import Header from '../../../components/ui/Header';
 import MetricsCard from './components/MetricsCard';
 import FilterPanel from './components/FilterPanel';
 import SpendByVendorChart from './components/SpendByVendorChart';

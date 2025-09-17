@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import Header from '../../components/ui/Header';
+import Header from '../../../components/ui/Header';
 import PollCreationForm from './components/PollCreationForm';
 import PollPreview from './components/PollPreview';
 import ActivePollsList from './components/ActivePollsList';
 import PollHistory from './components/PollHistory';
 import DistributionOptions from './components/DistributionOptions';
-import Icon from '../../components/AppIcon';
-import Button from '../../components/ui/custom/Button';
+import Icon from '../../../components/AppIcon';
+import Button from '../../../components/ui/custom/Button';
 
 const MealPollingSystem = () => {
   const [polls, setPolls] = useState([]);

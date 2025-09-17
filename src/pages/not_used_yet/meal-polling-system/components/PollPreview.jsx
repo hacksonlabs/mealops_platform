@@ -1,6 +1,6 @@
 import React from 'react';
-import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/custom/Button';
+import Icon from '../../../../components/AppIcon';
+import Button from '../../../../components/ui/custom/Button';
 
 const PollPreview = ({ pollData }) => {
   const restaurantOptions = [

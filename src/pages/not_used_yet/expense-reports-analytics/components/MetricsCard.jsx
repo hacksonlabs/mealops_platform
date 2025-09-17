@@ -1,5 +1,5 @@
 import React from 'react';
-import Icon from '../../../components/AppIcon';
+import Icon from '../../../../components/AppIcon';
 
 const MetricsCard = ({ title, value, subtitle, trend, trendValue, icon, iconColor = 'text-primary' }) => {
   const getTrendIcon = () => {

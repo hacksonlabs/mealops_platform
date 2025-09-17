@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import Header from '../../components/ui/Header';
-import Button from '../../components/ui/custom/Button';
-import Input from '../../components/ui/custom/Input';
-import Select from '../../components/ui/custom/Select';
-import Icon from '../../components/AppIcon';
+import Header from '../../../components/ui/Header';
+import Button from '../../../components/ui/custom/Button';
+import Input from '../../../components/ui/custom/Input';
+import Select from '../../../components/ui/custom/Select';
+import Icon from '../../../components/AppIcon';
 import LocationCard from './components/LocationCard';
 import AddLocationAddressModal from './components/AddLocationAddressModal';
 import AddLocationModal from './components/AddLocationModal';
 import EditLocationModal from './components/EditLocationModal';
 import AddRestaurantModal from './components/AddRestaurantModal';
-import { locationService } from '../../services/not_used_yet/locationService';
-import { teamService } from '../../services/not_used_yet/teamService';
-import { useAuth } from '../../contexts';
+import { locationService } from '../../../services/not_used_yet/locationService';
+import { teamService } from '../../../services/not_used_yet/teamService';
+import { useAuth } from '../../../contexts';
 
 const SavedAddressesLocations = () => {
   const { user: authUser, session } = useAuth();

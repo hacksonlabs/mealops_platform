@@ -275,7 +275,7 @@ export async function getSharedCartMeta(cartId) {
 
 async function addItem(
   cartId,
-  { menuItem, quantity, unitPrice, specialInstructions, selectedOptions, assignment }
+  { menuItem, quantity, unitPrice, specialInstructions, selectedOptions, assignment, addedByMemberId }
 ) {
   // --- sanitize inputs for JSON + rows ---
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -283,7 +283,10 @@ async function addItem(
   const memberIdsForJson = rawIds.filter((id) => uuidRe.test(id));
   const inferredExtras = rawIds.filter((id) => id === '__EXTRA__').length;
   const extraCount = Math.max(assignment?.extraCount ?? 0, inferredExtras);
-
+  const addedBy =
+   typeof addedByMemberId === 'string' && uuidRe.test(addedByMemberId)
+     ? addedByMemberId
+     : null;
   const selected_options = {
     ...selectedOptions,
     __assignment__: {
@@ -304,6 +307,7 @@ async function addItem(
       price: Number(unitPrice || 0),
       special_instructions: specialInstructions || '',
       selected_options,
+      added_by_member_id: addedBy,
     })
     .select('id')
     .single();
@@ -533,12 +537,71 @@ async function markSubmitted(cartId) {
 }
 
 export async function joinCartWithEmail(cartId, email) {
-  const { error } = await supabase.rpc('join_cart_with_email', {
+  const { data, error } = await supabase.rpc('join_cart_with_email', {
     p_cart_id: cartId,
     p_email: email,
   });
   if (error) throw error;
+
+  // RPC RETURNS TABLE => Supabase returns an array (one row)
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    memberId: row?.member_id ?? null,
+    fullName: row?.full_name ?? null,
+    email: row?.email ?? email, // always send back an email
+  };
 }
+
+async function replaceItemAssignees(itemId, memberIds = [], extraCount = 0) {
+  // wipe then re-insert
+  const { error: delErr } = await supabase
+    .from('meal_cart_item_assignees')
+    .delete()
+    .eq('cart_item_id', itemId);
+  if (delErr) throw delErr;
+
+  const rows = [
+    ...memberIds.map(mid => ({ cart_item_id: itemId, member_id: mid, is_extra: false })),
+    ...Array.from({ length: Math.max(0, Number(extraCount || 0)) }, () => ({ cart_item_id: itemId, is_extra: true })),
+  ];
+  if (rows.length) {
+    const { error: insErr } = await supabase.from('meal_cart_item_assignees').insert(rows);
+    if (insErr) throw insErr;
+  }
+}
+async function updateItemFull(cartId, itemId, { quantity, unitPrice, specialInstructions, selectedOptions, assignment = {} }) {
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const memberIds = (assignment.memberIds || []).filter(id => uuidRe.test(id));
+  const extraCount = Math.max(0, Number(assignment.extraCount || 0));
+
+  const selected_options = {
+    ...(selectedOptions || {}),
+    __assignment__: {
+      member_ids: memberIds,
+      extra_count: extraCount,
+      display_names: selectedOptions?.__assignment__?.display_names || [], // keep snapshot names if provided
+    },
+  };
+
+  const { data, error } = await supabase
+    .from('meal_cart_items')
+    .update({
+      quantity: Math.max(1, Number(quantity || 1)),
+      price: Number(unitPrice || 0),
+      special_instructions: specialInstructions || '',
+      selected_options,
+    })
+    .eq('id', itemId)
+    .eq('cart_id', cartId)
+    .select('id')
+    .single();
+  if (error) throw error;
+
+  await replaceItemAssignees(itemId, memberIds, extraCount);
+  return data.id;
+}
+
+
 
 export default {
 	findActiveCartForRestaurant,
@@ -555,4 +618,5 @@ export default {
   updateCartTitle,
   getSharedCartMeta,
   joinCartWithEmail,
+  updateItemFull
 };

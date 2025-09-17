@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/custom/Button';
-import Input from '../../../components/ui/custom/Input';
-import Select from '../../../components/ui/custom/Select';
+import Icon from '../../../../components/AppIcon';
+import Button from '../../../../components/ui/custom/Button';
+import Input from '../../../../components/ui/custom/Input';
+import Select from '../../../../components/ui/custom/Select';
 
 const PollHistory = ({ polls, onRepeatPoll }) => {
   const [searchTerm, setSearchTerm] = useState('');

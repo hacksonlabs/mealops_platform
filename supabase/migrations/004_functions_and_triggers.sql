@@ -555,8 +555,15 @@ begin
 end;
 $$;
 
-create or replace function public.join_cart_with_email(p_cart_id uuid, p_email text)
-returns void
+create or replace function public.join_cart_with_email(
+  p_cart_id uuid,
+  p_email   text
+)
+returns table (
+  member_id uuid,
+  full_name text,
+  email     text
+)
 language plpgsql
 security definer
 set search_path = public
@@ -564,16 +571,19 @@ as $$
 declare
   v_team_id   uuid;
   v_member_id uuid;
+  v_full_name text;
+  v_email     text;
 begin
-  -- cart's team
-  select team_id into v_team_id from public.meal_carts where id = p_cart_id;
+  select team_id into v_team_id
+  from public.meal_carts
+  where id = p_cart_id;
+
   if v_team_id is null then
     raise exception 'Cart not found';
   end if;
 
-  -- find ANY roster row on that team whose email matches (case-insensitive)
-  select tm.id
-    into v_member_id
+  select tm.id, tm.full_name, tm.email
+    into v_member_id, v_full_name, v_email
   from public.team_members tm
   where tm.team_id = v_team_id
     and lower(trim(tm.email)) = lower(trim(p_email))
@@ -583,14 +593,20 @@ begin
     raise exception 'No team member with that email on this team';
   end if;
 
-  -- add/update cart membership:
-  -- keep (cart_id, member_id) unique; also attach the current session user_id
   insert into public.meal_cart_members (cart_id, member_id, user_id)
   values (p_cart_id, v_member_id, auth.uid())
-  on conflict (cart_id, member_id) do update
+  on conflict on constraint meal_cart_members_cart_id_member_id_key do update
     set user_id = coalesce(public.meal_cart_members.user_id, excluded.user_id);
+
+  member_id := v_member_id;
+  full_name := v_full_name;
+  email     := coalesce(v_email, p_email);
+  return next;
 end;
 $$;
+
+
+
 
 
 ALTER FUNCTION public.is_team_member(UUID)    SET search_path = public;

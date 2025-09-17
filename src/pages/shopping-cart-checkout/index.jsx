@@ -12,7 +12,6 @@ import PaymentSection from './components/PaymentSection';
 import TipSelection from './components/TipSelection';
 import CheckoutButton from './components/CheckoutButton';
 // import ShareCartButton from './components/ShareCartButton';
-import SharedCartBanner from '../../components/ui/cart/SharedCartBanner';
 import { useSharedCart } from '../../contexts/SharedCartContext';
 import { useAuth } from '../../contexts/AuthContext';
 import sharedCartService from '../../services/sharedCartService';
@@ -393,8 +392,6 @@ const ShoppingCartCheckout = () => {
           </div>
 
           <div className="space-y-6">
-            {/* Shared Cart Banner */}
-            {isSharedCart && currentCartId && <SharedCartBanner cartId={currentCartId} />}
 
             {/* Restaurant Header with Share Button */}
             <div className="flex items-center justify-between">

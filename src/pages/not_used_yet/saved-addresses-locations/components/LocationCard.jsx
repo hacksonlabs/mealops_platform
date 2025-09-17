@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import Button from '../../../components/ui/custom/Button';
-import Input from '../../../components/ui/custom/Input';
-import Icon from '../../../components/AppIcon';
+import Button from '../../../../components/ui/custom/Button';
+import Input from '../../../../components/ui/custom/Input';
+import Icon from '../../../../components/AppIcon';
 
 const LocationCard = ({ 
   location, 

@@ -1,4 +1,6 @@
 // src/hooks/cart/useAddToCart.js
+
+import React, { useCallback } from 'react';
 import cartDbService from '@/services/cartDBService';
 import { EXTRA_SENTINEL } from './constants';
 
@@ -24,39 +26,68 @@ const pickUnitPrice = (it = {}) => {
 };
 
 export default function useAddToCart(cartId) {
-  const handleAddToCart = async (customizedItem, quantity = 1) => {
-    if (!cartId) return;
+  const handleAddToCart = useCallback(async (customizedItem, quantity = 1) => {
+    const {
+      cartRowId,
+      id,
+      name,
+      image,
+      price,
+      selectedOptions,
+      selectedSize,
+      selectedToppings,
+      specialInstructions,
+      customizedPrice,
+      assignedTo,
+      optionsCatalog,
+      addedByMemberId,
+    } = customizedItem || {};
 
-    const memberIds   = (customizedItem.assignedTo || []).map(a => a?.id).filter(Boolean);
-    const extraCount  = (customizedItem.assignedTo || [])
-      .filter(a => a?.name === 'Extra' || a?.id === EXTRA_SENTINEL).length;
-    const displayNames = (customizedItem.assignedTo || []).map(a => a?.name).filter(Boolean);
+    // derive price and assignment
+   const unitPrice = pickUnitPrice(customizedItem);
+   const memberIds = assignedTo
+     .map(a => a?.id)
+     .filter(v => v && v !== EXTRA_SENTINEL);
+   const displayNames = assignedTo
+     .map(a => a?.name)
+     .filter(Boolean);
+   const extraCount = assignedTo.filter(a => a?.id === EXTRA_SENTINEL).length;
 
-    const unitPrice = pickUnitPrice(customizedItem);
-    const selectedOptions = customizedItem.selectedOptions || '';
+   // also tuck assignment into selectedOptions.__assignment__ for snapshotting
+   const selectedWithAssignment = {
+     ...(selectedOptions || {}),
+     __assignment__: {
+       member_ids: memberIds,
+       extra_count: extraCount,
+       display_names: displayNames,
+     },
+   };
 
-    if (customizedItem.cartRowId) {
-      const selWithAssign = {
-        ...selectedOptions,
-        __assignment__: { member_ids: memberIds, extra_count: extraCount, display_names: displayNames },
-      };
-      await cartDbService.updateItem(cartId, customizedItem.cartRowId, {
-        quantity,
-        price: unitPrice,
-        special_instructions: customizedItem.specialInstructions || '',
-        selected_options: selWithAssign,
-      });
-    } else {
-      await cartDbService.addItem(cartId, {
-        menuItem: { id: customizedItem.id, name: customizedItem.name },
-        quantity,
-        unitPrice,
-        specialInstructions: customizedItem.specialInstructions || '',
-        selectedOptions,
-        assignment: { memberIds, extraCount, displayNames },
-      });
-    }
-  };
+    if (cartRowId) {
+     // update existing row (and replace assignees rows)
+     await cartDbService.updateItemFull(cartId, cartRowId, {
+       quantity,
+       unitPrice,
+       specialInstructions,
+       selectedOptions: selectedWithAssignment,
+       assignment: { memberIds, extraCount },
+     });
+   } else {
+     // insert new
+     await cartDbService.addItem(cartId, {
+       menuItem: { id, name, image },
+       quantity,
+       unitPrice,
+       specialInstructions,
+       selectedOptions: selectedWithAssignment,
+       assignment: { memberIds, displayNames, extraCount },
+       addedByMemberId,
+     });
+   }
+
+    window.dispatchEvent(new CustomEvent('cartUpdated', { detail: { cartId } }));
+  }, [cartId]);
+
 
   return { handleAddToCart };
 }
