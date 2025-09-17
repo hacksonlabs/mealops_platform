@@ -11,3 +11,4 @@ export { default as useLockedProviderMenu } from './useLockedProviderMenu';
 export { default as useMenuSearchFilter } from './useMenuSearchFilter';
 export { default as useItemEditModal } from './useItemEditModal';
 export { default as useAddToCart } from './useAddToCart';
+export { default as useCartPanel } from './useCartPanel';

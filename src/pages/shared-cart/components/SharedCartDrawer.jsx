@@ -1,7 +1,6 @@
 // src/pages/shared-cart/components/SharedCartDrawer.jsx
 import React from "react";
 import ReactDOM from "react-dom";
-// ❌ remove useNavigate
 import Icon from "../../../components/AppIcon";
 import Button from "../../../components/ui/custom/Button";
 import { formatCustomizations } from "../../../utils/cartFormat";
