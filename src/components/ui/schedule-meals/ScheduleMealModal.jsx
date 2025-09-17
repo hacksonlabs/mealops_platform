@@ -8,6 +8,7 @@ import { getMealTypeIcon, MEAL_TYPES, SERVICE_TYPES } from '../../../utils/order
 import {
   ensurePlacesLib, newSessionToken, fetchAddressSuggestions, getPlaceDetailsFromPrediction
 } from '../../../utils/googlePlaces';
+import { toTitleCase } from '@/utils/stringUtils';
 
 const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearchNearby }) => {
   // --- date helpers ---
@@ -183,9 +184,9 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
 
     const address = pickedPlace?.formattedAddress || addressInput || '';
     const coords  = pickedPlace?.location || null;
-
+    const title = (formData.title || '').trim()
     const payload = {
-      title: (formData.title || '').trim(),
+      title: toTitleCase(title),
       mealType: formData.mealType,
       date: formData.date,               // YYYY-MM-DD
       time: formData.time,               // HH:mm

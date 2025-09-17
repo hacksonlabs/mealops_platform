@@ -220,6 +220,7 @@ const RestaurantDetailMenu = () => {
                     providerType={localProvider}
                     fulfillment={fulfillment}
                     onCreated={(newId) => setActiveCartId?.(newId)}
+                    cartTitle={initialCartTitle}
                   />
                 </div>
               }

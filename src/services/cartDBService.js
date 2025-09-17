@@ -92,7 +92,11 @@ async function ensureCartForRestaurant(
 
 
 export async function updateCartTitle(cartId, title) {
-  const { error } = await supabase.from('meal_carts').update({ title }).eq('id', cartId);
+  const normalized = normalizeTitle(title);
+  const { error } = await supabase
+    .from('meal_carts')
+    .update({ title: normalized })
+    .eq('id', cartId);
   if (error) throw error;
 }
 

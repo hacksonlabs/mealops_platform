@@ -1,5 +1,5 @@
 // src/components/ui/cart/ShareCartModal.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import Icon from "../../../components/AppIcon";
 import Button from "../../../components/ui/custom/Button";
@@ -14,6 +14,7 @@ export default function ShareCartModal({
   providerType,            // e.g. 'grubhub'
   fulfillment,             // { service, address, coords, date, time }
   onCreated,               // (newCartId) => void
+  cartTitle,
 }) {
   const { activeTeam } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -21,69 +22,79 @@ export default function ShareCartModal({
   const [title, setTitle] = useState("");
   const [err, setErr] = useState("");
   const [copied, setCopied] = useState(false);
+  const lastSavedTitle = useRef("");
 
+  // keep local cartId in sync with prop
   useEffect(() => setCartId(inboundCartId || null), [inboundCartId]);
 
-  // Seed/load title
   useEffect(() => {
-    let cancelled = false;
     if (!isOpen) return;
+    const seeded = (cartTitle || "Team Cart").trim();
+    setTitle(seeded);
+    lastSavedTitle.current = seeded;
     setErr("");
-    if (!cartId) {
-      setTitle(restaurant?.name ? `${restaurant.name}` : "Team Cart");
-      return;
-    }
-    (async () => {
-      try {
-        setLoading(true);
-        const snap = await cartDbService.getCartSnapshot(cartId);
-        if (!cancelled) {
-          const t = (snap?.cart?.title || snap?.restaurant?.name || "Team Cart").trim();
-          setTitle(t);
-        }
-      } catch (e) {
-        if (!cancelled) setErr(e?.message || "Failed to load cart.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isOpen, cartId, restaurant?.name]);
+  }, [isOpen, cartTitle]);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const shareUrl = useMemo(() => {
-    if (!restaurant?.id || !cartId) return "";
-    return `${origin}/restaurant/${restaurant.id}?cartId=${encodeURIComponent(cartId)}&openCart=1`;
-  }, [origin, restaurant?.id, cartId]);
+        if (!cartId) return "";
+        // keep ?openCart=1 if you still want to auto-open the drawer
+        return `${origin}/shared-cart/${encodeURIComponent(cartId)}?openCart=1`;
+    }, [origin, cartId]);
 
-  // Create a cart if needed, set initial meta
+  // Create a cart if needed; include fulfillment on INSERT to avoid a second write
   const handleCreateIfNeeded = async () => {
     if (cartId) return cartId;
     if (!activeTeam?.id || !restaurant?.id) throw new Error("Missing team or restaurant.");
+
     const safeTitle = (title?.trim() || restaurant?.name || "Team Cart");
-    const newId = await cartDbService.ensureCartForRestaurant(activeTeam.id, restaurant.id, {
-      title: safeTitle,
-      providerType: providerType ?? null,
-      providerRestaurantId: restaurant?.provider_restaurant_ids?.[providerType] || null,
-    });
-    await cartDbService.upsertCartFulfillment(newId, fulfillment || {}, {
-      providerType: providerType ?? null,
-      providerRestaurantId: restaurant?.provider_restaurant_ids?.[providerType] || null,
-    });
+    const newId = await cartDbService.ensureCartForRestaurant(
+      activeTeam.id,
+      restaurant.id,
+      {
+        title: safeTitle,
+        providerType: providerType ?? null,
+        providerRestaurantId: restaurant?.provider_restaurant_ids?.[providerType] || null,
+        fulfillment: fulfillment || {},
+      }
+    );
+
     setCartId(newId);
     onCreated?.(newId);
+    lastSavedTitle.current = safeTitle;
     return newId;
   };
 
+  // Generate link (and persist title once if creating now)
   const handleGenerateLink = async () => {
     setErr("");
     try {
       setLoading(true);
       const id = await handleCreateIfNeeded();
+
+      // If the user edited the title before generating, persist it once on create
       const safeTitle = (title?.trim() || restaurant?.name || "Team Cart");
-      await cartDbService.updateCartTitle(id, safeTitle);
+      if (safeTitle !== lastSavedTitle.current) {
+        await cartDbService.updateCartTitle(id, safeTitle);
+        lastSavedTitle.current = safeTitle;
+      }
     } catch (e) {
       setErr(e?.message || "Could not create the cart.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-save title on blur when a cart already exists
+  const handleTitleBlur = async () => {
+    const next = (title || "").trim();
+    if (!cartId || !next || next === lastSavedTitle.current) return;
+    try {
+      setLoading(true);
+      await cartDbService.updateCartTitle(cartId, next);
+      lastSavedTitle.current = next;
+    } catch (e) {
+      setErr(e?.message || "Failed to update title.");
     } finally {
       setLoading(false);
     }
@@ -132,12 +143,10 @@ export default function ShareCartModal({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              onBlur={handleTitleBlur}
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 ring-primary/30"
-              placeholder={restaurant?.name ? `${restaurant.name}` : "Team Cart"}
+              placeholder={cartTitle ? `${restaurant.name}` : "Team Cart"}
             />
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Give your cart a clear name (e.g., “Tuesday Lunch – Design Team”).
-            </p>
           </div>
 
           {/* One share link */}
@@ -179,8 +188,8 @@ export default function ShareCartModal({
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="p-3 md:p-4 flex items-center justify-between gap-2">
+        {/* Footer*/}
+        <div className="p-3 md:p-4 flex items-center justify-end gap-2">
         </div>
       </div>
     </div>,
