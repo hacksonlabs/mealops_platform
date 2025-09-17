@@ -182,6 +182,97 @@ async function getCartSnapshot(cartId) {
   };
 }
 
+
+export async function getSharedCartMeta(cartId) {
+  // cart + restaurant + team
+  const { data: cart, error: cartErr } = await supabase
+    .from('meal_carts')
+    .select(`
+      id, team_id, restaurant_id, provider_type, provider_restaurant_id, title,
+      created_by_member_id, status,
+      fulfillment_service, fulfillment_address, fulfillment_latitude, fulfillment_longitude,
+      fulfillment_date, fulfillment_time,
+      restaurants:restaurant_id ( id, name, image_url, address, phone_number, rating, cuisine_type, supports_catering),
+      teams:team_id ( id, name, gender, sport )
+    `)
+    .eq('id', cartId)
+    .maybeSingle();
+  if (cartErr) throw cartErr;
+  if (!cart) return null;
+
+  // Resolve organizer (team_member -> user_profiles)
+  let creator = null;
+  if (cart.created_by_member_id) {
+    const { data: member, error: memberErr } = await supabase
+      .from('team_members')
+      .select(`
+        id, user_id, role, full_name, email, phone_number,
+        user:user_profiles ( id, first_name, last_name, email, phone )
+      `)
+      .eq('id', cart.created_by_member_id)
+      .maybeSingle();
+    if (memberErr) throw memberErr;
+    if (member) {
+      const fullName =
+        member.full_name ||
+        [member.user?.first_name, member.user?.last_name].filter(Boolean).join(' ') ||
+        null;
+      creator = {
+        memberId: member.id,
+        userId: member.user_id,
+        role: member.role,
+        fullName,
+        email: member.email || member.user?.email || null,
+        phone: member.phone_number || member.user?.phone || null,
+      };
+    }
+  }
+
+  return {
+    cart: {
+      id: cart.id,
+      teamId: cart.team_id,
+      status: cart.status ?? 'draft',
+      title: cart.title ?? cart.restaurants?.name ?? null,
+      providerType: cart.provider_type ?? null,
+      providerRestaurantId: cart.provider_restaurant_id ?? null,
+      fulfillment: {
+        service: cart.fulfillment_service ?? null,
+        address: cart.fulfillment_address ?? null,
+        coords:
+          cart.fulfillment_latitude != null && cart.fulfillment_longitude != null
+            ? { lat: cart.fulfillment_latitude, lng: cart.fulfillment_longitude }
+            : null,
+        date: cart.fulfillment_date ?? null,
+        time: cart.fulfillment_time ?? null,
+      },
+      createdByMemberId: cart.created_by_member_id ?? null,
+    },
+    restaurant: cart.restaurants
+      ? {
+          id: cart.restaurants.id,
+          name: cart.restaurants.name,
+          image: cart.restaurants.image_url,
+          cuisine_type: cart.restaurants.cuisine_type || null,
+          address: cart.restaurants.address || null,
+          phone: cart.restaurants.phone_number || null,
+          rating: cart.restaurants.rating ?? null,
+          supports_catering: cart.restaurants.supports_catering ?? null,
+        }
+      : null,
+    team: cart.teams
+      ? {
+          id: cart.teams.id,
+          name: cart.teams.name,
+          gender: cart.teams.gender,
+          sport: cart.teams.sport,
+        }
+      : null,
+    creator,
+  };
+}
+
+
 async function addItem(
   cartId,
   { menuItem, quantity, unitPrice, specialInstructions, selectedOptions, assignment }
@@ -441,6 +532,14 @@ async function markSubmitted(cartId) {
 	if (error) throw error;
 }
 
+export async function joinCartWithEmail(cartId, email) {
+  const { error } = await supabase.rpc('join_cart_with_email', {
+    p_cart_id: cartId,
+    p_email: email,
+  });
+  if (error) throw error;
+}
+
 export default {
 	findActiveCartForRestaurant,
   ensureCartForRestaurant,
@@ -453,5 +552,7 @@ export default {
 	listOpenCarts,
 	deleteCart,
 	markSubmitted,
-  updateCartTitle
+  updateCartTitle,
+  getSharedCartMeta,
+  joinCartWithEmail,
 };

@@ -589,10 +589,19 @@ DROP POLICY IF EXISTS meal_carts_select ON public.meal_carts;
 CREATE POLICY meal_carts_select
   ON public.meal_carts
   FOR SELECT
+  TO authenticated
   USING (
     public.is_member_of_cart(id)
     OR public.is_coach_of_team(team_id)
   );
+
+DROP POLICY IF EXISTS meal_carts_select_for_team_readonly ON public.meal_carts;
+CREATE POLICY meal_carts_select_for_team_readonly
+  ON public.meal_carts
+  FOR SELECT
+  TO authenticated
+  USING ( public.is_team_member(team_id) );
+
 
 DROP POLICY IF EXISTS meal_carts_insert ON public.meal_carts;
 CREATE POLICY meal_carts_insert

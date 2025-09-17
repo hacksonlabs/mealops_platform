@@ -363,7 +363,7 @@ CREATE TABLE IF NOT EXISTS public.meal_carts (
   share_token          text UNIQUE,
   provider_type TEXT,
   provider_restaurant_id TEXT,
-  fulfillment_service TEXT,              -- 'delivery' | 'pickup'
+  fulfillment_service public.fulfillment_method,              -- 'delivery' | 'pickup' | 'dine-in'
   fulfillment_address TEXT,
   fulfillment_latitude DOUBLE PRECISION,
   fulfillment_longitude DOUBLE PRECISION,
@@ -375,6 +375,7 @@ CREATE TABLE IF NOT EXISTS public.meal_carts (
 CREATE TABLE IF NOT EXISTS public.meal_cart_members (
   cart_id     uuid NOT NULL REFERENCES public.meal_carts(id) ON DELETE CASCADE,
   member_id   uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  user_id uuid,
   role        public.cart_member_role NOT NULL DEFAULT 'member',
   joined_at   timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (cart_id, member_id)

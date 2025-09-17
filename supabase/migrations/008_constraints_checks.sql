@@ -22,3 +22,7 @@ ALTER TABLE public.meal_cart_items
   DROP CONSTRAINT IF EXISTS cart_items_cart_id_fkey,
   ADD CONSTRAINT cart_items_cart_id_fkey
     FOREIGN KEY (cart_id) REFERENCES public.meal_carts(id) ON DELETE CASCADE;
+
+ALTER TABLE public.meal_cart_members
+  ADD CONSTRAINT meal_cart_members_user_id_fkey
+  FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;

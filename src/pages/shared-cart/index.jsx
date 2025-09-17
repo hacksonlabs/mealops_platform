@@ -55,6 +55,8 @@ function EmailGateModal({
   creatorName,
   onSubmitEmail,
   loading,
+	serverError,
+	onClearError,
 }) {
   const [email, setEmail] = useState('');
   const [touched, setTouched] = useState(false);
@@ -102,6 +104,7 @@ function EmailGateModal({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 onBlur={() => setTouched(true)}
+								onFocus={() => { setTouched(false); onClearError?.(); }}
                 className={`w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2
                   ${touched && !isValidEmail ? 'border-destructive ring-destructive/20' : 'border-border ring-primary/30'}
                   bg-background`}
@@ -110,6 +113,9 @@ function EmailGateModal({
               {touched && !isValidEmail && (
                 <p className="mt-1 text-xs text-destructive">Please enter a valid email.</p>
               )}
+							{!!serverError && (
+								<p className="mt-2 text-xs text-destructive">{serverError}</p>
+							)}
               <p className="mt-2 text-[11px] text-muted-foreground">
                 We’ll use this to associate your choices with the team cart.
               </p>
@@ -139,9 +145,10 @@ const SharedCartMenu = () => {
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
-  const [snap, setSnap] = useState(null); // { cart, restaurant, items }
+  const [snap, setSnap] = useState(null); // { cart, restaurant, team, creator }
   const [gateOpen, setGateOpen] = useState(true);
   const [gateBusy, setGateBusy] = useState(false);
+	const [gateErr, setGateErr] = useState('');
 
   // Load the cart snapshot (gives us restaurant + locked provider + (optionally) creator name)
   useEffect(() => {
@@ -149,7 +156,7 @@ const SharedCartMenu = () => {
     (async () => {
       setLoading(true); setErr('');
       try {
-        const s = await cartDbService.getCartSnapshot(cartId);
+        const s = await cartDbService.getSharedCartMeta(cartId);
         if (!cancelled) setSnap(s);
       } catch (e) {
         if (!cancelled) setErr(e?.message || 'Failed to load shared cart.');
@@ -174,25 +181,18 @@ const SharedCartMenu = () => {
   }, [cartId, user?.id]);
 
   const restaurant = snap?.restaurant || null;
-  const lockedProvider = snap?.restaurant?.providerType
-    || snap?.cart?.provider_type
-    || pickDefaultProvider(restaurant?.supported_providers || ['grubhub']);
+  const lockedProvider = snap?.cart?.providerType || pickDefaultProvider(restaurant?.supported_providers || ['grubhub']);
+  const creatorName = snap?.creator?.fullName || null;
 
-  // Best-effort creator name; update your getCartSnapshot to include this when ready
-  const creatorName =
-    snap?.cart?.createdByName || snap?.cart?.created_by_name || null; // graceful fallback
-
-  // Distance calc (if you keep it in the hero)
+  // Distance calc
   const computedDistanceMi = useDistanceMiles({
     restaurant,
     fulfillment: {
-      service: snap?.cart?.fulfillment_service || null,
-      address: snap?.cart?.fulfillment_address || null,
-      coords: (snap?.cart?.fulfillment_latitude != null && snap?.cart?.fulfillment_longitude != null)
-        ? { lat: snap.cart.fulfillment_latitude, lng: snap.cart.fulfillment_longitude }
-        : null,
-      date: snap?.cart?.fulfillment_date || null,
-      time: snap?.cart?.fulfillment_time || null,
+      service: snap?.cart?.fulfillment?.service || null,
+			address: snap?.cart?.fulfillment?.address || null,
+			coords:  snap?.cart?.fulfillment?.coords || null,
+			date:    snap?.cart?.fulfillment?.date   || null,
+			time:    snap?.cart?.fulfillment?.time   || null,
     }
   });
 
@@ -217,18 +217,87 @@ const SharedCartMenu = () => {
   const { selectedItem, isOpen, openForItem, closeModal, presetForSelected } =
     useEditModal({ location, menuRaw: null, EXTRA_SENTINEL: '__EXTRA__' });
 
-  // Minimal add-to-cart handler (reuse your service)
-  const handleAddToCart = async ({ item, quantity, unitPrice, specialInstructions, selectedOptions, assignment }) => {
-    if (!cartId) return;
-    await cartDbService.addItem(cartId, {
-      menuItem: { id: item?.id, name: item?.name },
-      quantity,
-      unitPrice,
-      specialInstructions,
-      selectedOptions,
-      assignment,
-    });
-  };
+
+
+  const EXTRA_SENTINEL = '__EXTRA__';
+
+	const moneyToNumber = (v) => {
+		if (v == null) return null;
+		if (typeof v === 'number' && Number.isFinite(v)) return v;
+		const n = Number(String(v).replace(/[^\d.]/g, ''));
+		return Number.isFinite(n) ? n : null;
+	};
+
+	const pickUnitPrice = (it = {}) => {
+		// priority: customized -> plain/unit -> nested -> cents
+		const a = moneyToNumber(it.customizedPrice);
+		if (a != null) return a;
+
+		const b = moneyToNumber(it.unitPrice ?? it.price ?? it?.pricing?.price);
+		if (b != null) return b;
+
+		const cents =
+			it.price_cents ?? it.priceCents ?? it?.pricing?.price_cents ?? it?.pricing?.priceCents;
+		if (Number.isFinite(Number(cents))) return Number(cents) / 100;
+
+		return 0;
+	};
+
+	const handleAddToCart = async (customizedItem, quantity = 1) => {
+		if (!cartId) return;
+
+		const memberIds = (customizedItem.assignedTo || []).map(a => a?.id).filter(Boolean);
+		const extraCount = (customizedItem.assignedTo || [])
+			.filter(a => a?.name === 'Extra' || a?.id === EXTRA_SENTINEL).length;
+		const displayNames = (customizedItem.assignedTo || []).map(a => a?.name).filter(Boolean);
+
+		const unitPrice = pickUnitPrice(customizedItem);
+		const selectedOptions = customizedItem.selectedOptions || '';
+
+		if (customizedItem.cartRowId) {
+			// editing an existing row
+			const selWithAssign = {
+				...selectedOptions,
+				__assignment__: { member_ids: memberIds, extra_count: extraCount, display_names: displayNames },
+			};
+			await cartDbService.updateItem(cartId, customizedItem.cartRowId, {
+				quantity,
+				price: unitPrice,
+				special_instructions: customizedItem.specialInstructions || '',
+				selected_options: selWithAssign,
+			});
+		} else {
+			// adding a new row
+			await cartDbService.addItem(cartId, {
+				menuItem: { id: customizedItem.id, name: customizedItem.name },
+				quantity,
+				unitPrice, // <- always numeric now
+				specialInstructions: customizedItem.specialInstructions || '',
+				selectedOptions,
+				assignment: { memberIds, extraCount, displayNames },
+			});
+		}
+
+		// refresh the cart badge
+		// const snap = await cartDbService.getCartSnapshot(cartId);
+		// if (snap) {
+		// 	const count = snap.items.reduce((n, it) => n + Number(it.quantity || 0), 0);
+		// 	const total = snap.items.reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0);
+		// 	window.dispatchEvent(new CustomEvent('cartBadge', {
+		// 		detail: {
+		// 			count, total,
+		// 			name: snap.cart?.title?.trim()
+		// 				? `${snap.cart.title} • Cart`
+		// 				: (snap.restaurant?.name ? `${snap.restaurant.name} • Cart` : 'Cart'),
+		// 			cartId,
+		// 			restaurant: snap.restaurant,
+		// 			items: snap.items,
+		// 		},
+		// 	}));
+		// }
+	};
+
+
 
   const heroRestaurant = useMemo(() => {
     if (!restaurant) return null;
@@ -263,15 +332,16 @@ const SharedCartMenu = () => {
   // Handle email submit (UI-only persist for now)
   const submitGateEmail = async (email) => {
     setGateBusy(true);
+		setGateErr('');
     try {
-      // TODO (optional): server-side add to cart-membership by email here
-      // await cartDbService.addMemberByEmail(cartId, email);
-
+      await cartDbService.joinCartWithEmail(cartId, email);
       // Persist locally so we don’t prompt again
       const storageKey = `sharedCart:gate:${EMAIL_GATE_VERSION}:${cartId}:${user?.id || 'anon'}`;
       localStorage.setItem(storageKey, JSON.stringify({ email, at: Date.now() }));
       setGateOpen(false);
-    } finally {
+		} catch (e) {
+			setGateErr(e?.message || 'Could not verify your email for this team.');
+		} finally {
       setGateBusy(false);
     }
   };
@@ -310,7 +380,7 @@ const SharedCartMenu = () => {
 				<div className="max-w-5xl mx-auto px-4 md:px-6">
 					<RestaurantHero
 						restaurant={heroRestaurant}
-						selectedService={snap?.cart?.fulfillment_service || 'delivery'}
+						selectedService={snap?.cart?.fulfillment?.service || 'delivery'}
 						onServiceToggle={() => {}}
 						rightContent={
 							<div className="w-full md:w-80">
@@ -359,6 +429,8 @@ const SharedCartMenu = () => {
         creatorName={creatorName}
         onSubmitEmail={submitGateEmail}
         loading={gateBusy}
+				serverError={gateErr}
+				onClearError={() => setGateErr('')}
       />
 
       {/* Reuse your existing edit/add modal */}

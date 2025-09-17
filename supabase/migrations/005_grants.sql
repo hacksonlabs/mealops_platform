@@ -16,3 +16,6 @@ GRANT EXECUTE ON FUNCTION public.finalize_order_cancellation(UUID, BOOLEAN, TEXT
 
 grant execute on function public.is_coach_of_team(uuid) to authenticated, anon;
 grant execute on function public.is_member_of_cart(uuid) to authenticated, anon;
+
+grant execute on function public.join_cart_as_member(uuid) to authenticated;
+grant execute on function public.join_cart_with_email(uuid, text) to authenticated;

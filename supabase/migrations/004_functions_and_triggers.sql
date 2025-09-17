@@ -282,7 +282,7 @@ BEGIN
 END;
 $$;
 
--- keep meal_carts.updated_at fresh
+-- meal carts
 CREATE OR REPLACE FUNCTION public.tg_touch_meal_carts()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -477,7 +477,6 @@ begin
   return v;
 end $$;
 
--- Helper: is current user a member of the cart (via meal_cart_members)?
 create or replace function public.is_member_of_cart(p_cart_id uuid)
 returns boolean
 language plpgsql
@@ -489,12 +488,16 @@ begin
   select exists (
     select 1
       from public.meal_cart_members m
-      join public.team_members tm on tm.id = m.member_id
+      left join public.team_members tm on tm.id = m.member_id
      where m.cart_id = p_cart_id
-       and tm.user_id = auth.uid()
+       and (
+         m.user_id = auth.uid()           -- <--  recognize session linked in cart-members
+         or tm.user_id = auth.uid()       -- “owner/rostered user” path
+       )
   ) into v;
   return v;
 end $$;
+
 
 CREATE OR REPLACE FUNCTION public.tg_validate_cart_creator_team()
 RETURNS trigger
@@ -520,6 +523,75 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+create or replace function public.join_cart_as_member(p_cart_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_team_id uuid;
+  v_member_id uuid;
+begin
+  select team_id into v_team_id from public.meal_carts where id = p_cart_id;
+  if v_team_id is null then
+    raise exception 'Cart not found';
+  end if;
+
+  select tm.id into v_member_id
+    from public.team_members tm
+   where tm.team_id = v_team_id
+     and tm.user_id = auth.uid()
+   limit 1;
+
+  if v_member_id is null then
+    raise exception 'You are not a member of this team';
+  end if;
+
+  insert into public.meal_cart_members (cart_id, member_id)
+  values (p_cart_id, v_member_id)
+  on conflict (cart_id, member_id) do nothing;
+end;
+$$;
+
+create or replace function public.join_cart_with_email(p_cart_id uuid, p_email text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_team_id   uuid;
+  v_member_id uuid;
+begin
+  -- cart's team
+  select team_id into v_team_id from public.meal_carts where id = p_cart_id;
+  if v_team_id is null then
+    raise exception 'Cart not found';
+  end if;
+
+  -- find ANY roster row on that team whose email matches (case-insensitive)
+  select tm.id
+    into v_member_id
+  from public.team_members tm
+  where tm.team_id = v_team_id
+    and lower(trim(tm.email)) = lower(trim(p_email))
+  limit 1;
+
+  if v_member_id is null then
+    raise exception 'No team member with that email on this team';
+  end if;
+
+  -- add/update cart membership:
+  -- keep (cart_id, member_id) unique; also attach the current session user_id
+  insert into public.meal_cart_members (cart_id, member_id, user_id)
+  values (p_cart_id, v_member_id, auth.uid())
+  on conflict (cart_id, member_id) do update
+    set user_id = coalesce(public.meal_cart_members.user_id, excluded.user_id);
+end;
+$$;
+
 
 ALTER FUNCTION public.is_team_member(UUID)    SET search_path = public;
 ALTER FUNCTION public.is_team_admin(UUID)     SET search_path = public;
