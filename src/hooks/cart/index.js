@@ -12,3 +12,6 @@ export { default as useMenuSearchFilter } from './useMenuSearchFilter';
 export { default as useItemEditModal } from './useItemEditModal';
 export { default as useAddToCart } from './useAddToCart';
 export { default as useCartPanel } from './useCartPanel';
+export { default as useMembers } from './useMembers';
+export { default as useItemSelections } from './useItemSelections';
+export { default as useAssignees } from './useAssignees';
