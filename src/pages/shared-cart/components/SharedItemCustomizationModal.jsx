@@ -4,14 +4,8 @@ import Image from '../../../components/AppImage';
 import Button from '../../../components/ui/custom/Button';
 import Select from '../../../components/ui/custom/Select';
 import { useAuth } from '../../../contexts';
-
-// use the same constant you use elsewhere in the app
 import { EXTRA_SENTINEL } from '@/hooks/cart/constants';
-
-// hooks (new)
-import { useMembers } from '@/hooks/cart';
-import { useItemSelections } from '@/hooks/cart';
-import { useAssignees } from '@/hooks/cart';
+import { useMembers, useItemSelections, useAssignees } from '@/hooks/cart';
 
 const SharedItemCustomizationModal = ({
   item,
@@ -25,9 +19,12 @@ const SharedItemCustomizationModal = ({
   const { activeTeam } = useAuth();
   const isEditing = !!(preset?.cartRowId || item?.cartRowId);
 
-  // quantity lives here (affects price + assignee cap)
+  // quantity (single effect to hydrate)
   const [quantity, setQuantity] = useState(1);
-  useEffect(() => { if (isOpen) setQuantity(1); }, [isOpen, item]);
+  useEffect(() => {
+    if (!isOpen) return;
+    setQuantity(Math.max(1, Number(preset?.quantity ?? item?.quantity ?? 1)));
+  }, [isOpen, item, preset]);
 
   // data
   const { members, membersLoading } = useMembers({ teamId: activeTeam?.id, isOpen });
@@ -43,9 +40,10 @@ const SharedItemCustomizationModal = ({
     missingRequired,
   } = useItemSelections({ isOpen, item, preset });
 
+  // totals
   const total = useMemo(() => unitPrice * quantity, [unitPrice, quantity]);
 
-  // assignees (includes autopopulate + hydration)
+  // assignees (always called, never conditionally)
   const { assigneeIds, setAssigneeIds, optionsList } = useAssignees({
     isOpen,
     isEditing,
@@ -57,13 +55,23 @@ const SharedItemCustomizationModal = ({
     EXTRA_SENTINEL,
   });
 
-  // If orders are not allowed from anyone, lock assignee to verified user
+  // if restricted, lock to verified user (effect still always called)
   useEffect(() => {
     if (!isOpen) return;
     if (allowOrdersFromAnyoneFlag) return;
     const id = verifiedIdentity?.memberId || null;
     if (id) setAssigneeIds([id]);
   }, [isOpen, allowOrdersFromAnyoneFlag, verifiedIdentity?.memberId, setAssigneeIds]);
+
+  // merge options so pre-selected ids always render labels
+  const mergedOptionsList = useMemo(() => {
+		const map = new Map((optionsList || []).map((o) => [String(o.value), { ...o, value: String(o.value) }]));
+		(assigneeIds || []).forEach((id) => {
+			const key = String(id);
+			if (!map.has(key)) map.set(key, { value: key, label: 'Selected member' });
+		});
+		return Array.from(map.values());
+	}, [optionsList, assigneeIds]);
 
   // toggle option
   const toggleOption = (group, optId) => {
@@ -84,30 +92,22 @@ const SharedItemCustomizationModal = ({
   const handleAdd = () => {
     if (missingRequired) return;
 
-    let assigned;
-
-    if (!allowOrdersFromAnyoneFlag) {
-      // Force single assignee to verified user (fallbacks included)
-      assigned = [{
-        id: verifiedIdentity?.memberId ?? 'self',
-        name: (verifiedIdentity?.fullName || verifiedIdentity?.email || 'You'),
-        role: null,
-        email: verifiedIdentity?.email ?? null,
-        phone: null,
-      }];
-    } else {
-      assigned = assigneeIds
-        .map((id) => {
-          if (id === EXTRA_SENTINEL) {
-            return { id: EXTRA_SENTINEL, name: 'Extra', role: null, email: null, phone: null };
-          }
-          const m = members.find((mm) => mm.id === id);
-          return m
-            ? { id: m.id, name: m.full_name, role: m.role, email: m.email, phone: m.phone_number || null }
-            : null;
-        })
-        .filter(Boolean);
-    }
+    const assigned = allowOrdersFromAnyoneFlag
+			? (assigneeIds || []).slice(0, quantity).map((id) => {
+					const idStr = String(id);
+					if (idStr === EXTRA_SENTINEL) {
+						return { id: EXTRA_SENTINEL, name: 'Extra', role: null, email: null, phone: null };
+					}
+					const m = members.find((mm) => String(mm.id) === idStr);
+					return m ? { id: m.id, name: m.full_name, role: m.role, email: m.email, phone: m.phone_number || null } : null;
+				}).filter(Boolean)
+			: [{
+					id: verifiedIdentity?.memberId ?? 'self',
+					name: (verifiedIdentity?.fullName || verifiedIdentity?.email || 'You'),
+					role: null,
+					email: verifiedIdentity?.email ?? null,
+					phone: null,
+				}];
 
     const addedByMemberId = verifiedIdentity?.memberId ?? null;
 
@@ -175,12 +175,7 @@ const SharedItemCustomizationModal = ({
         </div>
 
         {/* Scrollable content */}
-        <div
-          className="
-            overflow-y-auto
-            max-h-[calc(90vh-132px)] md:max-h-[calc(90vh-160px)] pb-10
-          "
-        >
+        <div className="overflow-y-auto max-h-[calc(90vh-132px)] md:max-h-[calc(90vh-160px)] pb-10">
           {/* Item info */}
           <div className="p-3 md:p-4 border-b border-border">
             <div className="flex gap-3 md:gap-4">
@@ -226,9 +221,9 @@ const SharedItemCustomizationModal = ({
                       value={assigneeIds}
                       onChange={(vals) => {
                         const arr = Array.isArray(vals) ? vals : (vals ? [vals] : []);
-                        setAssigneeIds(arr.slice(0, quantity));
+                        setAssigneeIds(arr); // warn below if beyond quantity; clamp on save
                       }}
-                      options={optionsList}
+                      options={mergedOptionsList}
                       menuPortalTarget={document.body}
                       menuPosition="fixed"
                     />
@@ -240,7 +235,6 @@ const SharedItemCustomizationModal = ({
                   </div>
                 )
               ) : (
-                // Locked single assignee display (read-only)
                 <div className="max-w-xs md:max-w-sm">
                   <div className="h-9 md:h-10 px-3 rounded-md border border-border bg-muted/30 flex items-center justify-between">
                     <span className="truncate text-sm">{verifiedDisplayName}</span>
@@ -252,7 +246,11 @@ const SharedItemCustomizationModal = ({
           )}
 
           {/* Option groups */}
-          {groups.length > 0 && (
+          {groups.length === 0 ? (
+            <div className="p-3 md:p-4 border-b border-border text-sm text-muted-foreground">
+              Loading options…
+            </div>
+          ) : (
             <div className="p-3 md:p-4  space-y-3 md:space-y-4">
               {groups.map((g) => {
                 const chosen = selections[g.id] || [];
@@ -274,14 +272,7 @@ const SharedItemCustomizationModal = ({
                       {g.options.map((o) => {
                         const isChecked = chosen.includes(o.id);
                         return (
-                          <label
-                            key={o.id}
-                            className="
-                              flex items-center justify-between
-                              px-2 py-2 rounded
-                              hover:bg-muted/40 cursor-pointer
-                            "
-                          >
+                          <label key={o.id} className="flex items-center justify-between px-2 py-2 rounded hover:bg-muted/40 cursor-pointer">
                             <div className="flex items-center gap-2.5 md:gap-3">
                               {g.type === 'single' ? (
                                 <input
@@ -289,7 +280,7 @@ const SharedItemCustomizationModal = ({
                                   className="w-4 h-4 accent-primary"
                                   checked={isChecked}
                                   onChange={() => toggleOption(g, o.id)}
-                                  name={`opt-${g.id}`}
+                                  name={`opt-${g.id}-${item?.id || preset?.cartRowId || 'row'}`}
                                 />
                               ) : (
                                 <input
@@ -300,7 +291,7 @@ const SharedItemCustomizationModal = ({
                                 />
                               )}
                               <div>
-                                <div className="text-sm md:text-sm font-medium text-foreground">{o.name}</div>
+                                <div className="text-sm font-medium text-foreground">{o.name}</div>
                                 {o.description && (
                                   <div className="text-[11px] md:text-xs text-muted-foreground">{o.description}</div>
                                 )}
@@ -333,32 +324,16 @@ const SharedItemCustomizationModal = ({
         </div>
 
         {/* Footer */}
-        <div
-          className="
-            sticky bottom-0 bg-card border-t border-border
-            p-3 md:p-4
-            pb-[max(12px,calc(env(safe-area-inset-bottom)+8px))] md:pb-4
-          "
-        >
+        <div className="sticky bottom-0 bg-card border-t border-border p-3 md:p-4 pb-[max(12px,calc(env(safe-area-inset-bottom)+8px))] md:pb-4">
           <div className="flex items-center justify-between mb-3 md:mb-4">
             <div className="flex items-center gap-3 md:gap-4">
               <span className="text-sm text-muted-foreground">Quantity:</span>
               <div className="flex items-center gap-2 bg-muted rounded-lg">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  className="w-7 h-7 md:w-8 md:h-8"
-                >
+                <Button variant="ghost" size="icon" onClick={() => setQuantity(Math.max(1, quantity - 1))} className="w-7 h-7 md:w-8 md:h-8">
                   <Icon name="Minus" size={14} />
                 </Button>
                 <span className="text-sm font-semibold w-7 md:w-8 text-center">{quantity}</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setQuantity(quantity + 1)}
-                  className="w-7 h-7 md:w-8 md:h-8"
-                >
+                <Button variant="ghost" size="icon" onClick={() => setQuantity(quantity + 1)} className="w-7 h-7 md:w-8 md:h-8">
                   <Icon name="Plus" size={14} />
                 </Button>
               </div>

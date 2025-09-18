@@ -78,9 +78,6 @@ export default function CartDrawer({
                                 For: <span className="text-foreground/90">{assignees}</span>
                               </>
                             )}
-                            {assignees && customizations ? (
-                              <span className="text-muted-foreground/70"> • </span>
-                            ) : null}
                             {customizations && <span className="line-clamp-2">{customizations}</span>}
                           </div>
                         )}

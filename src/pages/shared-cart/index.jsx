@@ -30,7 +30,7 @@ const SharedCartMenu = () => {
   const { cartId } = useParams();
   const location = useLocation();
   const { user } = useAuth(); // { id, email, ... } if exposed in your context
-	const [allowOrdersFromAnyoneFlag, setAllowOrdersFromAnyoneFlag] = useState(false);
+	const [allowOrdersFromAnyoneFlag, setAllowOrdersFromAnyoneFlag] = useState(true);
 
   // Make this the active cart for your global drawer/contexts
   useActivateSharedCart(cartId);
@@ -54,6 +54,17 @@ const SharedCartMenu = () => {
     loadingMenu,
     providerError,
   } = useLockedProviderMenu({ restaurant, provider: lockedProvider });
+
+	// Build an index so we can look up the full catalog item when editing from the drawer
+	const menuItemsById = useMemo(() => {
+		const map = {};
+		Object.values(providerItemsByCat || {}).forEach((arr) => {
+			(arr || []).forEach((mi) => {
+				if (mi?.id) map[mi.id] = mi;
+			});
+		});
+		return map;
+	}, [providerItemsByCat]);
 
   // Search/filter
   const { searchQuery, setSearchQuery, filteredMenuItems } =
@@ -95,25 +106,47 @@ const SharedCartMenu = () => {
 		removeItem: handleRemoveItem,
 	} = useCartPanel(cartId);
 
-  // Edit/remove handlers for the drawer
-  const handleEditItem = (it) => {
-		// Pass the cart row id so the modal treats this as "editing"
-		// Also pass the menu item id so the options/catalog hydrate correctly
-		openForItem?.({
-			...it,
-			cartRowId: it.id,
-			id: it.menuItemId ?? it.id,
-		});
-	};
+	// Edit handler for the drawer
+	const handleEditItem = useCallback((row) => {
+		// Find the catalog item that has the options schema
+		const catalog =
+			menuItemsById[row.menuItemId] ||
+			menuItemsById[row.id] || // fallback if your row.id == menu id
+			{
+				// last-ditch fallback so modal still opens (no groups though)
+				id: row.menuItemId || row.id,
+				name: row.name,
+				image: row.image,
+				price: row.price,
+			};
+
+		// Merge the row snapshot fields into the object we open with. This lets the modal use `item` for groups and `preset` for selections.
+		const merged = {
+			...catalog,
+			cartRowId: row.id,          // tells modal we're editing this row
+			cartId,                     // needed for update flows
+			quantity: row.quantity,
+			specialInstructions: row.specialInstructions,
+			selectedOptions: row.selectedOptions,
+			selectedSize: row.selectedSize,
+			selectedToppings: row.selectedToppings,
+			assignedTo: row.assignedTo,
+		};
+
+		// hook will set selectedItem to `merged`. We'll also give the same
+		openForItem?.(merged);
+	}, [menuItemsById, openForItem, cartId]);
 
 	const viewerMemberId = verifiedIdentity?.memberId ?? null;
+
 	const viewableItems = useMemo(
-		() => filterItemsForViewer(
-			cartPanel?.items,
-			viewerMemberId,
-			verifiedIdentity,
-			/* allowAll: */ allowOrdersFromAnyoneFlag
-		),
+		() =>
+			filterItemsForViewer(
+				cartPanel?.items,
+				viewerMemberId,
+				verifiedIdentity,
+				allowOrdersFromAnyoneFlag
+			),
 		[cartPanel?.items, viewerMemberId, verifiedIdentity, allowOrdersFromAnyoneFlag]
 	);
 
@@ -223,16 +256,17 @@ const SharedCartMenu = () => {
       />
 
       <SharedItemCustomizationModal
-        item={selectedItem}
-        isOpen={isOpen}
-        onClose={closeModal}
-        preset={presetForSelected}
-        onAddToCart={handleAddToCart}
+				key={selectedItem?.cartRowId || selectedItem?.id || 'modal'}
+				item={selectedItem}
+				isOpen={isOpen}
+				onClose={closeModal}
+				preset={presetForSelected || (selectedItem?.cartRowId ? selectedItem : undefined)}
+				onAddToCart={handleAddToCart}
 				verifiedIdentity={verifiedIdentity}
 				cartId={cartId}
 				userId={user?.id}
 				allowOrdersFromAnyoneFlag={allowOrdersFromAnyoneFlag}
-      />
+			/>
 
 			<SharedCartDrawer
         isOpen={drawerOpen}
