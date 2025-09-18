@@ -11,6 +11,8 @@ import EmailGateModal from './components/EmailGateModal';
 import SharedCartDrawer from '@/pages/shared-cart/components/SharedCartDrawer';
 import { useCartPanel } from '@/hooks/cart';
 import MobileHeroSection from '@/pages/shared-cart/components/MobileHeroSection';
+import { filterItemsForViewer, buildBadgeFromItems, itemBelongsToMember } from '@/utils/sharedCartVisibility';
+
 
 import { useAuth } from '@/contexts';
 
@@ -28,6 +30,7 @@ const SharedCartMenu = () => {
   const { cartId } = useParams();
   const location = useLocation();
   const { user } = useAuth(); // { id, email, ... } if exposed in your context
+	const [allowOrdersFromAnyoneFlag, setAllowOrdersFromAnyoneFlag] = useState(false);
 
   // Make this the active cart for your global drawer/contexts
   useActivateSharedCart(cartId);
@@ -65,13 +68,13 @@ const SharedCartMenu = () => {
 
   // Email gate
   const {
-    gateOpen,
-    gateBusy,
-    gateErr,
-    submitGateEmail,
-    clearGateError,
+		gateOpen,
+		gateBusy,
+		gateErr,
+		submitGateEmail,
+		clearGateError,
 		verifiedIdentity,
-  } = useEmailGate({ cartId, userId: user?.id });
+	} = useEmailGate({ cartId, userId: user?.id, persist: 'none', wipeExisting: true });
 
   // auto-open cart drawer from link param (?openCart=1)
 	// Doesn't work yet, but I don't want the cart to open.
@@ -103,6 +106,22 @@ const SharedCartMenu = () => {
 		});
 	};
 
+	const viewerMemberId = verifiedIdentity?.memberId ?? null;
+	const viewableItems = useMemo(
+		() => filterItemsForViewer(
+			cartPanel?.items,
+			viewerMemberId,
+			verifiedIdentity,
+			/* allowAll: */ allowOrdersFromAnyoneFlag
+		),
+		[cartPanel?.items, viewerMemberId, verifiedIdentity, allowOrdersFromAnyoneFlag]
+	);
+
+	const filteredBadge = useMemo(
+		() => buildBadgeFromItems(viewableItems, cartBadge?.cartId, cartBadge?.name),
+		[viewableItems, cartBadge?.cartId, cartBadge?.name]
+	);
+
 
   if (loading) {
     return (
@@ -129,7 +148,7 @@ const SharedCartMenu = () => {
     <main className="min-h-screen bg-background relative">
       <SharedCartHeader
         teamLine={teamLine}
-        badgeCount={cartBadge.count}
+        badgeCount={filteredBadge.count}
         onOpenCart={() => setDrawerOpen(true)}
 				verifiedIdentity={verifiedIdentity}
       />
@@ -212,15 +231,25 @@ const SharedCartMenu = () => {
 				verifiedIdentity={verifiedIdentity}
 				cartId={cartId}
 				userId={user?.id}
+				allowOrdersFromAnyoneFlag={allowOrdersFromAnyoneFlag}
       />
 
 			<SharedCartDrawer
         isOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        cartBadge={cartBadge}
-        cartPanel={cartPanel}
-        onEditItem={handleEditItem}
-        onRemoveItem={handleRemoveItem}
+        cartBadge={filteredBadge}
+        cartPanel={{ ...cartPanel, items: viewableItems }}
+        onEditItem={(it) => {
+					// Guard edits/removes if restricted
+					if (!allowOrdersFromAnyoneFlag &&
+							!itemBelongsToMember(it, viewerMemberId, verifiedIdentity)) return;
+					handleEditItem(it);
+				}}
+				onRemoveItem={(it) => {
+					if (!allowOrdersFromAnyoneFlag &&
+							!itemBelongsToMember(it, viewerMemberId, verifiedIdentity)) return;
+					handleRemoveItem(it);
+				}}
       />
     </main>
   );

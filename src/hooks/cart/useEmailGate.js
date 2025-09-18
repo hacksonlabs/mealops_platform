@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import cartDbService from '@/services/cartDBService';
 import { EMAIL_GATE_VERSION } from './constants';
 
-export default function useEmailGate({ cartId, userId }) {
+export default function useEmailGate({ cartId, userId, persist = 'local', wipeExisting = false }) {
   const [gateOpen, setGateOpen] = useState(true);
   const [gateBusy, setGateBusy] = useState(false);
   const [gateErr, setGateErr] = useState('');
@@ -14,22 +14,39 @@ export default function useEmailGate({ cartId, userId }) {
     [cartId, userId]
   );
 
+  const getStore = () => (persist === 'local' ? window.localStorage
+                    : persist === 'session' ? window.sessionStorage
+                    : null);
+
   useEffect(() => {
     if (!cartId) return;
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setVerifiedIdentity(parsed || null);
-        setGateOpen(false);
-      } else {
-        setGateOpen(true);
-      }
-    } catch {
-      setVerifiedIdentity(null);
-      setGateOpen(true);
+
+    // Optional: wipe any old persisted identity when switching to non-persistent mode
+    if (wipeExisting) {
+      try {
+        window.localStorage.removeItem(storageKey);
+        window.sessionStorage.removeItem(storageKey);
+      } catch {}
     }
-  }, [cartId, storageKey]);
+
+    // Read only if we’re persisting
+    if (persist === 'local' || persist === 'session') {
+      try {
+        const store = getStore();
+        const raw = store?.getItem(storageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          setVerifiedIdentity(parsed || null);
+          setGateOpen(false);
+          return;
+        }
+      } catch {}
+    }
+
+    // Default: require email each time
+    setVerifiedIdentity(null);
+    setGateOpen(true);
+  }, [cartId, storageKey, persist, wipeExisting]);
 
   const submitGateEmail = async (email) => {
     setGateBusy(true);
@@ -37,12 +54,18 @@ export default function useEmailGate({ cartId, userId }) {
     try {
       const res = await cartDbService.joinCartWithEmail(cartId, email);
       const identity = {
-        email:   res.email,
+        email:    res.email,
         memberId: res.memberId,
         fullName: res.fullName,
         at: Date.now(),
       };
-      localStorage.setItem(storageKey, JSON.stringify(identity));
+
+      // Persist only if configured
+      try {
+        const store = getStore();
+        if (store) store.setItem(storageKey, JSON.stringify(identity));
+      } catch {}
+
       setVerifiedIdentity(identity);
       setGateOpen(false);
     } catch (e) {
@@ -52,6 +75,15 @@ export default function useEmailGate({ cartId, userId }) {
     }
   };
 
+  const forgetGate = () => {
+    try {
+      window.localStorage.removeItem(storageKey);
+      window.sessionStorage.removeItem(storageKey);
+    } catch {}
+    setVerifiedIdentity(null);
+    setGateOpen(true);
+  };
+
   return {
     gateOpen,
     gateBusy,
@@ -59,5 +91,6 @@ export default function useEmailGate({ cartId, userId }) {
     submitGateEmail,
     clearGateError: () => setGateErr(''),
     verifiedIdentity,
+    forgetGate,
   };
 }

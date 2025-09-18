@@ -34,11 +34,11 @@ export default function EmailGateModal({
           <div className="p-4 md:p-5 space-y-3">
             <p className="text-sm text-muted-foreground">
               {creatorName ? (
-                <>The organizer <span className="font-medium text-foreground">{creatorName}</span> probably used their <span className="font-medium">.edu/school</span> email when sharing this link.</>
+                <><span className="font-medium text-foreground">{creatorName}</span> has invited you to their shared cart! 😋 <br></br>Your associated email is probably your <span className="font-medium">school/.edu</span> email.</>
               ) : (
                 <>The organizer probably used their <span className="font-medium">.edu/school</span> email when sharing this link.</>
               )}{' '}
-              Enter yours below so we can add you to the cart.
+              
             </p>
 
             <div>

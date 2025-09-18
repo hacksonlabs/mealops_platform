@@ -20,14 +20,13 @@ const SharedItemCustomizationModal = ({
   onAddToCart,
   preset,
   verifiedIdentity,
+  allowOrdersFromAnyoneFlag,
 }) => {
   const { activeTeam } = useAuth();
   const isEditing = !!(preset?.cartRowId || item?.cartRowId);
 
   // quantity lives here (affects price + assignee cap)
   const [quantity, setQuantity] = useState(1);
-
-  // reset quantity on open
   useEffect(() => { if (isOpen) setQuantity(1); }, [isOpen, item]);
 
   // data
@@ -58,6 +57,14 @@ const SharedItemCustomizationModal = ({
     EXTRA_SENTINEL,
   });
 
+  // If orders are not allowed from anyone, lock assignee to verified user
+  useEffect(() => {
+    if (!isOpen) return;
+    if (allowOrdersFromAnyoneFlag) return;
+    const id = verifiedIdentity?.memberId || null;
+    if (id) setAssigneeIds([id]);
+  }, [isOpen, allowOrdersFromAnyoneFlag, verifiedIdentity?.memberId, setAssigneeIds]);
+
   // toggle option
   const toggleOption = (group, optId) => {
     setSelections((prev) => {
@@ -77,15 +84,30 @@ const SharedItemCustomizationModal = ({
   const handleAdd = () => {
     if (missingRequired) return;
 
-    const assigned = assigneeIds
-      .map((id) => {
-        if (id === EXTRA_SENTINEL) return { id: EXTRA_SENTINEL, name: 'Extra', role: null, email: null, phone: null };
-        const m = members.find((mm) => mm.id === id);
-        return m
-          ? { id: m.id, name: m.full_name, role: m.role, email: m.email, phone: m.phone_number || null }
-          : null;
-      })
-      .filter(Boolean);
+    let assigned;
+
+    if (!allowOrdersFromAnyoneFlag) {
+      // Force single assignee to verified user (fallbacks included)
+      assigned = [{
+        id: verifiedIdentity?.memberId ?? 'self',
+        name: (verifiedIdentity?.fullName || verifiedIdentity?.email || 'You'),
+        role: null,
+        email: verifiedIdentity?.email ?? null,
+        phone: null,
+      }];
+    } else {
+      assigned = assigneeIds
+        .map((id) => {
+          if (id === EXTRA_SENTINEL) {
+            return { id: EXTRA_SENTINEL, name: 'Extra', role: null, email: null, phone: null };
+          }
+          const m = members.find((mm) => mm.id === id);
+          return m
+            ? { id: m.id, name: m.full_name, role: m.role, email: m.email, phone: m.phone_number || null }
+            : null;
+        })
+        .filter(Boolean);
+    }
 
     const addedByMemberId = verifiedIdentity?.memberId ?? null;
 
@@ -115,6 +137,11 @@ const SharedItemCustomizationModal = ({
   };
 
   if (!isOpen) return null;
+
+  const verifiedDisplayName =
+    (verifiedIdentity?.fullName || '') ||
+    (verifiedIdentity?.email ? verifiedIdentity.email : '') ||
+    'You';
 
   return (
     <div
@@ -174,37 +201,51 @@ const SharedItemCustomizationModal = ({
             </div>
           </div>
 
-          {/* Assign to Team Members */}
+          {/* Assignment */}
           {activeTeam?.id && (
             <div className="p-3 md:p-4 border-b border-border">
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-base md:text-lg font-semibold text-foreground">Assign to Team Member(s)</h4>
-                <div className="text-[11px] md:text-xs text-muted-foreground">
-                  {assigneeIds.length}/{quantity} selected
-                </div>
+                <h4 className="text-base md:text-lg font-semibold text-foreground">
+                  {allowOrdersFromAnyoneFlag ? 'Assign to Team Member(s)' : 'Assigned To:'}
+                </h4>
+                {allowOrdersFromAnyoneFlag && (
+                  <div className="text-[11px] md:text-xs text-muted-foreground">
+                    {assigneeIds.length}/{quantity} selected
+                  </div>
+                )}
               </div>
 
-              {membersLoading ? (
-                <div className="text-sm text-muted-foreground">Loading members…</div>
+              {allowOrdersFromAnyoneFlag ? (
+                membersLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading members…</div>
+                ) : (
+                  <div className="max-w-xs md:max-w-sm">
+                    <Select
+                      multiple
+                      searchable
+                      value={assigneeIds}
+                      onChange={(vals) => {
+                        const arr = Array.isArray(vals) ? vals : (vals ? [vals] : []);
+                        setAssigneeIds(arr.slice(0, quantity));
+                      }}
+                      options={optionsList}
+                      menuPortalTarget={document.body}
+                      menuPosition="fixed"
+                    />
+                    {assigneeIds.length > quantity && (
+                      <div className="mt-1 text-[11px] md:text-xs text-error">
+                        You can assign at most {quantity}.
+                      </div>
+                    )}
+                  </div>
+                )
               ) : (
+                // Locked single assignee display (read-only)
                 <div className="max-w-xs md:max-w-sm">
-                  <Select
-                    multiple
-                    searchable
-                    value={assigneeIds}
-                    onChange={(vals) => {
-                      const arr = Array.isArray(vals) ? vals : (vals ? [vals] : []);
-                      setAssigneeIds(arr.slice(0, quantity));
-                    }}
-                    options={optionsList}
-                    menuPortalTarget={document.body}
-                    menuPosition="fixed"
-                  />
-                  {assigneeIds.length > quantity && (
-                    <div className="mt-1 text-[11px] md:text-xs text-error">
-                      You can assign at most {quantity}.
-                    </div>
-                  )}
+                  <div className="h-9 md:h-10 px-3 rounded-md border border-border bg-muted/30 flex items-center justify-between">
+                    <span className="truncate text-sm">{verifiedDisplayName}</span>
+                    <Icon name="Lock" size={14} className="text-muted-foreground ml-2" />
+                  </div>
                 </div>
               )}
             </div>
