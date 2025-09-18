@@ -10,6 +10,7 @@ import SharedCartHeader from './components/SharedCartHeader';
 import EmailGateModal from './components/EmailGateModal';
 import SharedCartDrawer from '@/pages/shared-cart/components/SharedCartDrawer';
 import { useCartPanel } from '@/hooks/cart';
+import MobileHeroSection from '@/pages/shared-cart/components/MobileHeroSection';
 
 import { useAuth } from '@/contexts';
 
@@ -133,22 +134,36 @@ const SharedCartMenu = () => {
 				verifiedIdentity={verifiedIdentity}
       />
 
-      <div className={`pt-16 ${gateOpen ? 'pointer-events-none opacity-50' : ''}`}>
+      <div className={`pt-14 md:pt-16 ${gateOpen ? 'pointer-events-none opacity-50' : ''}`}>
         <div className="max-w-5xl mx-auto px-4 md:px-6">
-          <RestaurantHero
-            restaurant={heroRestaurant}
-            selectedService={snap?.cart?.fulfillment?.service || 'delivery'}
-            onServiceToggle={() => {}}
-            rightContent={
-              <div className="w-full md:w-80">
-                <MenuSearch
-                  searchQuery={searchQuery}
-                  onSearch={setSearchQuery}
-                  onClearSearch={() => setSearchQuery('')}
-                />
-              </div>
-            }
-          />
+					<div className="hidden md:block">
+						<RestaurantHero 
+							restaurant={heroRestaurant}
+							selectedService={snap?.cart?.fulfillment?.service || 'delivery'}
+							onServiceToggle={() => {}}
+							rightContent={
+								<div className="w-full md:w-80">
+									<MenuSearch
+										searchQuery={searchQuery}
+										onSearch={setSearchQuery}
+										onClearSearch={() => setSearchQuery('')}
+									/>
+								</div>
+							}
+						/>
+					</div>
+
+          {/* Mobile hero + search stacked */}
+          <div className="md:hidden">
+            <MobileHeroSection restaurant={heroRestaurant} />
+            <div className="px-4 pb-2">
+              <MenuSearch
+                searchQuery={searchQuery}
+                onSearch={setSearchQuery}
+                onClearSearch={() => setSearchQuery('')}
+              />
+            </div>
+          </div>
 
           {providerError && <p className="text-sm text-destructive mt-2">{providerError}</p>}
           {loadingMenu && <div className="animate-pulse text-sm text-muted-foreground mt-2">Loading menu…</div>}

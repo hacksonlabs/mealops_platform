@@ -7,7 +7,12 @@ import Button from '@/components/ui/custom/Button';
 import mealLogo from '@/components/images/meal.png';
 import { useAuth } from '@/contexts';
 
-export default function SharedCartHeader({ onOpenCart, className = '', badgeCount = 0, verifiedIdentity, }) {
+export default function SharedCartHeader({
+  onOpenCart,
+  className = '',
+  badgeCount = 0,
+  verifiedIdentity,
+}) {
   const { loadingTeams, activeTeam } = useAuth();
   const displayName =
     (verifiedIdentity?.fullName || '').trim() ||
@@ -19,12 +24,12 @@ export default function SharedCartHeader({ onOpenCart, className = '', badgeCoun
       <div className="flex items-center justify-between h-16 px-4 lg:px-6">
         {/* Logo + Team Info */}
         <div className="flex items-center">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 md:space-x-4">
             <Link to="/" className="flex items-center space-x-2">
               <img
                 src={mealLogo}
                 alt="MealOps Logo"
-                className="h-12 w-auto object-contain"
+                className="h-8 md:h-12 w-auto object-contain"
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
             </Link>
@@ -39,13 +44,15 @@ export default function SharedCartHeader({ onOpenCart, className = '', badgeCoun
                     aria-haspopup="menu"
                     aria-expanded="false"
                   >
-                    <div className="flex flex-col items-center">
-                      <span className="text-md font-bold text-foreground">{activeTeam.name}</span>
+                    <div className="flex flex-col items-center text-center">
+                      <span className="text-sm md:text-md font-bold text-foreground">
+                        {activeTeam.name}
+                      </span>
                       <div className="flex items-center space-x-2">
-                        <span className="text-xs text-muted-foreground font-medium uppercase">
+                        <span className="text-[10px] md:text-xs text-muted-foreground font-medium uppercase">
                           {activeTeam.gender}
                         </span>
-                        <span className="text-xs text-muted-foreground font-medium uppercase">
+                        <span className="text-[10px] md:text-xs text-muted-foreground font-medium uppercase">
                           {activeTeam.sport}
                         </span>
                       </div>
@@ -54,10 +61,11 @@ export default function SharedCartHeader({ onOpenCart, className = '', badgeCoun
                 </div>
               </>
             )}
+
             {firstName && (
               <>
                 <div className="h-10 border-l border-border" />
-                <div className="text-sm text-muted-foreground">
+                <div className="text-xs md:text-sm text-muted-foreground">
                   Hi, <span className="font-semibold text-foreground">{firstName}</span> 👋
                 </div>
               </>
@@ -71,7 +79,7 @@ export default function SharedCartHeader({ onOpenCart, className = '', badgeCoun
           className="relative inline-flex items-center justify-center"
           aria-label="Open cart"
         >
-          <Icon name="ShoppingCart" size={20} className="-scale-x-100"/>
+          <Icon name="ShoppingCart" size={20} className="-scale-x-100" />
           {!!badgeCount && (
             <span className="absolute -top-2 -left-2 min-w-[16px] h-[16px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] leading-[16px] text-center">
               {badgeCount}
