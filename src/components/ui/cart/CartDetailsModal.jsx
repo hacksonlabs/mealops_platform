@@ -3,9 +3,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Button from '../custom/Button';
 import Icon from '../../AppIcon';
 import cartDbService from '../../../services/cartDBService';
-// NEW: pull in the status meta
 import { STATUS_META } from '../../../utils/ordersUtils';
 import { toTitleCase } from '@/utils/stringUtils';
+
+// NEW: import the unit-expansion helpers
+import {
+  expandItemsToUnitRows,
+  sortAssigneeRows,
+} from '../../../utils/cartDisplayUtils';
 
 export default function CartDetailsModal({ isOpen, onClose, cartId }) {
   const [loading, setLoading] = useState(false);
@@ -39,45 +44,24 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
     return () => { cancelled = true; };
   }, [isOpen, cartId]);
 
-  // Build per-person rows
-  const tableRows = useMemo(() => {
-    if (!isOpen) return [];
-    const rows = [];
-    for (const it of (snap?.items || [])) {
-      const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
-      const qty  = Number(it?.quantity ?? 1);
-      const names = Array.isArray(it?.assignedTo)
-        ? it.assignedTo.map(a => a?.name).filter(Boolean)
-        : (it?.userName ? [it.userName] : []);
-      const perPerson = (unit * qty) / Math.max(names.length || 1, 1);
-      const assignees = names.length ? names : ['Unassigned'];
-      const special = (toTitleCase(it?.specialInstructions) || '').trim();
+  // Expand to per-unit rows (then map to table rows)
+  const unitRows = useMemo(
+    () => (isOpen ? sortAssigneeRows(expandItemsToUnitRows(snap?.items || [])) : []),
+    [isOpen, snap?.items]
+  );
 
-      for (const person of assignees) {
-        rows.push({
-          person,
-          itemName: it?.name || 'Item',
-          special,
-          cost: perPerson
-        });
-      }
-    }
-    return rows.sort((a, b) => {
-      const ax = /^(extra|unassigned)$/i.test(a.person);
-      const bx = /^(extra|unassigned)$/i.test(b.person);
-      if (ax !== bx) return ax ? 1 : -1;
-      return a.person.localeCompare(b.person);
-    });
-  }, [isOpen, snap?.items]);
+  const tableRows = useMemo(() => {
+    return unitRows.map((r) => ({
+      person: r.assignee,
+      itemName: r.itemName,
+      special: r.special,
+      cost: Number(r.unitPrice || 0),
+    }));
+  }, [unitRows]);
 
   const grandSubtotal = useMemo(() => {
-    if (!isOpen) return 0;
-    return (snap?.items || []).reduce((s, it) => {
-      const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
-      const qty  = Number(it?.quantity ?? 1);
-      return s + unit * qty;
-    }, 0);
-  }, [isOpen, snap?.items]);
+    return unitRows.reduce((s, r) => s + Number(r.unitPrice || 0), 0);
+  }, [unitRows]);
 
   if (!isOpen) return null;
 
@@ -105,7 +89,8 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
   const dateStr = snap?.cart?.fulfillment_date || null;
   const timeStr = snap?.cart?.fulfillment_time || null;
 
-  const itemCount = (snap?.items || []).reduce((n, it) => n + Number(it?.quantity || 0), 0);
+  // Use unit count so “2 of the same” shows as 2 rows
+  const itemCount = unitRows.length;
   const itemsLabel = `${itemCount} item${itemCount === 1 ? '' : 's'} · $${grandSubtotal.toFixed(2)}`;
   const dateTimeLabel = `${fmtDateShort(dateStr)} • ${fmtTime(timeStr)}`;
 
@@ -129,12 +114,9 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
       >
         {/* Header */}
         <div className="p-4 md:p-5 border-b border-border">
-          {/* Top line: icon • status • Title */}
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex items-center gap-2 flex-1">
               <Icon name="ShoppingCart" size={18} />
-
-              {/* STATUS CHIP */}
               <span
                 className={[
                   'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide ring-1',
@@ -144,7 +126,6 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
               >
                 <span>{statusLabel}</span>
               </span>
-
               <h2 className="text-lg md:text-xl font-heading font-semibold text-foreground truncate">
                 {snap?.cart?.title?.trim() || snap?.restaurant?.name || 'Draft Cart'}
               </h2>
@@ -154,12 +135,10 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
             </Button>
           </div>
 
-          {/* Sub line: restaurant name */}
           <p className="mt-1 text-xs md:text-sm text-muted-foreground truncate">
             {snap?.restaurant?.name || '—'}
           </p>
 
-          {/* Meta line: Service • Items/Total • Date/Time */}
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border bg-muted/40">
               <Icon name={isDelivery ? 'Truck' : 'Store'} size={14} className="text-muted-foreground" />
@@ -177,7 +156,6 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
             </span>
           </div>
 
-          {/* Address (only for delivery) */}
           {isDelivery && (
             <div className="mt-2 flex items-start gap-2 p-2.5 rounded-md border border-border bg-muted/30">
               <Icon name="MapPin" size={16} className="mt-0.5 text-muted-foreground" />
@@ -222,7 +200,7 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
                       </td>
                       <td className="hidden md:table-cell py-2.5 px-3">
                         {r.special ? (
-                          <div className="text-muted-foreground">{r.special}</div>
+                          <div className="text-muted-foreground">{toTitleCase(r.special)}</div>
                         ) : (
                           <span className="text-muted-foreground/70">—</span>
                         )}
@@ -247,8 +225,8 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
         </div>
 
         {/* Footer */}
-        <div className="p-3 md:p-4 border-t border-border flex items-center justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Close</Button>
+        <div className="p-3 md:p-4 flex items-center justify-end gap-2">
+          {/* <Button variant="outline" onClick={onClose}>Close</Button> */}
         </div>
       </div>
     </div>

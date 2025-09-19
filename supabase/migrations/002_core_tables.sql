@@ -402,6 +402,7 @@ CREATE TABLE IF NOT EXISTS public.meal_cart_item_assignees (
   cart_item_id  uuid NOT NULL REFERENCES public.meal_cart_items(id) ON DELETE CASCADE,
   member_id     uuid REFERENCES public.team_members(id) ON DELETE SET NULL, -- NULL when is_extra = true
   is_extra      boolean NOT NULL DEFAULT false,
+  unit_qty      integer NOT NULL DEFAULT 1,
   created_at    timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ck_assignee_valid
     CHECK (

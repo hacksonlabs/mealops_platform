@@ -606,7 +606,45 @@ end;
 $$;
 
 
+CREATE OR REPLACE FUNCTION public.fn_check_item_assignment_totals()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_item_id uuid;
+  v_expected int;
+  v_actual   int;
+BEGIN
+  IF TG_TABLE_NAME = 'meal_cart_item_assignees' THEN
+    v_item_id := COALESCE(NEW.cart_item_id, OLD.cart_item_id);
+  ELSIF TG_TABLE_NAME = 'meal_cart_items' THEN
+    v_item_id := COALESCE(NEW.id, OLD.id);
+  ELSE
+    RAISE EXCEPTION 'Unexpected table % for fn_check_item_assignment_totals', TG_TABLE_NAME;
+  END IF;
 
+  SELECT quantity INTO v_expected
+  FROM public.meal_cart_items
+  WHERE id = v_item_id;
+
+  IF v_expected IS NULL THEN
+    RETURN NULL; -- item may be gone; FK will enforce consistency
+  END IF;
+
+  SELECT COALESCE(SUM(unit_qty), 0) INTO v_actual
+  FROM public.meal_cart_item_assignees
+  WHERE cart_item_id = v_item_id;
+
+  IF v_actual <> v_expected THEN
+    RAISE EXCEPTION
+      'Sum of assignee units (%) must equal cart item quantity (%) for cart_item_id %',
+      v_actual, v_expected, v_item_id
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
 
 
 ALTER FUNCTION public.is_team_member(UUID)    SET search_path = public;
@@ -753,3 +791,17 @@ CREATE TRIGGER trg_validate_cart_creator_team_upd
 BEFORE UPDATE OF team_id, created_by_member_id ON public.meal_carts
 FOR EACH ROW
 EXECUTE FUNCTION public.tg_validate_cart_creator_team();
+
+-- Fire on assignee changes (insert/update/delete)
+DROP TRIGGER IF EXISTS trg_check_assign_totals_assignees ON public.meal_cart_item_assignees;
+CREATE CONSTRAINT TRIGGER trg_check_assign_totals_assignees
+AFTER INSERT OR UPDATE OR DELETE ON public.meal_cart_item_assignees
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION public.fn_check_item_assignment_totals();
+
+-- Fire on item quantity change ONLY (not on INSERT)
+DROP TRIGGER IF EXISTS trg_check_assign_totals_items ON public.meal_cart_items;
+CREATE CONSTRAINT TRIGGER trg_check_assign_totals_items
+AFTER UPDATE OF quantity ON public.meal_cart_items
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION public.fn_check_item_assignment_totals();

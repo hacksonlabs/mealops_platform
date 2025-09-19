@@ -30,3 +30,6 @@ ALTER TABLE public.meal_cart_members
 ALTER TABLE public.meal_cart_members
   ADD CONSTRAINT meal_cart_members_cart_id_member_id_key
   UNIQUE (cart_id, member_id);
+
+ALTER TABLE public.meal_cart_item_assignees
+  ADD CONSTRAINT ck_assignee_unit_qty_pos CHECK (unit_qty > 0);

@@ -63,12 +63,16 @@ create index if not exists idx_meal_cart_members_cart_id on public.meal_cart_mem
 CREATE INDEX IF NOT EXISTS idx_cart_items_cart ON public.meal_cart_items(cart_id);
 CREATE INDEX IF NOT EXISTS idx_cart_items_member ON public.meal_cart_items(added_by_member_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS meal_cart_members_cart_user_uidx
-  ON public.meal_cart_members(cart_id, user_id)
-  WHERE user_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_item_member
+  ON public.meal_cart_item_assignees (cart_item_id, member_id)
+  WHERE is_extra = false;
 
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_item_extra
+  ON public.meal_cart_item_assignees (cart_item_id)
+  WHERE is_extra = true;
+  
 -- prevent duplicate member assignment to same item
 CREATE UNIQUE INDEX IF NOT EXISTS uq_item_assignee_member
   ON public.meal_cart_item_assignees(cart_item_id, member_id)
   WHERE member_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_item_assignees_item ON public.meal_cart_item_assignees(cart_item_id);
+-- CREATE INDEX IF NOT EXISTS idx_item_assignees_item ON public.meal_cart_item_assignees(cart_item_id);

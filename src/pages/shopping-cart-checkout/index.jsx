@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import Header from '../../components/ui/Header';
-import FulfillmentBar from '../../components/ui/FulfillmentBar';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/custom/Button';
 import RestaurantHeader from './components/RestaurantHeader';
-import CartItemCard from './components/CartItemCard';
 import OrderSummary from './components/OrderSummary';
 import DeliveryInformation from './components/DeliveryInformation';
 import PaymentSection from './components/PaymentSection';
 import TipSelection from './components/TipSelection';
 import CheckoutButton from './components/CheckoutButton';
-// import ShareCartButton from './components/ShareCartButton';
+import AccountDetailsSection from './components/AccountDetailsSection';        // NEW
+import TeamAssignments from './components/TeamAssignments';                    // NEW
+import OrderItemsModal from './components/OrderItemsModal';                    // NEW
 import { useSharedCart } from '../../contexts/SharedCartContext';
 import { useAuth } from '../../contexts/AuthContext';
 import sharedCartService from '../../services/sharedCartService';
@@ -20,7 +20,6 @@ import { paymentService } from '../../services/paymentService';
 import providerService from '../../services/providerService';
 import { PROVIDER_CONFIG } from '../../services/paymentService';
 
-// Small helpers for default date/time
 const pad = (n) => String(n).padStart(2, '0');
 const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const toTimeInput = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -44,22 +43,19 @@ const ShoppingCartCheckout = () => {
     logCartActivity
   } = useSharedCart();
 
-  // Get cart ID from URL params or shared cart context
   const urlCartId = searchParams?.get('cartId');
   const currentCartId = urlCartId || activeCartId;
 
-  // ---- Fulfillment (replaces PrimaryTab) ----
   const now = useMemo(() => new Date(), []);
-  const inStateFulfillment = location.state?.fulfillment
+  const inStateFulfillment = location.state?.fulfillment;
   const [fulfillment, setFulfillment] = useState({
     service: inStateFulfillment?.service ?? 'delivery',
     address: inStateFulfillment?.address ?? '123 Main Street, Apt 4B, New York, NY 10001',
     coords: inStateFulfillment?.coords ?? null,
     date: inStateFulfillment?.date ?? toDateInput(now),
     time: inStateFulfillment?.time ?? toTimeInput(now),
-  });
+  }); 
 
-  // Restaurant data (placeholder if not coming from shared cart)
   const [restaurant] = useState(
     location.state?.restaurant || {
       id: 1,
@@ -67,21 +63,17 @@ const ShoppingCartCheckout = () => {
       image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&h=300&fit=crop',
       rating: 4.8,
       distance: '0.8 miles',
-      address: '', // will be filled by snapshot if available
+      address: '',
     }
   );
 
-  // Cart items - replaced by Supabase data when shared cart is loaded
   const [cartItems, setCartItems] = useState([]);
-
   const [sharedCartData, setSharedCartData] = useState(null);
   const [isSharedCart, setIsSharedCart] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // ---- Order state (kept, but synchronized with Fulfillment) ----
   const [serviceType, setServiceType] = useState(() => inStateFulfillment?.service ?? 'delivery');
   const [deliveryAddress, setDeliveryAddress] = useState(() => inStateFulfillment?.address ?? '');
-
   const [pickupTime, setPickupTime] = useState('asap');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
   const [tipAmount, setTipAmount] = useState(0);
@@ -91,7 +83,26 @@ const ShoppingCartCheckout = () => {
   const [savedPaymentMethods, setSavedPaymentMethods] = useState([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
 
-  const pad2 = (n) => String(n).padStart(2, '0');
+  const lineQty = (it) => {
+    const raw = Number(it?.quantity);
+    return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  };
+  
+  const orderItemsCount = useMemo(
+    () => (cartItems || []).reduce((n, it) => n + lineQty(it), 0),
+    [cartItems]
+  );
+
+  // NEW: Account details
+  const [account, setAccount] = useState({
+    contactName: user?.user_metadata?.full_name || user?.full_name || '',
+    email: user?.email || '',
+    phone: '',
+    teamName: sharedCartData?.cart?.teamName || ''
+  });
+
+  // NEW: items modal
+  const [showItemsModal, setShowItemsModal] = useState(false);
 
   const mapMethods = (rows = []) => rows.map((m) => ({
     id: m.id,
@@ -103,10 +114,8 @@ const ShoppingCartCheckout = () => {
     cardName: m.card_name,
   }));
 
-  // Keep order state in sync when user changes the FulfillmentBar
   const handleFulfillmentChange = (next) => {
     setFulfillment(next);
-    // Mirror into existing order state
     setServiceType(next.service);
     setServiceParam(next.service);
     setDeliveryAddress(next.address || '');
@@ -114,16 +123,15 @@ const ShoppingCartCheckout = () => {
     if (next.service === 'pickup') setTipAmount(0);
   };
 
-  // Keep FulfillmentBar in sync when toggles in other components change service type
+  // FIX: this referenced "next" (undefined) before
   const handleServiceTypeChange = (type) => {
     setServiceType(type);
-    setServiceParam(next.service);
+    setServiceParam(type);
     setEstimatedTime(type === 'delivery' ? '30-40 min' : '20-25 min');
     if (type === 'pickup') setTipAmount(0);
     setFulfillment((prev) => (prev.service === type ? prev : { ...prev, service: type }));
   };
 
-  // Load shared cart data if available
   useEffect(() => {
     if (currentCartId && user?.id) {
       loadCartData();
@@ -131,13 +139,10 @@ const ShoppingCartCheckout = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCartId, user?.id]);
 
-  // Real-time cart updates
   useEffect(() => {
     const handleCartItemsChange = (event) => {
       const { detail } = event;
-      if (detail?.cartId === currentCartId) {
-        loadCartData();
-      }
+      if (detail?.cartId === currentCartId) loadCartData();
     };
     window.addEventListener('cartItemsChanged', handleCartItemsChange);
     return () => window.removeEventListener('cartItemsChanged', handleCartItemsChange);
@@ -151,7 +156,7 @@ const ShoppingCartCheckout = () => {
       if (!cartSnapshot) return;
       setSharedCartData(cartSnapshot);
       setIsSharedCart(true);
-      // fallback normalize assignees from __assignment__ if needed:
+
       const items = (cartSnapshot.items || []).map((it) => {
         if (Array.isArray(it?.assignedTo) && it.assignedTo.length) return it;
         const a = it?.selectedOptions?.__assignment__ || it?.selected_options?.__assignment__;
@@ -162,6 +167,9 @@ const ShoppingCartCheckout = () => {
       });
       setCartItems(items);
       broadcastHeader(cartSnapshot);
+
+      // update team name default if present
+      setAccount((prev) => ({ ...prev, teamName: prev.teamName || cartSnapshot?.cart?.teamName || '' }));
     } finally {
       setLoading(false);
     }
@@ -171,7 +179,6 @@ const ShoppingCartCheckout = () => {
     const onRemove = (e) => {
       const { itemId } = e?.detail || {};
       if (!itemId) return;
-      // Uses your existing shared/local logic
       handleRemoveItem(itemId);
     };
     window.addEventListener('cartItemRemove', onRemove);
@@ -193,7 +200,6 @@ const ShoppingCartCheckout = () => {
     }));
   };
 
-  // Totals
   const subtotal = cartItems?.reduce((sum, item) => {
     const itemTotal = (item?.price || 0) * (item?.quantity || 0);
     const customizationTotal =
@@ -208,13 +214,13 @@ const ShoppingCartCheckout = () => {
   const tax = subtotal * 0.08;
   const total = subtotal + deliveryFee + tax + tipAmount - promoDiscount;
 
-  // Validation
   const isFormValid = () =>
     cartItems?.length > 0 &&
     selectedPaymentMethod &&
-    (serviceType === 'pickup' || (deliveryAddress || '').trim());
+    (serviceType === 'pickup' || (deliveryAddress || '').trim()) &&
+    (account?.contactName || '').trim() &&
+    (account?.email || '').trim();
 
-  // Event handlers (shared/local)
   const handleQuantityChange = async (itemId, newQuantity) => {
     if (!currentCartId) return;
     await cartDbService.updateItem(currentCartId, itemId, { quantity: Math.max(0, newQuantity) });
@@ -229,7 +235,7 @@ const ShoppingCartCheckout = () => {
 
   const handleEditItem = (item) => {
     const rid = sharedCartData?.restaurant?.id || restaurant?.id;
-      navigate(`/restaurant/${rid}`, {
+    navigate(`/restaurant/${rid}`, {
       state: {
         editItem: item,
         restaurantId: rid,
@@ -257,25 +263,15 @@ const ShoppingCartCheckout = () => {
       paymentMethod: selectedPaymentMethod,
       tip: tipAmount,
       total,
+      account,
     };
 
     if (isSharedCart && currentCartId) {
       try {
-        // await sharedCartService?.convertCartToOrder(currentCartId, {
-        //   delivery_address_line1: (deliveryAddress || '').split(',')?.[0] || '',
-        //   delivery_city: 'City',
-        //   delivery_state: 'State',
-        //   delivery_zip: '12345',
-        //   total_amount: total,
-        //   service_fee_charged: 0,
-        //   delivery_fee_charged: deliveryFee,
-        // });
-
         await logCartActivity?.(currentCartId, 'order_placed', {
           total_amount: total,
           item_count: cartItems?.length,
         });
-
         console.log('Shared cart order placed:', orderData);
       } catch (error) {
         console.error('Error placing shared cart order:', error);
@@ -285,20 +281,16 @@ const ShoppingCartCheckout = () => {
     }
   };
 
-  // Update ETA when service type changes
   useEffect(() => {
     setEstimatedTime(serviceType === 'delivery' ? '30-40 min' : '20-25 min');
   }, [serviceType]);
 
-  // Set active cart ID from URL if provided
   useEffect(() => {
     if (urlCartId && urlCartId !== activeCartId) {
       setActiveCartId?.(urlCartId);
     }
   }, [urlCartId, activeCartId, setActiveCartId]);
 
-
-  // fetch payments
   useEffect(() => {
     const teamId = sharedCartData?.cart?.teamId || null;
     if (!user?.id) return;
@@ -306,19 +298,14 @@ const ShoppingCartCheckout = () => {
     (async () => {
       setLoadingPayments(true);
       try {
-        // if you want team-scoped methods, prefer getTeamPaymentMethods(teamId)
         const { data, error } = teamId
           ? await paymentService.getTeamPaymentMethods(teamId)
           : await paymentService.getPaymentMethods();
-
-        if (error) return; // you can toast error.message if you want
+        if (error) return;
         const methods = mapMethods(data);
         setSavedPaymentMethods(methods);
         setSelectedPaymentMethod((prev) =>
-          prev ||
-          methods.find((m) => m.isDefault)?.id ||
-          methods[0]?.id ||
-          ''
+          prev || methods.find((m) => m.isDefault)?.id || methods[0]?.id || ''
         );
       } finally {
         setLoadingPayments(false);
@@ -341,20 +328,18 @@ const ShoppingCartCheckout = () => {
       team_id: sharedCartData?.cart?.teamId || null,
       card_name: form.name?.trim() || 'Card',
       last_four: last4,
-      is_default: savedPaymentMethods.length === 0, // first card -> default
+      is_default: savedPaymentMethods.length === 0,
     };
 
     const { data, error } = await paymentService.createPaymentMethod(payload);
     if (error) throw new Error(error.message || 'Failed to save card');
 
-    // add a UI-only brand for icon (not saved to DB)
     const created = { ...mapMethods([data])[0], brand: detectBrand(digits) };
     setSavedPaymentMethods((prev) => [created, ...prev]);
-    return created; // so PaymentSection can auto-select it
+    return created;
   };
 
-
-  const provider = sharedCartData?.cart?.providerType || 'grubhub'; // default you prefer
+  const provider = sharedCartData?.cart?.providerType || 'grubhub';
   const paymentMode = PROVIDER_CONFIG[provider]?.paymentMode || 'external_redirect';
   const pickupAddress = sharedCartData?.restaurant?.address || location.state?.restaurant?.address || restaurant?.address || '';
 
@@ -374,12 +359,53 @@ const ShoppingCartCheckout = () => {
     );
   }
 
+  // --- Right sidebar block (summary + tip + button in one container) ---
+  const SidebarCheckout = () => (
+    <div className="sticky top-32">
+      <div className="bg-card border border-border rounded-lg p-4 lg:p-6">
+        <OrderSummary
+          subtotal={subtotal}
+          deliveryFee={deliveryFee}
+          tax={tax}
+          discount={promoDiscount}
+          total={total}
+          serviceType={serviceType}
+          onPromoCodeApply={handlePromoCodeApply}
+        />
+
+        <TipSelection
+          serviceType={serviceType}
+          subtotal={subtotal}
+          selectedTip={tipAmount}
+          onTipChange={setTipAmount}
+          variant="embedded"
+        />
+
+        <Button
+          className="w-full h-12 text-base font-semibold mt-6 hidden lg:block"
+          onClick={handlePlaceOrder}
+          disabled={!isFormValid()}
+          iconName={serviceType === 'delivery' ? 'Truck' : 'ShoppingBag'}
+          iconPosition="left"
+        >
+          Place {serviceType === 'delivery' ? 'Delivery' : 'Pickup'} Order
+        </Button>
+
+        {!isFormValid() && (
+          <p className="hidden lg:block text-xs text-error mt-2">
+            Complete required fields before placing your order.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <main className="pt-16 pb-32 md:pb-8">
-        <div className="max-w-4xl mx-auto px-4 lg:px-6">
-          {/* Back Navigation */}
+        <div className="max-w-5xl mx-auto px-4 lg:px-6">
+          {/* Back */}
           <div className="mt-4 mb-6">
             <Button
               variant="ghost"
@@ -392,47 +418,42 @@ const ShoppingCartCheckout = () => {
           </div>
 
           <div className="space-y-6">
-
-            {/* Restaurant Header with Share Button */}
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
-                <RestaurantHeader
-                  restaurant={sharedCartData?.restaurant || restaurant}
-                  serviceType={serviceType}
-                  onServiceTypeChange={handleServiceTypeChange}
-                  estimatedTime={estimatedTime}
-                />
-              </div>
-
-              {currentCartId && (
-                <div className="ml-4">
-                  {/* <ShareCartButton cartId={currentCartId} /> */}
-                </div>
-              )}
-            </div>
+            {/* Restaurant Header */}
+            <RestaurantHeader
+              restaurant={sharedCartData?.restaurant || restaurant}
+              serviceType={serviceType}
+              onServiceTypeChange={handleServiceTypeChange}
+              estimatedTime={estimatedTime}
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left Column - Cart Items & Details */}
+              {/* LEFT (wider) */}
               <div className="lg:col-span-2 space-y-6">
-                {/* Cart Items */}
-                <div className="space-y-4">
-                  <h2 className="text-xl font-semibold text-foreground">
-                    Your Order ({cartItems?.length} {cartItems?.length === 1 ? 'item' : 'items'})
-                  </h2>
-
-                  {cartItems?.map((item) => (
-                    <CartItemCard
-                      key={item?.id}
-                      item={item}
-                      onQuantityChange={handleQuantityChange}
-                      onRemove={handleRemoveItem}
-                      onEdit={handleEditItem}
-                      showUserInfo={isSharedCart}
-                    />
-                  ))}
+                {/* NEW: Account details */}
+                <AccountDetailsSection account={account} onChange={setAccount} />
+                {/* NEW: Team assignments */}
+                <TeamAssignments items={cartItems} />
+                {/* Order summary header (count + modal trigger only) */}
+                <div className="bg-card border border-border rounded-lg p-4 lg:p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon name="ShoppingCart" size={18} className="text-primary" />
+                      <h2 className="text-lg font-semibold text-foreground">Your Order</h2>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-muted-foreground tabular-nums">
+                        {orderItemsCount} {orderItemsCount === 1 ? 'item' : 'items'}
+                      </span>
+                      <Button variant="outline" size="sm" onClick={() => setShowItemsModal(true)}>
+                        <Icon name="List" size={14} className="mr-1" />
+                        View details
+                      </Button>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Delivery / Pickup Details (kept, stays in sync with bar) */}
+
+                {/* Delivery / Pickup */}
                 <DeliveryInformation
                   serviceType={serviceType}
                   deliveryAddress={deliveryAddress}
@@ -452,7 +473,7 @@ const ShoppingCartCheckout = () => {
                     onPaymentMethodChange={setSelectedPaymentMethod}
                     savedPaymentMethods={savedPaymentMethods}
                     loadingPayments={loadingPayments}
-                    onAddCard={handleAddCard} // can be a noop for now
+                    onAddCard={handleAddCard}
                   />
                 ) : (
                   <div className="bg-card border border-border rounded-lg p-4 lg:p-6">
@@ -463,14 +484,12 @@ const ShoppingCartCheckout = () => {
                     <Button
                       className="mt-4"
                       onClick={async () => {
-                        // 1) Price/lock the order via provider API
-                        // 2) Get checkout/deeplink URL
                         const url = await providerService.startCheckout({
                           provider,
                           cartId: currentCartId,
                           providerRestaurantId: sharedCartData?.cart?.providerRestaurantId,
                         });
-                        window.location.href = url; // send user to hosted checkout
+                        window.location.href = url;
                       }}
                     >
                       Continue to {provider === 'mealme' ? 'MealMe' : 'Checkout'}
@@ -478,41 +497,33 @@ const ShoppingCartCheckout = () => {
                   </div>
                 )}
 
-                {/* Tip */}
-                <TipSelection
-                  serviceType={serviceType}
-                  subtotal={subtotal}
-                  selectedTip={tipAmount}
-                  onTipChange={setTipAmount}
-                />
               </div>
 
-              {/* Right Column - Summary */}
+              {/* RIGHT (summary + tip + button) */}
               <div className="lg:col-span-1">
-                <div className="sticky top-32">
-                  <OrderSummary
-                    subtotal={subtotal}
-                    deliveryFee={deliveryFee}
-                    tax={tax}
-                    discount={promoDiscount}
-                    total={total}
-                    serviceType={serviceType}
-                    onPromoCodeApply={handlePromoCodeApply}
-                  />
-                </div>
+                <SidebarCheckout />
               </div>
             </div>
           </div>
         </div>
       </main>
 
-      {/* Checkout Button (mobile sticky) */}
-      <CheckoutButton
-        total={total}
-        isValid={isFormValid()}
-        serviceType={serviceType}
-        estimatedTime={estimatedTime}
-        onPlaceOrder={handlePlaceOrder}
+      {/* Mobile sticky checkout (kept, but hidden on desktop) */}
+      <div className="lg:hidden">
+        <CheckoutButton
+          total={total}
+          isValid={isFormValid()}
+          serviceType={serviceType}
+          estimatedTime={estimatedTime}
+          onPlaceOrder={handlePlaceOrder}
+        />
+      </div>
+
+      {/* Items modal */}
+      <OrderItemsModal
+        open={showItemsModal}
+        onClose={() => setShowItemsModal(false)}
+        items={cartItems}
       />
     </div>
   );

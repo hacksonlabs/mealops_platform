@@ -2,15 +2,15 @@
 import { supabase } from '../lib/supabase';
 import { toTitleCase } from '../utils/stringUtils';
 /**
- * We keep the payload for "who it's for" in selected_options.__assignment__
- * so you don't need to change tables again:
+ * We keep a snapshot in selected_options.__assignment__ for quick UI use:
  * {
  *   __assignment__: {
  *     member_ids: [uuid, ...],   // team_members.id
- *     extra_count: number,       // how many "Extra" meals
+ *     extra_count: number,       // how many "Extra" meals (total units)
  *     display_names: [string]    // snapshot for quick rendering in header
+ *     // (optional) units_by_member: { [memberId]: units }  // if you choose to persist
  *   },
- *   ...your other option groups...
+ *   ...other option groups...
  * }
  */
 
@@ -27,6 +27,141 @@ const normalizeDbTime = (t) => {
   return `${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:${(ss || '00').padStart(2, '0')}`;
 };
 
+// ---------------------------------------------------------------------------
+// Assignment helpers: compute + persist unit quantities per assignee/extras
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute per-member units and extras to match a target quantity.
+ * If quantity is missing/invalid, it is derived from unitsByMember+extraCount
+ * or falls back to (memberIds.length + extraCount) or 1.
+ */
+function computeUnits({ quantity, memberIds = [], unitsByMember = {}, extraCount = 0 }) {
+  const ids = Array.from(new Set(memberIds)); // de-dupe, keep order
+  const units = {};
+  let baseTotal = 0;
+
+  // start with provided units or default 1 per member
+  for (const id of ids) {
+    const raw = Number(unitsByMember?.[id]);
+    const u = Number.isFinite(raw) && raw > 0 ? raw : 1;
+    units[id] = u;
+    baseTotal += u;
+  }
+
+  // extras are ONLY the explicit extras the user asked for
+  let extras = Math.max(0, Number(extraCount || 0));
+  baseTotal += extras;
+
+  // target quantity
+  let targetQty = Number(quantity);
+  if (!Number.isFinite(targetQty) || targetQty <= 0) {
+    // if quantity omitted, derive from current plan or at least 1
+    targetQty = Math.max(1, baseTotal || ids.length || extras || 1);
+  }
+
+  let diff = targetQty - baseTotal;
+
+  if (diff > 0) {
+    // assign remainder to the last selected member (if any), else to extras
+    if (ids.length > 0) {
+      const lastId = ids[ids.length - 1];
+      units[lastId] = (units[lastId] || 0) + diff;
+    } else {
+      extras += diff;
+    }
+  } else if (diff < 0) {
+    // shrink: extras first, then members from the end
+    let toRemove = -diff;
+
+    const cut = Math.min(extras, toRemove);
+    extras -= cut;
+    toRemove -= cut;
+
+    for (let i = ids.length - 1; i >= 0 && toRemove > 0; i--) {
+      const id = ids[i];
+      const take = Math.min(units[id], toRemove);
+      units[id] -= take;
+      toRemove -= take;
+    }
+  }
+
+  // drop any zero-unit members
+  for (const id of Object.keys(units)) {
+    if (units[id] <= 0) delete units[id];
+  }
+
+  return { targetQty, units, extras };
+}
+
+
+/** Replace all assignees with explicit unit_qty (single extras row if extras>0). */
+async function writeAssigneesWithUnits(itemId, { unitsByMember = {}, extras = 0 }) {
+  const rows = [
+    ...Object.entries(unitsByMember).map(([member_id, unit_qty]) => ({
+      cart_item_id: itemId,
+      member_id,
+      is_extra: false,
+      unit_qty: Math.max(0, Number(unit_qty || 0)),
+    })),
+    ...(extras > 0
+      ? [{
+          cart_item_id: itemId,
+          is_extra: true,
+          unit_qty: Math.max(0, Number(extras || 0)),
+        }]
+      : []),
+  ].filter(r => r.unit_qty > 0);
+
+  // wipe then insert
+  const { error: delErr } = await supabase
+    .from('meal_cart_item_assignees')
+    .delete()
+    .eq('cart_item_id', itemId);
+  if (delErr) throw delErr;
+
+  if (rows.length) {
+    const { error: insErr } = await supabase
+      .from('meal_cart_item_assignees')
+      .insert(rows);
+    if (insErr) throw insErr;
+  }
+}
+
+/**
+ * When only quantity changes (no new assignment payload), adjust current
+ * assignments so the trigger passes. Extras absorb changes first.
+ */
+async function syncAssigneesToQuantity(itemId, newQty) {
+  const { data: asg, error } = await supabase
+    .from('meal_cart_item_assignees')
+    .select('member_id, is_extra, unit_qty')
+    .eq('cart_item_id', itemId);
+  if (error) throw error;
+
+  const unitsByMember = {};
+  let extras = 0;
+
+  for (const r of asg || []) {
+    if (r.is_extra) extras += Number(r.unit_qty || 0);
+    else unitsByMember[r.member_id] = Math.max(0, Number(r.unit_qty || 0));
+  }
+
+  const memberIds = Object.keys(unitsByMember);
+  const { targetQty, units, extras: ex } = computeUnits({
+    quantity: newQty,
+    memberIds,
+    unitsByMember,
+    extraCount: extras,
+  });
+
+  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras: ex });
+  return targetQty;
+}
+
+// ---------------------------------------------------------------------------
+// Cart querying/creation
+// ---------------------------------------------------------------------------
 
 // If date is provided: match that date (and time if provided).
 // If date is not provided: prefer carts with NULL date (unscheduled).
@@ -90,7 +225,6 @@ async function ensureCartForRestaurant(
   return created.id;
 }
 
-
 export async function updateCartTitle(cartId, title) {
   const normalized = normalizeTitle(title);
   const { error } = await supabase
@@ -100,6 +234,9 @@ export async function updateCartTitle(cartId, title) {
   if (error) throw error;
 }
 
+// ---------------------------------------------------------------------------
+// Snapshots & meta
+// ---------------------------------------------------------------------------
 
 async function getCartSnapshot(cartId) {
   // cart & its restaurant
@@ -171,17 +308,16 @@ async function getCartSnapshot(cartId) {
           id: cart.restaurants.id,
           name: cart.restaurants.name,
           image: cart.restaurants.image_url,
-					address: cart.restaurants.address || null,
+          address: cart.restaurants.address || null,
           phone: cart.restaurants.phone_number || null,
-					rating: cart.restaurants.rating ?? null,
-					providerType: cart.provider_type,
+          rating: cart.restaurants.rating ?? null,
+          providerType: cart.provider_type,
           providerRestaurantId: cart.provider_restaurant_id,
         }
       : null,
     items: mapped,
   };
 }
-
 
 export async function getSharedCartMeta(cartId) {
   // cart + restaurant + team
@@ -272,38 +408,54 @@ export async function getSharedCartMeta(cartId) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Mutations (items + assignments)
+// ---------------------------------------------------------------------------
 
 async function addItem(
   cartId,
   { menuItem, quantity, unitPrice, specialInstructions, selectedOptions, assignment, addedByMemberId }
 ) {
-  // --- sanitize inputs for JSON + rows ---
+  // sanitize inputs
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const rawIds = assignment?.memberIds ?? [];
-  const memberIdsForJson = rawIds.filter((id) => uuidRe.test(id));
+  const memberIds = rawIds.filter((id) => uuidRe.test(id));
+  const unitsByMember = assignment?.unitsByMember || {}; // optional mapping { memberId: units }
   const inferredExtras = rawIds.filter((id) => id === '__EXTRA__').length;
   const extraCount = Math.max(assignment?.extraCount ?? 0, inferredExtras);
-  const addedBy =
-   typeof addedByMemberId === 'string' && uuidRe.test(addedByMemberId)
-     ? addedByMemberId
-     : null;
+
+  // compute per-assignee units and final quantity
+  const { targetQty, units, extras } = computeUnits({
+    quantity,
+    memberIds,
+    unitsByMember,
+    extraCount,
+  });
+
+  // snapshot for UI
   const selected_options = {
     ...selectedOptions,
     __assignment__: {
-      member_ids: memberIdsForJson,
-      extra_count: extraCount,
+      member_ids: memberIds,
+      extra_count: extras,
       display_names: assignment?.displayNames || [],
+      // units_by_member: units, // optional: persist for round-tripping
     },
   };
 
-  // create the item
+  const addedBy =
+    typeof addedByMemberId === 'string' && uuidRe.test(addedByMemberId)
+      ? addedByMemberId
+      : null;
+
+  // create the item with the final quantity
   const { data, error } = await supabase
     .from('meal_cart_items')
     .insert({
       cart_id: cartId,
       menu_item_id: menuItem?.id || null,
       item_name: menuItem?.name || 'Item',
-      quantity: Math.max(1, Number(quantity || 1)),
+      quantity: targetQty,
       price: Number(unitPrice || 0),
       special_instructions: specialInstructions || '',
       selected_options,
@@ -315,27 +467,23 @@ async function addItem(
   if (error) throw error;
   const itemId = data.id;
 
-  // persist assignees (rows)
-  const validMemberIds = memberIdsForJson; // already sanitized
-  if (validMemberIds.length || extraCount > 0) {
-    const rows = [
-      ...validMemberIds.map((mid) => ({ cart_item_id: itemId, member_id: mid, is_extra: false })),
-      ...Array.from({ length: extraCount }, () => ({ cart_item_id: itemId, is_extra: true })),
-    ];
-    const { error: asgErr } = await supabase.from('meal_cart_item_assignees').insert(rows);
-    if (asgErr) {
-      // rollback item if assignees fail (capacity/RLS/etc.)
-      await supabase.from('meal_cart_items').delete().eq('id', itemId).eq('cart_id', cartId);
-      throw asgErr;
-    }
+  try {
+    await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras });
+  } catch (asgErr) {
+    // rollback if assignments fail (triggers/RLS/etc.)
+    await supabase.from('meal_cart_items').delete().eq('id', itemId).eq('cart_id', cartId);
+    throw asgErr;
   }
 
   return itemId;
 }
 
 async function updateItem(cartId, itemId, patch) {
+  const wantsQty = typeof patch.quantity === 'number';
+
+  // Update item fields
   const payload = {
-    ...(typeof patch.quantity === 'number' ? { quantity: patch.quantity } : {}),
+    ...(wantsQty ? { quantity: Math.max(1, Number(patch.quantity || 1)) } : {}),
     ...(typeof patch.price === 'number' ? { price: patch.price } : {}),
     ...(typeof patch.special_instructions === 'string' ? { special_instructions: patch.special_instructions } : {}),
     ...(patch.selected_options !== undefined ? { selected_options: patch.selected_options } : {}),
@@ -346,10 +494,15 @@ async function updateItem(cartId, itemId, patch) {
     .update(payload)
     .eq('id', itemId)
     .eq('cart_id', cartId)
-    .select('id')
+    .select('id, quantity')
     .single();
-
   if (error) throw error;
+
+  // If quantity changed (alone or with other fields), rebalance assignees.
+  if (wantsQty) {
+    await syncAssigneesToQuantity(itemId, payload.quantity);
+  }
+
   return data.id;
 }
 
@@ -378,22 +531,26 @@ function subscribeToCart(cartId, onChange) {
 }
 
 async function upsertCartFulfillment(cartId, fulfillment = {}, meta = {}) {
-	// fulfillment: { service, address, coords, date, time }
-	// meta: { title, providerType, providerRestaurantId }
-	const payload = {
-		status: 'draft',
-		provider_type: meta?.providerType ?? null,
-		provider_restaurant_id: meta?.providerRestaurantId ?? null,
-		fulfillment_service: fulfillment?.service ?? null,
-		fulfillment_address: fulfillment?.address ?? null,
-		fulfillment_latitude: fulfillment?.coords?.lat ?? null,
-		fulfillment_longitude: fulfillment?.coords?.lng ?? null,
-		fulfillment_date: fulfillment?.date ?? null,
-		fulfillment_time: fulfillment?.time ?? null,
-	};
-	const { error } = await supabase.from('meal_carts').update(payload).eq('id', cartId);
-	if (error) throw error;
+  // fulfillment: { service, address, coords, date, time }
+  // meta: { title, providerType, providerRestaurantId }
+  const payload = {
+    status: 'draft',
+    provider_type: meta?.providerType ?? null,
+    provider_restaurant_id: meta?.providerRestaurantId ?? null,
+    fulfillment_service: fulfillment?.service ?? null,
+    fulfillment_address: fulfillment?.address ?? null,
+    fulfillment_latitude: fulfillment?.coords?.lat ?? null,
+    fulfillment_longitude: fulfillment?.coords?.lng ?? null,
+    fulfillment_date: fulfillment?.date ?? null,
+    fulfillment_time: fulfillment?.time ?? null,
+  };
+  const { error } = await supabase.from('meal_carts').update(payload).eq('id', cartId);
+  if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Listing / admin-y helpers
+// ---------------------------------------------------------------------------
 
 async function listOpenCarts(teamId) {
   // carts (not submitted)
@@ -407,7 +564,7 @@ async function listOpenCarts(teamId) {
     `)
     .eq('team_id', teamId)
     .neq('status', 'submitted')
-    .order('updated_at', { ascending: false }); // secondary fallback, we'll sort in JS
+    .order('updated_at', { ascending: false });
 
   if (error) throw error;
   if (!carts?.length) return [];
@@ -431,7 +588,6 @@ async function listOpenCarts(teamId) {
   // helper: build a local timestamp (ms) from date + time (if date exists)
   const toMs = (d, t) => {
     if (!d) return null;
-    // If time missing, default to midday to keep ordering sane
     const safeTime = (t && String(t).slice(0, 8)) || '12:00:00';
     const iso = `${d}T${safeTime}`;
     const ms = Date.parse(iso);
@@ -475,42 +631,31 @@ async function listOpenCarts(teamId) {
       },
       updatedAt: c.updated_at,
       createdAt: c.created_at,
-      // internal field for sorting only (not required by UI)
       _scheduledAtMs: scheduledAtMs,
     };
   });
 
-  // Sort order:
-  // 1) carts with a schedule come before unscheduled
-  // 2) among scheduled: soonest upcoming first; then most recent past
-  // 3) among unscheduled: newest updated first (fallback)
+  // Sort: scheduled first; among scheduled: upcoming then most recent past; among unscheduled: newest updated
   const now = Date.now();
   list.sort((a, b) => {
     const aHas = a._scheduledAtMs != null;
     const bHas = b._scheduledAtMs != null;
-    if (aHas !== bHas) return aHas ? -1 : 1; // scheduled first
+    if (aHas !== bHas) return aHas ? -1 : 1;
 
-    // both unscheduled -> newest updated first
     if (!aHas && !bHas) {
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     }
 
-    // both scheduled
     const aFuture = a._scheduledAtMs >= now;
     const bFuture = b._scheduledAtMs >= now;
-    if (aFuture !== bFuture) return aFuture ? -1 : 1; // upcoming before past
+    if (aFuture !== bFuture) return aFuture ? -1 : 1;
 
-    // both upcoming -> earlier first
     if (aFuture) return a._scheduledAtMs - b._scheduledAtMs;
-
-    // both past -> closest to now (most recent past) first
     return b._scheduledAtMs - a._scheduledAtMs;
   });
 
-  // strip internal field before returning (optional)
   return list.map(({ _scheduledAtMs, ...rest }) => rest);
 }
-
 
 async function deleteCart(cartId) {
   // Return deleted row id; surface RLS “no-op” as an error so the UI can show it
@@ -529,11 +674,11 @@ async function deleteCart(cartId) {
 }
 
 async function markSubmitted(cartId) {
-	const { error } = await supabase
-		.from('meal_carts')
-		.update({ status: 'submitted' })
-		.eq('id', cartId);
-	if (error) throw error;
+  const { error } = await supabase
+    .from('meal_carts')
+    .update({ status: 'submitted' })
+    .eq('id', cartId);
+  if (error) throw error;
 }
 
 export async function joinCartWithEmail(cartId, email) {
@@ -552,41 +697,48 @@ export async function joinCartWithEmail(cartId, email) {
   };
 }
 
+// Back-compat helper if referenced elsewhere: assigns unit_qty=1 per member and
+// a single extras row with unit_qty = extraCount.
 async function replaceItemAssignees(itemId, memberIds = [], extraCount = 0) {
-  // wipe then re-insert
-  const { error: delErr } = await supabase
-    .from('meal_cart_item_assignees')
-    .delete()
-    .eq('cart_item_id', itemId);
-  if (delErr) throw delErr;
-
-  const rows = [
-    ...memberIds.map(mid => ({ cart_item_id: itemId, member_id: mid, is_extra: false })),
-    ...Array.from({ length: Math.max(0, Number(extraCount || 0)) }, () => ({ cart_item_id: itemId, is_extra: true })),
-  ];
-  if (rows.length) {
-    const { error: insErr } = await supabase.from('meal_cart_item_assignees').insert(rows);
-    if (insErr) throw insErr;
-  }
+  const unitsByMember = {};
+  for (const id of memberIds) unitsByMember[id] = 1;
+  await writeAssigneesWithUnits(itemId, {
+    unitsByMember,
+    extras: Math.max(0, Number(extraCount || 0)),
+  });
 }
-async function updateItemFull(cartId, itemId, { quantity, unitPrice, specialInstructions, selectedOptions, assignment = {} }) {
+
+async function updateItemFull(
+  cartId,
+  itemId,
+  { quantity, unitPrice, specialInstructions, selectedOptions, assignment = {} }
+) {
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const memberIds = (assignment.memberIds || []).filter(id => uuidRe.test(id));
+  const unitsByMember = assignment.unitsByMember || {};
   const extraCount = Math.max(0, Number(assignment.extraCount || 0));
+
+  const { targetQty, units, extras } = computeUnits({
+    quantity,
+    memberIds,
+    unitsByMember,
+    extraCount,
+  });
 
   const selected_options = {
     ...(selectedOptions || {}),
     __assignment__: {
       member_ids: memberIds,
-      extra_count: extraCount,
-      display_names: selectedOptions?.__assignment__?.display_names || [], // keep snapshot names if provided
+      extra_count: extras,
+      display_names: selectedOptions?.__assignment__?.display_names || [],
+      // units_by_member: units, // optional snapshot
     },
   };
 
   const { data, error } = await supabase
     .from('meal_cart_items')
     .update({
-      quantity: Math.max(1, Number(quantity || 1)),
+      quantity: targetQty,
       price: Number(unitPrice || 0),
       special_instructions: specialInstructions || '',
       selected_options,
@@ -597,26 +749,24 @@ async function updateItemFull(cartId, itemId, { quantity, unitPrice, specialInst
     .single();
   if (error) throw error;
 
-  await replaceItemAssignees(itemId, memberIds, extraCount);
+  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras });
   return data.id;
 }
 
-
-
 export default {
-	findActiveCartForRestaurant,
+  findActiveCartForRestaurant,
   ensureCartForRestaurant,
   getCartSnapshot,
   addItem,
   updateItem,
   removeItem,
   subscribeToCart,
-	upsertCartFulfillment,
-	listOpenCarts,
-	deleteCart,
-	markSubmitted,
+  upsertCartFulfillment,
+  listOpenCarts,
+  deleteCart,
+  markSubmitted,
   updateCartTitle,
   getSharedCartMeta,
   joinCartWithEmail,
-  updateItemFull
+  updateItemFull,
 };
