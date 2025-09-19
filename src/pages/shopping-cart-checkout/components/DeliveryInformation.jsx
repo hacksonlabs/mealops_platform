@@ -325,7 +325,7 @@ const DeliveryInformation = ({
             <textarea
               value={specialInstructions}
               onChange={(e) => setSpecialInstructions(e?.target?.value)}
-              placeholder="e.g., Leave at door, Ring doorbell, Call when arrived..."
+              placeholder="e.g., Meet at the loading dock behind the gym, Call when entering campus..."
               rows={3}
               className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
             />

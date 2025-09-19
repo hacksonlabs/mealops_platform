@@ -390,14 +390,6 @@ const ShoppingCartCheckout = () => {
           onPromoCodeApply={handlePromoCodeApply}
         />
 
-        <TipSelection
-          serviceType={serviceType}
-          subtotal={subtotal}
-          selectedTip={tipAmount}
-          onTipChange={setTipAmount}
-          variant="embedded"
-        />
-
         <Button
           className="w-full h-12 text-base font-semibold mt-6 hidden lg:block"
           onClick={handlePlaceOrder}
@@ -421,7 +413,7 @@ const ShoppingCartCheckout = () => {
     <div className="min-h-screen bg-background">
       <Header />
       <main className="pt-16 pb-32 md:pb-8">
-        <div className="max-w-5xl mx-auto px-4 lg:px-6">
+        <div className="max-w-6xl mx-auto px-4 lg:px-6">
           {/* Back */}
           <div className="mt-4 mb-6">
             <Button
@@ -443,9 +435,9 @@ const ShoppingCartCheckout = () => {
               estimatedTime={estimatedTime}
             />
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* LEFT (wider) */}
-              <div className="lg:col-span-2 space-y-6">
+              <div className="lg:col-span-7 space-y-6">
                 {/* NEW: Account details */}
                 <AccountDetailsSection account={account} onChange={setAccount} />
                 {/* NEW: Team assignments */}
@@ -526,7 +518,7 @@ const ShoppingCartCheckout = () => {
               </div>
 
               {/* RIGHT (summary + tip + button) */}
-              <div className="lg:col-span-1">
+              <div className="lg:col-span-5">
                 <SidebarCheckout />
               </div>
             </div>
