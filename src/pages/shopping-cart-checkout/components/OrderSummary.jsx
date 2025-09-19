@@ -269,8 +269,8 @@ const OrderSummary = ({
                 className={[
                   'flex-1 px-5 py-2 rounded-full text-sm font-semibold transition',
                   active
-                    ? 'bg-foreground text-background shadow'
-                    : 'text-foreground/80 hover:text-foreground'
+                    ? 'bg-primary text-background shadow'
+                    : 'text-secondary/80 hover:text-secondary'
                 ].join(' ')}
                 aria-pressed={active}
                 title={`${p}%`}
@@ -285,8 +285,8 @@ const OrderSummary = ({
             className={[
               'flex-1 px-5 py-2 rounded-full text-sm font-semibold transition',
               mode === 'other'
-                ? 'bg-foreground text-background shadow'
-                : 'text-foreground/80 hover:text-foreground'
+                ? 'bg-primary text-background shadow'
+                : 'text-secondary/80 hover:text-secondary'
             ].join(' ')}
             aria-pressed={mode === 'other'}
           >

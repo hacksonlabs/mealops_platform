@@ -7,11 +7,10 @@ import RestaurantHeader from './components/RestaurantHeader';
 import OrderSummary from './components/OrderSummary';
 import DeliveryInformation from './components/DeliveryInformation';
 import PaymentSection from './components/PaymentSection';
-import TipSelection from './components/TipSelection';
 import CheckoutButton from './components/CheckoutButton';
-import AccountDetailsSection from './components/AccountDetailsSection';        // NEW
-import TeamAssignments from './components/TeamAssignments';                    // NEW
-import OrderItemsModal from './components/OrderItemsModal';                    // NEW
+import AccountDetailsSection from './components/AccountDetailsSection';
+import TeamAssignments from './components/TeamAssignments';
+import OrderItemsModal from './components/OrderItemsModal';
 import { useSharedCart } from '../../contexts/SharedCartContext';
 import { useAuth } from '../../contexts/AuthContext';
 import sharedCartService from '../../services/sharedCartService';
@@ -391,7 +390,7 @@ const ShoppingCartCheckout = () => {
         />
 
         <Button
-          className="w-full h-12 text-base font-semibold mt-6 hidden lg:block"
+          className="hidden lg:inline-flex w-full h-12 items-center justify-center gap-2 whitespace-nowrap text-base font-semibold mt-6"
           onClick={handlePlaceOrder}
           disabled={!isFormValid()}
           iconName={serviceType === 'delivery' ? 'Truck' : 'ShoppingBag'}
@@ -399,6 +398,7 @@ const ShoppingCartCheckout = () => {
         >
           Place {serviceType === 'delivery' ? 'Delivery' : 'Pickup'} Order
         </Button>
+
 
         {!isFormValid() && (
           <p className="hidden lg:block text-xs text-error mt-2">
