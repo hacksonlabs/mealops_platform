@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import Button from '../../../components/ui/custom/Button';
 import Icon from '../../../components/AppIcon';
 
-// NEW: shared helpers
+// Shared helpers
 import {
   expandItemsToUnitRows,
   sortAssigneeRows,
@@ -13,33 +13,45 @@ import {
 const OrderItemsModal = ({ open, onClose, items = [] }) => {
   if (!open) return null;
 
-  // Locale-pinned collator for stable, cross-env sorting
   const collator = useMemo(
     () => new Intl.Collator('en', { sensitivity: 'base' }),
     []
   );
 
-  // Build one row per UNIT using the shared utils
+  // Build one row per UNIT + include price
   const rows = useMemo(() => {
     const expanded = expandItemsToUnitRows(items || []);
     const sorted = sortAssigneeRows(expanded, collator);
 
-    // Shape for this table + stable-ish keys
     const shaped = sorted.map((r, idx) => ({
       key: `${r.sourceId || 'i'}::${r.assignee || 'anon'}::${idx}`,
       assignee: r.assignee,
       item: r.itemName,
       customizations: r.customizations,
       special: r.special,
+      // Prefer util-provided unitPrice; otherwise fall back to common names.
+      price: Number(
+        r.unitPrice ??
+        r.price ??
+        r.basePrice ??
+        r.unit ??
+        r.unit_price ??
+        0
+      ),
     }));
 
     return addLineNumbers(shaped);
   }, [items, collator]);
 
-  // Close on backdrop click
   const handleBackdropClick = (e) => {
     if (e.currentTarget === e.target) onClose?.();
   };
+
+  // Optional subtotal of visible rows (per-unit rows sum)
+  const visibleSubtotal = useMemo(
+    () => rows.reduce((s, r) => s + (Number.isFinite(r.price) ? r.price : 0), 0),
+    [rows]
+  );
 
   return (
     <div
@@ -48,7 +60,7 @@ const OrderItemsModal = ({ open, onClose, items = [] }) => {
     >
       <div
         className="w-full max-w-6xl bg-card border border-border rounded-xl shadow-athletic-lg overflow-hidden"
-        onClick={(e) => e.stopPropagation()} // prevent closing when clicking inside
+        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Cart details"
@@ -88,6 +100,9 @@ const OrderItemsModal = ({ open, onClose, items = [] }) => {
                     <th className="text-left py-2.5 px-3 font-medium text-muted-foreground uppercase text-[11px] tracking-wide">
                       Special requests
                     </th>
+                    <th className="text-right py-2.5 px-3 font-medium text-muted-foreground uppercase text-[11px] tracking-wide">
+                      Price
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -96,7 +111,9 @@ const OrderItemsModal = ({ open, onClose, items = [] }) => {
                       key={r.key}
                       className={`border-b border-border ${i % 2 ? 'bg-muted/20' : ''}`}
                     >
-                      <td className="py-2.5 px-3 text-right text-muted-foreground tabular-nums">{r.lineNo}</td>
+                      <td className="py-2.5 px-3 text-right text-muted-foreground tabular-nums">
+                        {r.lineNo}
+                      </td>
                       <td className="py-2.5 px-3 whitespace-nowrap text-foreground">
                         {r.assignee}
                       </td>
@@ -115,9 +132,24 @@ const OrderItemsModal = ({ open, onClose, items = [] }) => {
                           <span className="text-muted-foreground/70">—</span>
                         )}
                       </td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-foreground">
+                        ${Number(r.price || 0).toFixed(2)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
+
+                {/* Optional footer subtotal of expanded rows */}
+                <tfoot className="bg-card">
+                  <tr>
+                    <td colSpan={5} className="py-2.5 px-3 text-right text-muted-foreground">
+                      Subtotal
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-semibold tabular-nums">
+                      ${visibleSubtotal.toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
