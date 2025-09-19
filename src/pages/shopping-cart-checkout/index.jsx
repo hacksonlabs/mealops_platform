@@ -154,6 +154,22 @@ const ShoppingCartCheckout = () => {
       setLoading(true);
       const cartSnapshot = await cartDbService.getCartSnapshot(currentCartId);
       if (!cartSnapshot) return;
+      // HYDRATE fulfillment from DB snapshot
+      const f = {
+        service: cartSnapshot?.cart?.fulfillment_service ?? 'delivery',
+        address: cartSnapshot?.cart?.fulfillment_address ?? '',
+        coords:
+          cartSnapshot?.cart?.fulfillment_latitude != null &&
+          cartSnapshot?.cart?.fulfillment_longitude != null
+            ? { lat: cartSnapshot.cart.fulfillment_latitude, lng: cartSnapshot.cart.fulfillment_longitude }
+            : null,
+        date: cartSnapshot?.cart?.fulfillment_date ?? null,
+        time: cartSnapshot?.cart?.fulfillment_time ?? null,
+      };
+      setFulfillment(f);
+      setServiceType(f.service);
+      setDeliveryAddress(f.address);
+
       setSharedCartData(cartSnapshot);
       setIsSharedCart(true);
 
@@ -342,6 +358,7 @@ const ShoppingCartCheckout = () => {
   const provider = sharedCartData?.cart?.providerType || 'grubhub';
   const paymentMode = PROVIDER_CONFIG[provider]?.paymentMode || 'external_redirect';
   const pickupAddress = sharedCartData?.restaurant?.address || location.state?.restaurant?.address || restaurant?.address || '';
+  const pickupName = sharedCartData?.restaurant?.name || location.state?.restaurant?.name || restaurant?.name || '';
 
   if (loading) {
     return (
@@ -455,15 +472,24 @@ const ShoppingCartCheckout = () => {
 
                 {/* Delivery / Pickup */}
                 <DeliveryInformation
+                  cartId={currentCartId}
+                  fulfillment={fulfillment}
+                  onFulfillmentChange={(next) => setFulfillment(next)}
                   serviceType={serviceType}
                   deliveryAddress={deliveryAddress}
                   onAddressChange={(addr) => {
                     setDeliveryAddress(addr);
                     setFulfillment((prev) => ({ ...prev, address: addr }));
                   }}
+                  onAddressResolved={(details) => {
+                    if (details?.location) {
+                      setFulfillment((prev) => ({ ...prev, coords: details.location }));
+                    }
+                  }}
                   pickupTime={pickupTime}
                   onPickupTimeChange={setPickupTime}
                   pickupAddress={pickupAddress}
+                  pickupName={pickupName}
                 />
 
                 {/* Payment */}
