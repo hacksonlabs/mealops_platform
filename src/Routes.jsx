@@ -20,10 +20,8 @@ import ResetPassword from 'pages/reset-password';
 import HomeRestaurantDiscovery from './pages/home-restaurant-discovery';
 import RestaurantDetailMenu from './pages/restaurant-detail-menu';
 import ShoppingCartCheckout from './pages/shopping-cart-checkout';
-// import SharedCartPage from './pages/shared-cart/old_index';
 import SharedCartMenu from './pages/shared-cart';
-import SharedCartProvider from './contexts/SharedCartContext';
-
+import PayPage from './pages/payments';
 const Routes = () => {
   return (
     <BrowserRouter>
@@ -49,8 +47,8 @@ const Routes = () => {
         <Route path="/home-restaurant-discovery" element={<HomeRestaurantDiscovery />} />
         <Route path="/restaurant/:restaurantId" element={<RestaurantDetailMenu />} />
         <Route path="/shopping-cart-checkout" element={<ShoppingCartCheckout />} />
-        {/* <Route path="/shared-cart/:shareToken" element={<SharedCartPage />} /> */}
         <Route path="/shared-cart/:cartId" element={<SharedCartMenu />} />
+        <Route path="/pay" element={<PayPage />} />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>

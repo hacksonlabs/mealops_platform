@@ -7,17 +7,20 @@ import RestaurantHeader from './components/RestaurantHeader';
 import OrderSummary from './components/OrderSummary';
 import DeliveryInformation from './components/DeliveryInformation';
 import PaymentSection from './components/PaymentSection';
-import CheckoutButton from './components/CheckoutButton';
 import AccountDetailsSection from './components/AccountDetailsSection';
 import TeamAssignments from './components/TeamAssignments';
 import OrderItemsModal from './components/OrderItemsModal';
-import { useSharedCart } from '../../contexts/SharedCartContext';
 import { useAuth } from '../../contexts/AuthContext';
-import sharedCartService from '../../services/sharedCartService';
+// import sharedCartService from '../../services/sharedCartService'; // (unused)
 import cartDbService from '../../services/cartDBService';
-import { paymentService } from '../../services/paymentService';
-import providerService from '../../services/providerService';
-import { PROVIDER_CONFIG } from '../../services/paymentService';
+import { paymentService, PROVIDER_CONFIG } from '../../services/paymentService';
+import { useSharedCart } from "../../contexts/SharedCartContext";
+
+/** Toggle this to bypass real provider calls while designing the flow */
+const PAYMENTS_MOCK = (import.meta?.env?.VITE_PAYMENTS_MOCK ?? '1') === '1';
+
+const MEALME_ENABLED = true;
+const ACTIVE_PAYMENTS_PROVIDER = MEALME_ENABLED ? 'mealme' : 'stripe';
 
 const pad = (n) => String(n).padStart(2, '0');
 const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -38,7 +41,7 @@ const ShoppingCartCheckout = () => {
   const {
     activeCartId,
     setActiveCartId,
-    getActiveSharedCart,
+    // getActiveSharedCart, // (unused here)
     logCartActivity
   } = useSharedCart();
 
@@ -122,7 +125,6 @@ const ShoppingCartCheckout = () => {
     if (next.service === 'pickup') setTipAmount(0);
   };
 
-  // FIX: this referenced "next" (undefined) before
   const handleServiceTypeChange = (type) => {
     setServiceType(type);
     setServiceParam(type);
@@ -153,7 +155,7 @@ const ShoppingCartCheckout = () => {
       setLoading(true);
       const cartSnapshot = await cartDbService.getCartSnapshot(currentCartId);
       if (!cartSnapshot) return;
-      // HYDRATE fulfillment from DB snapshot
+
       const f = {
         service: cartSnapshot?.cart?.fulfillment_service ?? 'delivery',
         address: cartSnapshot?.cart?.fulfillment_address ?? '',
@@ -183,7 +185,6 @@ const ShoppingCartCheckout = () => {
       setCartItems(items);
       broadcastHeader(cartSnapshot);
 
-      // update team name default if present
       setAccount((prev) => ({ ...prev, teamName: prev.teamName || cartSnapshot?.cart?.teamName || '' }));
     } finally {
       setLoading(false);
@@ -229,9 +230,16 @@ const ShoppingCartCheckout = () => {
   const tax = subtotal * 0.08;
   const total = subtotal + deliveryFee + tax + tipAmount - promoDiscount;
 
+  /** In mock mode, never block the button on card selection */
+  const requiresCardSelection =
+    !PAYMENTS_MOCK && (
+      ACTIVE_PAYMENTS_PROVIDER === 'stripe' ||
+      (ACTIVE_PAYMENTS_PROVIDER === 'mealme' && savedPaymentMethods.length > 0)
+    );
+
   const isFormValid = () =>
     cartItems?.length > 0 &&
-    selectedPaymentMethod &&
+    (!requiresCardSelection || selectedPaymentMethod) &&
     (serviceType === 'pickup' || (deliveryAddress || '').trim()) &&
     (account?.contactName || '').trim() &&
     (account?.email || '').trim();
@@ -281,6 +289,53 @@ const ShoppingCartCheckout = () => {
       account,
     };
 
+    /** -------------------------------------------------------------
+     * MOCK: Skip provider calls, go straight to success
+     * ------------------------------------------------------------ */
+    if (PAYMENTS_MOCK) {
+      if (isSharedCart && currentCartId) {
+        try {
+          await logCartActivity?.(currentCartId, 'order_placed', {
+            total_amount: total,
+            item_count: cartItems?.length,
+            mock: true,
+          });
+        } catch (e) {
+          console.error('Mock order log error:', e);
+        }
+      }
+      navigate('/order/success', { replace: true, state: { mock: true, total } });
+      return;
+    }
+
+    // REAL PROVIDERS (when you flip PAYMENTS_MOCK off)
+    if (ACTIVE_PAYMENTS_PROVIDER === 'stripe') {
+      const { kind, url } = await paymentService.startCheckout({
+        lineItems: buildStripeLineItems(cartItems),
+        metadata: { cartId: currentCartId },
+        successUrl: `${window.location.origin}/order/success`,
+        cancelUrl: `${window.location.origin}${location.pathname}${location.search}`,
+      }, { provider: 'stripe', customerId: user?.stripe_customer_id });
+      if (kind === 'redirect') window.location.href = url;
+      return;
+    }
+
+    if (ACTIVE_PAYMENTS_PROVIDER === 'mealme') {
+      const result = await paymentService.startCheckout({
+        mealmePayload: buildMealMePayloadFromCart(),
+      }, { provider: 'mealme' });
+      navigate('/pay', {
+        state: {
+          clientSecret: result.clientSecret,
+          publishableKey: result.publishableKey,
+          orderId: result.orderId,
+          total,
+        },
+      });
+      return;
+    }
+
+    // Fallback (external providers)
     if (isSharedCart && currentCartId) {
       try {
         await logCartActivity?.(currentCartId, 'order_placed', {
@@ -306,6 +361,10 @@ const ShoppingCartCheckout = () => {
     }
   }, [urlCartId, activeCartId, setActiveCartId]);
 
+  /** Load saved payment methods:
+   *  - MOCK: read from your DB only
+   *  - REAL: use provider-aware service (MealMe may hydrate + mirror to DB)
+   */
   useEffect(() => {
     const teamId = sharedCartData?.cart?.teamId || null;
     if (!user?.id) return;
@@ -313,9 +372,17 @@ const ShoppingCartCheckout = () => {
     (async () => {
       setLoadingPayments(true);
       try {
-        const { data, error } = teamId
-          ? await paymentService.getTeamPaymentMethods(teamId)
-          : await paymentService.getPaymentMethods();
+        let result;
+        if (PAYMENTS_MOCK && ACTIVE_PAYMENTS_PROVIDER === 'mealme') {
+          result = await paymentService.getTeamPaymentMethods(teamId);
+        } else {
+          result = await paymentService.getPaymentMethods(teamId, {
+            provider: ACTIVE_PAYMENTS_PROVIDER,
+            userId: user?.id,
+            email: user?.email,
+          });
+        }
+        const { data, error } = result || {};
         if (error) return;
         const methods = mapMethods(data);
         setSavedPaymentMethods(methods);
@@ -328,34 +395,130 @@ const ShoppingCartCheckout = () => {
     })();
   }, [user?.id, sharedCartData?.cart?.teamId]);
 
-  const detectBrand = (digits) => {
-    if (/^4/.test(digits)) return 'visa';
-    if (/^(5[1-5])/.test(digits)) return 'mastercard';
-    if (/^(34|37)/.test(digits)) return 'amex';
-    if (/^6/.test(digits)) return 'discover';
-    return 'card';
+  // If we come back from /pay with a new card, refresh & select one
+  useEffect(() => {
+    if (location.state?.refreshCards) {
+      (async () => {
+        setLoadingPayments(true);
+        try {
+          const teamId = sharedCartData?.cart?.teamId || null;
+          let result;
+          if (PAYMENTS_MOCK && ACTIVE_PAYMENTS_PROVIDER === 'mealme') {
+            result = await paymentService.getTeamPaymentMethods(teamId);
+          } else {
+            result = await paymentService.getPaymentMethods(teamId, {
+              provider: ACTIVE_PAYMENTS_PROVIDER,
+              userId: user?.id,
+              email: user?.email,
+            });
+          }
+          const { data } = result || {};
+          const methods = mapMethods(data || []);
+          setSavedPaymentMethods(methods);
+          setSelectedPaymentMethod(methods.find(m => m.isDefault)?.id || methods[0]?.id || '');
+        } finally {
+          setLoadingPayments(false);
+          // clear the flag so we don't loop
+          navigate(location.pathname + location.search, { replace: true, state: {} });
+        }
+      })();
+    }
+  }, [location.state?.refreshCards]);
+
+  /** Add card:
+   *  - MOCK + MealMe: insert a fake method into your DB so the UI updates
+   *  - REAL: use provider flows
+   */
+  const handleAddCard = async () => {
+    const teamId = sharedCartData?.cart?.teamId || null;
+
+    // MOCK path (no provider calls)
+    if (PAYMENTS_MOCK && ACTIVE_PAYMENTS_PROVIDER === 'mealme') {
+      const mockRow = {
+        team_id: teamId,
+        card_name: 'Test Visa',
+        last_four: '4242',
+        is_default: savedPaymentMethods.length === 0, // first one becomes default
+        provider: 'mealme',
+        provider_customer_id: 'mock_cus_123',
+        provider_payment_method_id: `mock_pm_${Date.now()}`,
+        brand: 'visa',
+        exp_month: 12,
+        exp_year: 2030,
+        billing_zip: '00000',
+      };
+      const { data } = await paymentService.createPaymentMethod(mockRow);
+      // Refresh local list
+      const { data: refreshed } = await paymentService.getTeamPaymentMethods(teamId);
+      const methods = mapMethods(refreshed || []);
+      setSavedPaymentMethods(methods);
+      setSelectedPaymentMethod(data?.id || methods.find(m => m.isDefault)?.id || methods[0]?.id || '');
+      return;
+    }
+
+    // REAL providers (when you flip PAYMENTS_MOCK off)
+    if (ACTIVE_PAYMENTS_PROVIDER === 'stripe') {
+      const { kind, url } = await paymentService.startSetup({
+        provider: 'stripe',
+        customerId: user?.stripe_customer_id,
+        successUrl: `${window.location.origin}/checkout?added=1`,
+        cancelUrl: `${window.location.origin}${location.pathname}${location.search}`,
+      });
+      if (kind === 'redirect') window.location.href = url;
+      return;
+    }
+
+    if (ACTIVE_PAYMENTS_PROVIDER === 'mealme') {
+      // Your real MealMe "setup" flow would navigate to /pay with a clientSecret
+      // When you connect MealMe, swap PAYMENTS_MOCK off and implement here.
+      console.warn('MealMe add card flow is disabled in mock mode.');
+    }
   };
 
-  const handleAddCard = async (form) => {
-    const digits = (form.number || '').replace(/\s+/g, '');
-    const last4 = digits.slice(-4);
-    const payload = {
-      team_id: sharedCartData?.cart?.teamId || null,
-      card_name: form.name?.trim() || 'Card',
-      last_four: last4,
-      is_default: savedPaymentMethods.length === 0,
-    };
-
-    const { data, error } = await paymentService.createPaymentMethod(payload);
-    if (error) throw new Error(error.message || 'Failed to save card');
-
-    const created = { ...mapMethods([data])[0], brand: detectBrand(digits) };
-    setSavedPaymentMethods((prev) => [created, ...prev]);
-    return created;
+  const handleManageCards = async () => {
+    if (ACTIVE_PAYMENTS_PROVIDER !== 'stripe') return;
+    const { kind, url } = await paymentService.openManagePortal({
+      provider: 'stripe',
+      customerId: user?.stripe_customer_id,
+      returnUrl: window.location.href,
+    });
+    if (kind === 'redirect') window.location.href = url;
   };
+
+  const buildStripeLineItems = (items) =>
+    items.map(it => ({
+      price: it.stripe_price_id,
+      quantity: Number(it.quantity || 1),
+    })).filter(Boolean);
+
+  const buildMealMePayloadFromCart = () => ({
+    items: (cartItems || []).map(it => ({
+      product_id: it.product_id || it.id,
+      quantity: Number(it.quantity || 1),
+      notes: it.notes || undefined,
+      selected_options: [],
+    })),
+    pickup: serviceType === 'pickup',
+    driver_tip_cents: serviceType === 'delivery' ? Math.round(Number(tipAmount || 0) * 100) : 0,
+    pickup_tip_cents: serviceType === 'pickup' ? Math.round(Number(tipAmount || 0) * 100) : 0,
+    user_latitude: fulfillment?.coords?.lat,
+    user_longitude: fulfillment?.coords?.lng,
+    user_street_num: '',
+    user_street_name: deliveryAddress,
+    user_city: '',
+    user_state: '',
+    user_country: 'US',
+    user_zipcode: '',
+    user_name: account?.contactName,
+    user_email: account?.email,
+    user_phone: account?.phone,
+    user_id: user?.id,
+  });
 
   const provider = sharedCartData?.cart?.providerType || 'grubhub';
-  const paymentMode = PROVIDER_CONFIG[provider]?.paymentMode || 'external_redirect';
+  const paymentMode = MEALME_ENABLED
+    ? 'self_hosted' // ignore provider when flag is on
+    : (PROVIDER_CONFIG[provider]?.paymentMode || 'external_redirect');
   const pickupAddress = sharedCartData?.restaurant?.address || location.state?.restaurant?.address || restaurant?.address || '';
   const pickupName = sharedCartData?.restaurant?.name || location.state?.restaurant?.name || restaurant?.name || '';
 
@@ -398,7 +561,6 @@ const ShoppingCartCheckout = () => {
         >
           Place {serviceType === 'delivery' ? 'Delivery' : 'Pickup'} Order
         </Button>
-
 
         {!isFormValid() && (
           <p className="hidden lg:block text-xs text-error mt-2">
@@ -461,7 +623,6 @@ const ShoppingCartCheckout = () => {
                   </div>
                 </div>
 
-
                 {/* Delivery / Pickup */}
                 <DeliveryInformation
                   cartId={currentCartId}
@@ -487,30 +648,28 @@ const ShoppingCartCheckout = () => {
                 {/* Payment */}
                 {paymentMode === 'self_hosted' ? (
                   <PaymentSection
+                    provider={ACTIVE_PAYMENTS_PROVIDER}
                     selectedPaymentMethod={selectedPaymentMethod}
                     onPaymentMethodChange={setSelectedPaymentMethod}
                     savedPaymentMethods={savedPaymentMethods}
                     loadingPayments={loadingPayments}
                     onAddCard={handleAddCard}
+                    onManageCards={handleManageCards}
                   />
                 ) : (
                   <div className="bg-card border border-border rounded-lg p-4 lg:p-6">
                     <h2 className="text-lg font-semibold">Payment</h2>
                     <p className="text-sm text-muted-foreground mt-2">
-                      Payment is handled securely by {provider === 'mealme' ? 'MealMe' : provider}.
+                      Payment is handled securely by {provider ?? 'Stripe'}.
                     </p>
                     <Button
                       className="mt-4"
                       onClick={async () => {
-                        const url = await providerService.startCheckout({
-                          provider,
-                          cartId: currentCartId,
-                          providerRestaurantId: sharedCartData?.cart?.providerRestaurantId,
-                        });
-                        window.location.href = url;
+                        // External provider stub (not used while MEALME_ENABLED)
+                        alert('External checkout would start here (mock).');
                       }}
                     >
-                      Continue to {provider === 'mealme' ? 'MealMe' : 'Checkout'}
+                      Continue to {provider ?? 'Checkout'}
                     </Button>
                   </div>
                 )}
@@ -525,17 +684,6 @@ const ShoppingCartCheckout = () => {
           </div>
         </div>
       </main>
-
-      {/* Mobile sticky checkout (kept, but hidden on desktop) */}
-      <div className="lg:hidden">
-        <CheckoutButton
-          total={total}
-          isValid={isFormValid()}
-          serviceType={serviceType}
-          estimatedTime={estimatedTime}
-          onPlaceOrder={handlePlaceOrder}
-        />
-      </div>
 
       {/* Items modal */}
       <OrderItemsModal
