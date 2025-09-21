@@ -7,6 +7,8 @@ import PeopleTooltip from '../../../components/ui/PeopleTooltip';
 import { getMealTypeIcon, getStatusBadge, formatDate, formatCurrency } from '../../../utils/ordersUtils';
 import { callCancelAPI } from '../../../utils/ordersApiUtils';
 
+const SCHEDULED_STATUSES = ['scheduled', 'confirmed'];
+
 const OrderTable = ({
   orders,
   selectedOrders,
@@ -150,8 +152,8 @@ const OrderTable = ({
     </div>
   );
 
-  const isAllSelected = orders?.length > 0 && selectedOrders?.length === orders?.length;
-  const isIndeterminate = selectedOrders?.length > 0 && selectedOrders?.length < orders?.length;
+  const isAllSelected = sortedOrders?.length > 0 && sortedOrders.every(order => selectedOrders?.includes(order.id));
+  const isIndeterminate = sortedOrders?.some(order => selectedOrders?.includes(order.id)) && !isAllSelected;
 
   // ---- Hover tooltip state (portal, upward) ----
   const [hoverOrderId, setHoverOrderId] = useState(null);
@@ -211,7 +213,7 @@ const OrderTable = ({
                   <Checkbox
                     checked={isAllSelected}
                     indeterminate={isIndeterminate}
-                    onChange={(e) => onSelectAll(e?.target?.checked)}
+                    onChange={(e) => onSelectAll(e?.target?.checked, sortedOrders)}
                   />
                 </th>
                 <th className="px-4 py-3 text-left">
@@ -325,7 +327,11 @@ const OrderTable = ({
                     <div className="text-sm font-medium text-foreground">{formatCurrency(order?.totalCost)}</div>
                   </td>
 
-                  <td className="px-4 py-4">{getStatusBadge(order?.status)}</td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-col items-start gap-1">
+                      {getStatusBadge(order?.status)}
+                    </div>
+                  </td>
 
                   <td className="px-4 py-4 text-right">{getActionButtons(order)}</td>
                 </tr>
@@ -343,7 +349,7 @@ const OrderTable = ({
               <Checkbox
                 checked={isAllSelected}
                 indeterminate={isIndeterminate}
-                onChange={(e) => onSelectAll(e?.target?.checked)}
+                onChange={(e) => onSelectAll(e?.target?.checked, sortedOrders)}
               />
               <span>Select all</span>
             </label>
@@ -366,7 +372,14 @@ const OrderTable = ({
                     <div className="text-xs text-muted-foreground">{order?.location}</div>
                   </div>
                 </div>
-                <div className="shrink-0">{getStatusBadge(order?.status)}</div>
+                <div className="shrink-0 flex flex-col items-end gap-1">
+                  {getStatusBadge(order?.status)}
+                  {activeTab === 'scheduled' && SCHEDULED_STATUSES.includes(order?.status) && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                      Scheduled
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-start gap-3">

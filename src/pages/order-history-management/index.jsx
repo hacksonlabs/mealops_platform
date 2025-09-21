@@ -13,6 +13,9 @@ import { supabase } from '../../lib/supabase';
 import { downloadReceiptPdf, downloadReceiptsZip } from '../../utils/receipts';
 import { callCancelAPI } from '../../utils/ordersApiUtils';
 
+const PAGE_SIZE = 6;
+const SCHEDULED_STATUSES = ['scheduled', 'confirmed'];
+
 const OrderHistoryManagement = () => {
   const navigate = useNavigate();
   const { user, userProfile, loading: loadingAuth, teams, activeTeam, loadingTeams } = useAuth();
@@ -37,6 +40,7 @@ const OrderHistoryManagement = () => {
     maxCost: '',
     search: ''
   });
+  const [currentPage, setCurrentPage] = useState(0);
   const teamId = activeTeam?.id ?? null;
 
   useEffect(() => {
@@ -163,7 +167,7 @@ const OrderHistoryManagement = () => {
   }, [teamId]);
 
   const tabs = [
-    { id: 'scheduled', label: 'Scheduled', icon: 'Calendar', count: orders?.filter(o => ['scheduled','pending_confirmation','preparing','out_for_delivery'].includes(o.status))?.length },
+    { id: 'scheduled', label: 'Scheduled', icon: 'Calendar', count: orders?.filter(o => SCHEDULED_STATUSES.includes(o.status))?.length },
     { id: 'completed', label: 'Completed', icon: 'CheckCircle', count: orders?.filter(o => o?.status === 'completed')?.length },
     { id: 'cancelled', label: 'Cancelled', icon: 'XCircle', count: orders?.filter(o => ['cancelled','failed'].includes(o.status))?.length },
     { id: 'all', label: 'All', icon: 'ListChecks', count: orders?.length }
@@ -172,7 +176,7 @@ const OrderHistoryManagement = () => {
   const getFilteredOrders = () => {
     let filtered = orders;
     if (activeTab === 'scheduled') {
-      filtered = filtered?.filter(o => ['scheduled','pending_confirmation','preparing','out_for_delivery'].includes(o.status));
+      filtered = filtered?.filter(o => SCHEDULED_STATUSES.includes(o.status));
     } else if (activeTab === 'completed') {
       filtered = filtered?.filter(o => o.status === 'completed');
     } else if (activeTab === 'cancelled') {
@@ -215,10 +219,24 @@ const OrderHistoryManagement = () => {
   };
 
   const filteredOrders = getFilteredOrders();
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  const adjustedPage = Math.min(currentPage, totalPages - 1);
+  const paginatedOrders = filteredOrders.slice(adjustedPage * PAGE_SIZE, adjustedPage * PAGE_SIZE + PAGE_SIZE);
+  const pageStart = filteredOrders.length === 0 ? 0 : adjustedPage * PAGE_SIZE + 1;
+  const pageEnd = adjustedPage * PAGE_SIZE + paginatedOrders.length;
+  const canGoPrev = adjustedPage > 0;
+  const canGoNext = adjustedPage < totalPages - 1 && filteredOrders.length > 0;
+
+  useEffect(() => {
+    if (currentPage !== adjustedPage) {
+      setCurrentPage(adjustedPage);
+    }
+  }, [adjustedPage, currentPage, filteredOrders.length]);
 
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
     setSelectedOrders([]);
+    setCurrentPage(0);
   };
 
   const handleOrderSelect = (orderId, isSelected) => {
@@ -226,9 +244,14 @@ const OrderHistoryManagement = () => {
     else setSelectedOrders(selectedOrders?.filter(id => id !== orderId));
   };
 
-  const handleSelectAll = (isSelected) => {
-    if (isSelected) setSelectedOrders(filteredOrders?.map(order => order?.id));
-    else setSelectedOrders([]);
+  const handleSelectAll = (isSelected, visibleOrders) => {
+    const ids = (visibleOrders || []).map(order => order?.id).filter(Boolean);
+    if (isSelected) {
+      const merged = new Set([...(selectedOrders || []), ...ids]);
+      setSelectedOrders(Array.from(merged));
+    } else {
+      setSelectedOrders((selectedOrders || []).filter(id => !ids.includes(id)));
+    }
   };
 
   const handleOrderAction = async (action, order) => {
@@ -306,8 +329,13 @@ const OrderHistoryManagement = () => {
     setSelectedOrders([]);
   };
 
+  const handleFiltersChange = (nextFilters) => {
+    setFilters(nextFilters);
+    setCurrentPage(0);
+  };
+
   const totalInTab = (orders ?? []).filter(o => {
-    if (activeTab === 'scheduled') return ['scheduled','pending_confirmation','preparing','out_for_delivery'].includes(o.status);
+    if (activeTab === 'scheduled') return SCHEDULED_STATUSES.includes(o.status);
     if (activeTab === 'completed')  return o.status === 'completed';
     if (activeTab === 'cancelled')  return ['cancelled','failed'].includes(o.status);
     return true; // 'all'
@@ -418,7 +446,7 @@ const OrderHistoryManagement = () => {
           {/* Filters */}
           <OrderFilters
             filters={filters}
-            onFiltersChange={setFilters}
+            onFiltersChange={handleFiltersChange}
             isCollapsed={isFiltersCollapsed}
             onToggleCollapse={() => setIsFiltersCollapsed(!isFiltersCollapsed)}
             resultCount={filteredOrders?.length}
@@ -434,10 +462,10 @@ const OrderHistoryManagement = () => {
 
           {/* Orders Table */}
           <OrderTable
-            orders={filteredOrders}
+            orders={paginatedOrders}
             selectedOrders={selectedOrders}
             onOrderSelect={handleOrderSelect}
-            onSelectAll={handleSelectAll}
+            onSelectAll={(checked) => handleSelectAll(checked, paginatedOrders)}
             onOrderAction={handleOrderAction}
             activeTab={activeTab}
             onRefresh={fetchOrders}
@@ -446,17 +474,27 @@ const OrderHistoryManagement = () => {
           {/* Pagination */}
           {filteredOrders?.length > 0 && (
             <div className="flex items-center justify-between mt-6">
+              <Button
+                variant="outline"
+                size="sm"
+                iconName="ChevronLeft"
+                onClick={() => setCurrentPage((prev) => Math.max(0, prev - 1))}
+                disabled={!canGoPrev}
+              >
+                Previous {PAGE_SIZE}
+              </Button>
               <div className="text-sm text-muted-foreground">
-                Showing {filteredOrders?.length} of {totalInTab} orders
+                Showing {filteredOrders.length === 0 ? 0 : `${pageStart}-${pageEnd}`} of {filteredOrders.length} orders
               </div>
-              {/* <div className="flex items-center space-x-2">
-                <Button variant="outline" size="sm" disabled iconName="ChevronLeft">
-                  Previous
-                </Button>
-                <Button variant="outline" size="sm" disabled iconName="ChevronRight">
-                  Next
-                </Button>
-              </div> */}
+              <Button
+                variant="outline"
+                size="sm"
+                iconName="ChevronRight"
+                onClick={() => setCurrentPage((prev) => (canGoNext ? prev + 1 : prev))}
+                disabled={!canGoNext}
+              >
+                Next {PAGE_SIZE}
+              </Button>
             </div>
           )}
         </div>
