@@ -397,7 +397,7 @@ const OrderHistoryManagement = () => {
               </div>
               <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 gap-3 sm:gap-0 w-full sm:w-auto">
                 <Button
-                  onClick={() => navigate('/calendar-order-scheduling')}
+                  onClick={() => navigate('/calendar-order-scheduling', { state: { openScheduleModal: true } })}
                   iconName="Plus"
                   iconPosition="left"
                   className="w-full sm:w-auto"

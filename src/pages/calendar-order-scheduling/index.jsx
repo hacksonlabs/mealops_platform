@@ -1,6 +1,6 @@
 // src/pages/calendar-order-scheduling/index.jsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import CalendarHeader from './components/CalendarHeader';
 import CalendarGrid from './components/CalendarGrid';
@@ -24,6 +24,7 @@ import CartDetailsModal from '../../components/ui/cart/CartDetailsModal';
 const CalendarOrderScheduling = () => {
   const { activeTeam, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // calendar state
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -88,6 +89,16 @@ const CalendarOrderScheduling = () => {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // open schedule modal when navigated with state flag
+  const shouldOpenScheduleModal = location.state?.openScheduleModal;
+
+  useEffect(() => {
+    if (shouldOpenScheduleModal) {
+      setIsScheduleModalOpen(true);
+      navigate(location.pathname, { replace: true, state: undefined });
+    }
+  }, [shouldOpenScheduleModal, location.pathname, navigate]);
 
   // handlers
   const handleTodayClick = () => {
