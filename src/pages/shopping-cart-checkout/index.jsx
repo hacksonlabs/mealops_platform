@@ -594,7 +594,7 @@ const ShoppingCartCheckout = () => {
         />
 
         <Button
-          className="hidden lg:inline-flex w-full h-12 items-center justify-center gap-2 whitespace-nowrap text-base font-semibold mt-6"
+          className="w-full h-12 items-center justify-center gap-2 whitespace-nowrap text-base font-semibold mt-6"
           onClick={handlePlaceOrder}
           disabled={!isFormValid()}
           iconName={serviceType === 'delivery' ? 'Truck' : 'ShoppingBag'}
@@ -604,7 +604,7 @@ const ShoppingCartCheckout = () => {
         </Button>
 
         {!isFormValid() && (
-          <p className="hidden lg:block text-xs text-error mt-2">
+          <p className="text-xs text-error mt-2">
             Complete required fields before placing your order.
           </p>
         )}
