@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
-import Select from '../../../components/ui/Select';
+import Button from '../../../components/ui/custom/Button';
+import Select from '../../../components/ui/custom/Select';
 
 const BulkActions = ({ selectedOrders, orders, onBulkAction, onClearSelection }) => {
   const [selectedAction, setSelectedAction] = useState('');
@@ -54,34 +54,43 @@ const BulkActions = ({ selectedOrders, orders, onBulkAction, onClearSelection })
           </div>
           <div className="hidden md:flex items-center space-x-4 text-sm opacity-90">
             <span>Total: {formatCurrency(calculateTotalCost())}</span>
-            <span>•</span>
-            <span>
-              {getSelectedOrdersData()?.reduce((total, order) => total + order?.attendees, 0)} people
-            </span>
           </div>
+        </div>
+        {/* Quick Actions */}
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onBulkAction('download-receipts', selectedOrders)}
+            iconName="Download"
+            iconPosition="left"
+            className="text-primary-foreground hover:bg-primary-foreground/10"
+          >
+            Download Receipts
+          </Button>
+          {/* <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onBulkAction('export-csv', selectedOrders)}
+            iconName="FileText"
+            iconPosition="left"
+            className="text-primary-foreground hover:bg-primary-foreground/10"
+          >
+            Export CSV
+          </Button> */}
+          {/* <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onBulkAction('generate-report', selectedOrders)}
+            iconName="BarChart3"
+            iconPosition="left"
+            className="text-primary-foreground hover:bg-primary-foreground/10"
+          >
+            Generate Report
+          </Button> */}
         </div>
 
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2">
-            <Select
-              options={actionOptions}
-              value={selectedAction}
-              onChange={setSelectedAction}
-              className="min-w-48"
-            />
-            <Button
-              variant="secondary"
-              onClick={handleExecuteAction}
-              disabled={!selectedAction}
-              iconName="Play"
-              iconPosition="left"
-            >
-              Execute
-            </Button>
-          </div>
-
-          <div className="h-6 w-px bg-primary-foreground/20" />
-
           <Button
             variant="ghost"
             size="sm"
@@ -92,40 +101,6 @@ const BulkActions = ({ selectedOrders, orders, onBulkAction, onClearSelection })
             Clear
           </Button>
         </div>
-      </div>
-      {/* Quick Actions */}
-      <div className="flex items-center space-x-2 mt-3 pt-3 border-t border-primary-foreground/20">
-        <span className="text-sm opacity-90">Quick actions:</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onBulkAction('download-receipts', selectedOrders)}
-          iconName="Download"
-          iconPosition="left"
-          className="text-primary-foreground hover:bg-primary-foreground/10"
-        >
-          Download Receipts
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onBulkAction('export-csv', selectedOrders)}
-          iconName="FileText"
-          iconPosition="left"
-          className="text-primary-foreground hover:bg-primary-foreground/10"
-        >
-          Export CSV
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onBulkAction('generate-report', selectedOrders)}
-          iconName="BarChart3"
-          iconPosition="left"
-          className="text-primary-foreground hover:bg-primary-foreground/10"
-        >
-          Generate Report
-        </Button>
       </div>
     </div>
   );

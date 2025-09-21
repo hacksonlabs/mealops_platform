@@ -50,29 +50,6 @@ TO authenticated
 USING (public.is_team_admin(team_id))
 WITH CHECK (public.is_team_admin(team_id));
 
--- Pattern 2: Team-based resources
-CREATE POLICY "saved_locations_team_read"
-ON public.saved_locations
-FOR SELECT TO authenticated
-USING (public.is_team_member(team_id));
-
-CREATE POLICY "saved_locations_coach_insert"
-ON public.saved_locations
-FOR INSERT TO authenticated
-WITH CHECK (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
-
-CREATE POLICY "saved_locations_coach_update"
-ON public.saved_locations
-FOR UPDATE TO authenticated
-USING     (public.is_team_coach(team_id) OR public.is_team_admin(team_id))
-WITH CHECK(public.is_team_coach(team_id) OR public.is_team_admin(team_id));
-
-CREATE POLICY "saved_locations_coach_delete"
-ON public.saved_locations
-FOR DELETE TO authenticated
-USING (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
-
-
 DROP POLICY IF EXISTS "member_groups_team_read"    ON public.member_groups;
 CREATE POLICY "member_groups_team_read"
 ON public.member_groups
@@ -167,64 +144,22 @@ USING (
 -- RESTAURANTS (RLS)
 -- ------------------------------
 
--- Team members (incl. coach) can read restaurants tied to their team's saved_locations
-CREATE POLICY "team_members_view_restaurants"
-ON public.restaurants
-FOR SELECT
-TO authenticated
-USING (
-  EXISTS (
-    SELECT 1
-    FROM public.saved_locations sl
-    WHERE sl.id = restaurants.location_id
-      AND (public.is_team_member(sl.team_id) OR public.is_team_admin(sl.team_id))
+create policy "restaurants_read_via_orders_or_carts"
+on public.restaurants
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.meal_orders mo
+    where mo.restaurant_id = restaurants.id
+      and public.is_team_member(mo.team_id)
   )
-);
-
--- Coach can INSERT a restaurant if its location belongs to their team
-CREATE POLICY "coaches_insert_restaurants"
-ON public.restaurants
-FOR INSERT TO authenticated
-WITH CHECK (
-  EXISTS (
-    SELECT 1
-    FROM public.saved_locations sl
-    WHERE sl.id = restaurants.location_id
-      AND public.is_team_admin(sl.team_id)
-  )
-);
-
--- Coach can UPDATE only their team’s restaurants
-CREATE POLICY "coaches_update_restaurants"
-ON public.restaurants
-FOR UPDATE TO authenticated
-USING (
-  EXISTS (
-    SELECT 1
-    FROM public.saved_locations sl
-    WHERE sl.id = restaurants.location_id
-      AND public.is_team_admin(sl.team_id)
-  )
-)
-WITH CHECK (
-  EXISTS (
-    SELECT 1
-    FROM public.saved_locations sl
-    WHERE sl.id = restaurants.location_id
-      AND public.is_team_admin(sl.team_id)
-  )
-);
-
--- Coach can DELETE only their team’s restaurants
-CREATE POLICY "coaches_delete_restaurants"
-ON public.restaurants
-FOR DELETE TO authenticated
-USING (
-  EXISTS (
-    SELECT 1
-    FROM public.saved_locations sl
-    WHERE sl.id = restaurants.location_id
-      AND public.is_team_admin(sl.team_id)
+  or exists (
+    select 1
+    from public.meal_carts c
+    where c.restaurant_id = restaurants.id
+      and public.is_team_member(c.team_id)
   )
 );
 
@@ -232,60 +167,22 @@ USING (
 -- MENU ITEMS (RLS)
 -- ------------------------------
 
--- Team members can read menu items if their team owns the restaurant’s location
-CREATE POLICY "team_members_access_menu_items"
-ON public.menu_items
-FOR SELECT
-TO authenticated
-USING (
-  EXISTS (
-    SELECT 1
-    FROM public.restaurants r
-    JOIN public.saved_locations sl ON sl.id = r.location_id
-    WHERE r.id = menu_items.restaurant_id
-      AND (public.is_team_member(sl.team_id) OR public.is_team_admin(sl.team_id))
+create policy "menu_items_read_via_orders_or_carts"
+on public.menu_items
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.meal_orders mo
+    where mo.restaurant_id = menu_items.restaurant_id
+      and public.is_team_member(mo.team_id)
   )
-);
-
--- Coach can INSERT menu items only for restaurants under their team
-CREATE POLICY "coaches_insert_menu_items"
-ON public.menu_items FOR INSERT TO authenticated
-WITH CHECK (
-  EXISTS (
-    SELECT 1 FROM public.restaurants r
-    JOIN public.saved_locations sl ON sl.id = r.location_id
-    WHERE r.id = menu_items.restaurant_id
-      AND (public.is_team_coach(sl.team_id) OR public.is_team_admin(sl.team_id))
-  )
-);
-
-CREATE POLICY "coaches_update_menu_items"
-ON public.menu_items FOR UPDATE TO authenticated
-USING (
-  EXISTS (
-    SELECT 1 FROM public.restaurants r
-    JOIN public.saved_locations sl ON sl.id = r.location_id
-    WHERE r.id = menu_items.restaurant_id
-      AND (public.is_team_coach(sl.team_id) OR public.is_team_admin(sl.team_id))
-  )
-)
-WITH CHECK (
-  EXISTS (
-    SELECT 1 FROM public.restaurants r
-    JOIN public.saved_locations sl ON sl.id = r.location_id
-    WHERE r.id = menu_items.restaurant_id
-      AND (public.is_team_coach(sl.team_id) OR public.is_team_admin(sl.team_id))
-  )
-);
-
-CREATE POLICY "coaches_delete_menu_items"
-ON public.menu_items FOR DELETE TO authenticated
-USING (
-  EXISTS (
-    SELECT 1 FROM public.restaurants r
-    JOIN public.saved_locations sl ON sl.id = r.location_id
-    WHERE r.id = menu_items.restaurant_id
-      AND (public.is_team_coach(sl.team_id) OR public.is_team_admin(sl.team_id))
+  or exists (
+    select 1
+    from public.meal_carts c
+    where c.restaurant_id = menu_items.restaurant_id
+      and public.is_team_member(c.team_id)
   )
 );
 
@@ -340,68 +237,6 @@ FOR DELETE TO authenticated
 USING (
   created_by = auth.uid()
   OR public.is_team_coach(team_id) OR public.is_team_admin(team_id)
-);
--- RLS for order_items, now referencing menu_items
--- READ: owner OR any coach on the team
-CREATE POLICY "order_items_select_own_or_any_coach"
-ON public.order_items
-FOR SELECT
-TO authenticated
-USING (
-  user_id = auth.uid()
-  OR EXISTS (
-    SELECT 1
-    FROM public.meal_orders mo
-    WHERE mo.id = order_items.order_id
-      AND (public.is_team_coach(mo.team_id) OR public.is_team_admin(mo.team_id))
-  )
-);
-
--- WRITE: owner OR any coach/admin on the team
-CREATE POLICY "order_items_insert_own_or_coach"
-ON public.order_items
-FOR INSERT TO authenticated
-WITH CHECK (
-  (
-    user_id = auth.uid()
-    AND EXISTS (SELECT 1 FROM public.meal_orders mo
-                WHERE mo.id = order_items.order_id
-                  AND public.is_team_member(mo.team_id))
-  )
-  OR EXISTS (SELECT 1 FROM public.meal_orders mo
-             WHERE mo.id = order_items.order_id
-               AND (public.is_team_coach(mo.team_id) OR public.is_team_admin(mo.team_id)))
-);
-
-CREATE POLICY "order_items_update_own_or_coach"
-ON public.order_items
-FOR UPDATE TO authenticated
-USING (
-  user_id = auth.uid()
-  OR EXISTS (SELECT 1 FROM public.meal_orders mo
-             WHERE mo.id = order_items.order_id
-               AND (public.is_team_coach(mo.team_id) OR public.is_team_admin(mo.team_id)))
-)
-WITH CHECK (
-  (
-    user_id = auth.uid()
-    AND EXISTS (SELECT 1 FROM public.meal_orders mo
-                WHERE mo.id = order_items.order_id
-                  AND public.is_team_member(mo.team_id))
-  )
-  OR EXISTS (SELECT 1 FROM public.meal_orders mo
-             WHERE mo.id = order_items.order_id
-               AND (public.is_team_coach(mo.team_id) OR public.is_team_admin(mo.team_id)))
-);
-
-CREATE POLICY "order_items_delete_own_or_coach"
-ON public.order_items
-FOR DELETE TO authenticated
-USING (
-  user_id = auth.uid()
-  OR EXISTS (SELECT 1 FROM public.meal_orders mo
-             WHERE mo.id = order_items.order_id
-               AND (public.is_team_coach(mo.team_id) OR public.is_team_admin(mo.team_id)))
 );
 
 CREATE POLICY "team_members_read_orders"
@@ -710,67 +545,389 @@ to authenticated
 with check ( public.is_a_coach(team_id) );
 
 
-
-CREATE POLICY "loc_addrs_select_member"
-ON public.location_addresses
-FOR SELECT TO authenticated
-USING (
-  EXISTS (
-    SELECT 1
-    FROM public.saved_locations sl
-    WHERE sl.id = location_addresses.location_id
-      AND public.is_team_member(sl.team_id)
-  )
-);
-
--- INSERT: member/coach creating for a team location they belong to
-CREATE POLICY "loc_addrs_insert_member"
-ON public.location_addresses
-FOR INSERT TO authenticated
-WITH CHECK (
-  EXISTS (
-    SELECT 1
-    FROM public.saved_locations sl
-    WHERE sl.id = location_addresses.location_id
-      AND (public.is_team_member(sl.team_id) OR public.is_team_admin(sl.team_id) OR public.is_team_coach(sl.team_id))
-  )
-);
-
--- UPDATE/DELETE: (coach/admin shown)
-CREATE POLICY "loc_addrs_update_coach"
-ON public.location_addresses
-FOR UPDATE TO authenticated
-USING (
-  EXISTS (
-    SELECT 1
-    FROM public.saved_locations sl
-    WHERE sl.id = location_addresses.location_id
-      AND (public.is_team_admin(sl.team_id) OR public.is_team_coach(sl.team_id))
-  )
-)
-WITH CHECK (
-  EXISTS (
-    SELECT 1
-    FROM public.saved_locations sl
-    WHERE sl.id = location_addresses.location_id
-      AND (public.is_team_admin(sl.team_id) OR public.is_team_coach(sl.team_id))
-  )
-);
-
-CREATE POLICY "loc_addrs_delete_coach"
-ON public.location_addresses
-FOR DELETE TO authenticated
-USING (
-  EXISTS (
-    SELECT 1
-    FROM public.saved_locations sl
-    WHERE sl.id = location_addresses.location_id
-      AND (public.is_team_admin(sl.team_id) OR public.is_team_coach(sl.team_id))
-  )
-);
-
 CREATE POLICY "team_members_mark_notifications_read"
 ON public.notifications FOR UPDATE TO authenticated
 USING (EXISTS (SELECT 1 FROM public.team_members tm
                WHERE tm.team_id = notifications.team_id
                  AND tm.user_id = auth.uid() AND tm.is_active));
+
+
+
+
+CREATE POLICY "order_events_team_read"
+ON public.order_events
+FOR SELECT TO authenticated
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.meal_orders mo
+    WHERE mo.id = order_events.order_id
+      AND public.is_team_member(mo.team_id)
+  )
+);
+
+CREATE POLICY "order_events_coach_insert"
+ON public.order_events
+FOR INSERT TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+    FROM public.meal_orders mo
+    WHERE mo.id = order_events.order_id
+      AND (public.is_team_coach(mo.team_id) OR public.is_team_admin(mo.team_id))
+  )
+);
+
+CREATE POLICY "order_events_service_all"
+ON public.order_events
+FOR ALL TO service_role
+USING (TRUE) WITH CHECK (TRUE);
+
+
+-- ------ meal_carts ------
+DROP POLICY IF EXISTS meal_carts_select ON public.meal_carts;
+CREATE POLICY meal_carts_select
+  ON public.meal_carts
+  FOR SELECT
+  TO authenticated
+  USING (
+    public.is_member_of_cart(id)
+    OR public.is_coach_of_team(team_id)
+  );
+
+DROP POLICY IF EXISTS meal_carts_select_for_team_readonly ON public.meal_carts;
+CREATE POLICY meal_carts_select_for_team_readonly
+  ON public.meal_carts
+  FOR SELECT
+  TO authenticated
+  USING ( public.is_team_member(team_id) );
+
+
+DROP POLICY IF EXISTS meal_carts_insert ON public.meal_carts;
+CREATE POLICY meal_carts_insert
+  ON public.meal_carts
+  FOR INSERT
+  WITH CHECK (
+    -- must be a team member (coach or player) to create a cart for that team
+    EXISTS (
+      SELECT 1 FROM public.team_members tm
+       WHERE tm.team_id = meal_carts.team_id
+         AND tm.user_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS meal_carts_update ON public.meal_carts;
+CREATE POLICY meal_carts_update
+  ON public.meal_carts
+  FOR UPDATE
+  USING (
+    -- editable if you are member of cart OR coach of team
+    public.is_member_of_cart(id) OR public.is_coach_of_team(team_id)
+  )
+  WITH CHECK (
+    public.is_member_of_cart(id) OR public.is_coach_of_team(team_id)
+  );
+
+-- ------ meal_cart_members ------
+DROP POLICY IF EXISTS cart_members_select ON public.meal_cart_members;
+CREATE POLICY cart_members_select
+  ON public.meal_cart_members
+  FOR SELECT
+  USING (
+    public.is_member_of_cart(cart_id)
+    OR public.is_coach_of_team( (SELECT team_id FROM public.meal_carts c WHERE c.id = cart_id) )
+  );
+
+-- Only coaches or cart owners can add members (you can relax this if you want)
+DROP POLICY IF EXISTS cart_members_insert ON public.meal_cart_members;
+CREATE POLICY cart_members_insert
+  ON public.meal_cart_members
+  FOR INSERT
+  WITH CHECK (
+    -- coach of the team OR the cart owner
+    public.is_coach_of_team( (SELECT team_id FROM public.meal_carts c WHERE c.id = meal_cart_members.cart_id) )
+    OR EXISTS (
+      SELECT 1
+        FROM public.meal_carts c
+       WHERE c.id = meal_cart_members.cart_id
+         AND c.created_by_member_id = (
+           SELECT tm.id FROM public.team_members tm
+            WHERE tm.user_id = auth.uid()
+              AND tm.team_id = c.team_id
+           LIMIT 1
+         )
+    )
+  );
+
+DROP POLICY IF EXISTS cart_members_delete ON public.meal_cart_members;
+CREATE POLICY cart_members_delete
+  ON public.meal_cart_members
+  FOR DELETE
+  USING (
+    public.is_coach_of_team( (SELECT team_id FROM public.meal_carts c WHERE c.id = meal_cart_members.cart_id) )
+    OR EXISTS (
+      SELECT 1
+        FROM public.meal_carts c
+       WHERE c.id = meal_cart_members.cart_id
+         AND c.created_by_member_id = (
+           SELECT tm.id FROM public.team_members tm
+            WHERE tm.user_id = auth.uid()
+              AND tm.team_id = c.team_id
+           LIMIT 1
+         )
+    )
+  );
+
+-- ------ meal_cart_items ------
+-- SELECT: cart member OR coach of the team
+DROP POLICY IF EXISTS cart_items_select ON public.meal_cart_items;
+CREATE POLICY cart_items_select
+  ON public.meal_cart_items
+  FOR SELECT
+  USING (
+    public.is_member_of_cart(cart_id)
+    OR public.is_coach_of_team( (SELECT team_id FROM public.meal_carts c WHERE c.id = cart_id) )
+  );
+
+-- INSERT: any cart member; cart must be draft.
+DROP POLICY IF EXISTS cart_items_insert ON public.meal_cart_items;
+CREATE POLICY cart_items_insert
+  ON public.meal_cart_items
+  FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+        FROM public.meal_carts c
+       WHERE c.id = meal_cart_items.cart_id
+         AND c.status = 'draft'
+    )
+    AND public.is_member_of_cart(meal_cart_items.cart_id)
+  );
+
+-- UPDATE: cart is draft AND (you own it OR you're a coach)
+DROP POLICY IF EXISTS cart_items_update ON public.meal_cart_items;
+CREATE POLICY cart_items_update
+  ON public.meal_cart_items
+  FOR UPDATE
+  USING (
+    EXISTS (SELECT 1 FROM public.meal_carts c WHERE c.id = cart_id AND c.status = 'draft')
+    AND (
+      EXISTS (
+        SELECT 1
+          FROM public.team_members tm
+         WHERE tm.id = meal_cart_items.added_by_member_id
+           AND tm.user_id = auth.uid()
+      )
+      OR public.is_coach_of_team( (SELECT team_id FROM public.meal_carts c WHERE c.id = cart_id) )
+    )
+  )
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM public.meal_carts c WHERE c.id = cart_id AND c.status = 'draft')
+    AND (
+      EXISTS (
+        SELECT 1
+          FROM public.team_members tm
+         WHERE tm.id = meal_cart_items.added_by_member_id
+           AND tm.user_id = auth.uid()
+      )
+      OR public.is_coach_of_team( (SELECT team_id FROM public.meal_carts c WHERE c.id = cart_id) )
+    )
+  );
+
+-- DELETE: cart is draft AND (you own it OR you're a coach)
+DROP POLICY IF EXISTS cart_items_delete ON public.meal_cart_items;
+CREATE POLICY cart_items_delete
+  ON public.meal_cart_items
+  FOR DELETE
+  USING (
+    EXISTS (SELECT 1 FROM public.meal_carts c WHERE c.id = cart_id AND c.status = 'draft')
+    AND (
+      EXISTS (
+        SELECT 1
+          FROM public.team_members tm
+         WHERE tm.id = meal_cart_items.added_by_member_id
+           AND tm.user_id = auth.uid()
+      )
+      OR public.is_coach_of_team( (SELECT team_id FROM public.meal_carts c WHERE c.id = cart_id) )
+    )
+  );
+
+-- ------ meal_cart_item_assignees ------
+-- SELECT: cart member or coach
+DROP POLICY IF EXISTS item_assignees_select ON public.meal_cart_item_assignees;
+CREATE POLICY item_assignees_select
+  ON public.meal_cart_item_assignees
+  FOR SELECT
+  USING (
+    public.is_member_of_cart( (SELECT cart_id FROM public.meal_cart_items i WHERE i.id = cart_item_id) )
+    OR public.is_coach_of_team( (SELECT team_id FROM public.meal_carts c JOIN public.meal_cart_items i ON i.cart_id = c.id WHERE i.id = cart_item_id) )
+  );
+
+-- INSERT: cart is draft AND (you own the item OR you’re a coach)
+DROP POLICY IF EXISTS item_assignees_insert ON public.meal_cart_item_assignees;
+CREATE POLICY item_assignees_insert
+  ON public.meal_cart_item_assignees
+  FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.meal_carts c
+      JOIN public.meal_cart_items i ON i.cart_id = c.id
+     WHERE i.id = meal_cart_item_assignees.cart_item_id
+       AND c.status = 'draft'
+    )
+    AND (
+      -- owner
+      EXISTS (
+        SELECT 1
+          FROM public.meal_cart_items i
+          JOIN public.team_members tm ON tm.id = i.added_by_member_id
+         WHERE i.id = meal_cart_item_assignees.cart_item_id
+           AND tm.user_id = auth.uid()
+      )
+      OR
+      -- coach on that team
+      public.is_coach_of_team(
+        (SELECT c.team_id
+           FROM public.meal_carts c
+           JOIN public.meal_cart_items i ON i.cart_id = c.id
+          WHERE i.id = meal_cart_item_assignees.cart_item_id)
+      )
+    )
+  );
+
+-- UPDATE: same as insert (draft AND owner or coach)
+DROP POLICY IF EXISTS item_assignees_update ON public.meal_cart_item_assignees;
+CREATE POLICY item_assignees_update
+  ON public.meal_cart_item_assignees
+  FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.meal_carts c
+      JOIN public.meal_cart_items i ON i.cart_id = c.id
+     WHERE i.id = meal_cart_item_assignees.cart_item_id
+       AND c.status = 'draft'
+    )
+    AND (
+      EXISTS (
+        SELECT 1
+          FROM public.meal_cart_items i
+          JOIN public.team_members tm ON tm.id = i.added_by_member_id
+         WHERE i.id = meal_cart_item_assignees.cart_item_id
+           AND tm.user_id = auth.uid()
+      )
+      OR public.is_coach_of_team(
+        (SELECT c.team_id
+           FROM public.meal_carts c
+           JOIN public.meal_cart_items i ON i.cart_id = c.id
+          WHERE i.id = meal_cart_item_assignees.cart_item_id)
+      )
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.meal_carts c
+      JOIN public.meal_cart_items i ON i.cart_id = c.id
+     WHERE i.id = meal_cart_item_assignees.cart_item_id
+       AND c.status = 'draft'
+    )
+    AND (
+      EXISTS (
+        SELECT 1
+          FROM public.meal_cart_items i
+          JOIN public.team_members tm ON tm.id = i.added_by_member_id
+         WHERE i.id = meal_cart_item_assignees.cart_item_id
+           AND tm.user_id = auth.uid()
+      )
+      OR public.is_coach_of_team(
+        (SELECT c.team_id
+           FROM public.meal_carts c
+           JOIN public.meal_cart_items i ON i.cart_id = c.id
+          WHERE i.id = meal_cart_item_assignees.cart_item_id)
+      )
+    )
+  );
+
+-- DELETE: same as update
+DROP POLICY IF EXISTS item_assignees_delete ON public.meal_cart_item_assignees;
+CREATE POLICY item_assignees_delete
+  ON public.meal_cart_item_assignees
+  FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.meal_carts c
+      JOIN public.meal_cart_items i ON i.cart_id = c.id
+     WHERE i.id = meal_cart_item_assignees.cart_item_id
+       AND c.status = 'draft'
+    )
+    AND (
+      EXISTS (
+        SELECT 1
+          FROM public.meal_cart_items i
+          JOIN public.team_members tm ON tm.id = i.added_by_member_id
+         WHERE i.id = meal_cart_item_assignees.cart_item_id
+           AND tm.user_id = auth.uid()
+      )
+      OR public.is_coach_of_team(
+        (SELECT c.team_id
+           FROM public.meal_carts c
+           JOIN public.meal_cart_items i ON i.cart_id = c.id
+          WHERE i.id = meal_cart_item_assignees.cart_item_id)
+      )
+    )
+  );
+
+-- Carts: allow team members to delete their team’s carts
+CREATE POLICY cart_delete_for_team
+ON public.meal_carts
+FOR DELETE
+USING (
+  team_id IN (
+    SELECT tm.team_id
+    FROM public.team_members tm
+    WHERE tm.user_id = auth.uid()
+  )
+);
+
+-- Items: allow delete when the parent cart belongs to user’s team
+CREATE POLICY cart_items_delete_via_cart
+ON public.meal_cart_items
+FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.meal_carts c
+    JOIN public.team_members tm ON tm.team_id = c.team_id
+    WHERE c.id = meal_cart_items.cart_id
+      AND tm.user_id = auth.uid()
+  )
+);
+
+-- Assignees: allow delete when the parent item belongs to a cart in user’s team
+CREATE POLICY cart_item_assignees_delete_via_cart
+ON public.meal_cart_item_assignees
+FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.meal_cart_items i
+    JOIN public.meal_carts c ON c.id = i.cart_id
+    JOIN public.team_members tm ON tm.team_id = c.team_id
+    WHERE i.id = meal_cart_item_assignees.cart_item_id
+      AND tm.user_id = auth.uid()
+      AND c.status <> 'submitted'
+  )
+);
+
+/* If meal_cart_members exists and should cascade/delete as well: */
+CREATE POLICY cart_members_delete_via_cart
+ON public.meal_cart_members
+FOR DELETE
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.meal_carts c
+    JOIN public.team_members tm ON tm.team_id = c.team_id
+    WHERE c.id = meal_cart_members.cart_id
+      AND tm.user_id = auth.uid()
+  )
+);

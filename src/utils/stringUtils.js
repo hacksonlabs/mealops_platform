@@ -1,3 +1,5 @@
+// /src/utils/stringUtils.js
+
 /**
  * Converts a string to title case.
  * @param {string} str The string to convert.

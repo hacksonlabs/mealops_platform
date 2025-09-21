@@ -1,5 +1,5 @@
 import React from 'react';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 import Icon from '../../../components/AppIcon';
 
 const BulkActionsBar = ({ selectedCount, onBulkAction, onClearSelection }) => {
@@ -16,24 +16,6 @@ const BulkActionsBar = ({ selectedCount, onBulkAction, onClearSelection }) => {
         </div>
 
         <div className="flex items-center space-x-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => onBulkAction('activate')}
-            iconName="UserCheck"
-            iconPosition="left"
-          >
-            Activate
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => onBulkAction('deactivate')}
-            iconName="UserX"
-            iconPosition="left"
-          >
-            Deactivate
-          </Button>
           <Button
             variant="secondary"
             size="sm"

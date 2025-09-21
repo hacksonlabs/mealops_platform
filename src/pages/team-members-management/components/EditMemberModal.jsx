@@ -1,13 +1,19 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import Button from '../../../components/ui/Button';
-import Input from '../../../components/ui/Input';
-import Select from '../../../components/ui/Select';
+// src/pages/team-members-management/components/EditMemberModal.jsx
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import Button from '../../../components/ui/custom/Button';
+import Input from '../../../components/ui/custom/Input';
+import Select from '../../../components/ui/custom/Select';
 import Icon from '../../../components/AppIcon';
-import { Checkbox } from '../../../components/ui/Checkbox';
 import { toTitleCase, normalizePhoneNumber, normalizeBirthday } from '../../../utils/stringUtils';
 
+const ROLE_OPTIONS = [
+  { value: 'player', label: 'Player' },
+  { value: 'coach', label: 'Coach' },
+  { value: 'staff', label: 'Staff' },
+];
+
 const EditMemberModal = ({ member, onClose, onUpdate }) => {
-  // Use team_members fields only
+  // Normalize incoming member → flat `team_members` shape (no is_active here)
   const src = useMemo(
     () => ({
       id: member?.id ?? null,
@@ -16,87 +22,114 @@ const EditMemberModal = ({ member, onClose, onUpdate }) => {
       phone_number: member?.phone_number ?? '',
       role: (member?.role ?? 'player')?.toLowerCase(),
       allergies: member?.allergies ?? '',
-      birthday: member?.birthday ?? '',
-      is_active: typeof member?.is_active === 'boolean' ? member.is_active : true,
+      birthday: normalizeBirthday(member?.birthday ?? ''), // yyyy-MM-dd or ''
       joined_at: member?.joined_at ?? member?.created_at ?? null,
     }),
     [member]
   );
 
-  const [formData, setFormData] = useState({
+  // Local form state
+  const [form, setForm] = useState({
     full_name: toTitleCase(src.full_name),
-    email: src.email.toLowerCase(),
+    email: (src.email || '').toLowerCase(),
     phone_number: normalizePhoneNumber(src.phone_number),
-    role: src.role.toLowerCase(),
+    role: src.role,
     allergies: toTitleCase(src.allergies),
-    birthday: normalizeBirthday(src.birthday),
-    is_active: src.is_active,
+    birthday: src.birthday, // must stay yyyy-MM-dd for <input type="date" />
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Sync when member changes
+  // Keep form in sync when `member` changes
   useEffect(() => {
-    setFormData({
+    setForm({
       full_name: toTitleCase(src.full_name),
-      email: src.email.toLowerCase(),
+      email: (src.email || '').toLowerCase(),
       phone_number: normalizePhoneNumber(src.phone_number),
-      role: src.role.toLowerCase(),
+      role: src.role,
       allergies: toTitleCase(src.allergies),
-      birthday: normalizeBirthday(src.birthday),
-      is_active: src.is_active,
+      birthday: src.birthday,
     });
   }, [src]);
 
-  // Close on Escape
+  // Close on ESC
   useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') onClose?.();
-    };
+    const onKey = (e) => e.key === 'Escape' && onClose?.();
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const handleInputChange = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-    if (error) setError('');
-  };
+  // Close on backdrop click (not when clicking dialog)
+  const overlayRef = useRef(null);
+  const handleOverlayMouseDown = useCallback(
+    (e) => {
+      if (e.target === overlayRef.current) onClose?.();
+    },
+    [onClose]
+  );
+
+  // Helpers
+  const setField =
+    (field, transform) =>
+    (eOrVal) => {
+      const raw = typeof eOrVal === 'string' ? eOrVal : eOrVal?.target?.value ?? '';
+      const next = transform ? transform(raw) : raw;
+      setForm((prev) => ({ ...prev, [field]: next }));
+      if (error) setError('');
+    };
+
+  const onNameChange = setField('full_name'); // we’ll normalize on submit
+  const onEmailChange = setField('email');
+  const onPhoneChange = setField('phone_number'); // normalize on blur
+  const onBirthdayChange = setField('birthday'); // already yyyy-MM-dd
+  const onAllergiesChange = setField('allergies'); // normalize on submit
+  const onRoleChange = (val) => setField('role')(val);
+
+  const handlePhoneBlur = () =>
+    setForm((p) => ({ ...p, phone_number: normalizePhoneNumber(p.phone_number) }));
 
   const handleSubmit = async (e) => {
     e?.preventDefault();
     setError('');
 
-    if (!formData.full_name?.trim()) {
-      setError('Full name is required');
+    if (!form.full_name?.trim()) {
+      setError('Full name is required.');
+      return;
+    }
+    if (!form.email?.trim()) {
+      setError('Email is required.');
       return;
     }
 
+    // Final normalized payload
+    const payload = {
+      full_name: toTitleCase((form.full_name || '').trim()),
+      email: (form.email || '').toLowerCase().trim(),
+      phone_number: normalizePhoneNumber(form.phone_number || ''),
+      role: (form.role || 'player').toLowerCase(),
+      allergies: toTitleCase((form.allergies || '').trim()),
+      birthday: normalizeBirthday(form.birthday || ''), // keep yyyy-MM-dd or ''
+    };
+
     setLoading(true);
     try {
-      const result = await onUpdate(formData);
-      if (result?.success) {
-        onClose();
-      } else {
-        setError(result?.error || result?.message || 'Failed to update member');
-      }
+      const result = await onUpdate?.(payload);
+      if (result?.success) onClose?.();
+      else setError(result?.error || result?.message || 'Failed to update member.');
     } catch {
-      setError('An unexpected error occurred');
+      setError('An unexpected error occurred.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    // Overlay — clicking it closes the modal, inner dialog stops propagation
     <div
+      ref={overlayRef}
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose?.();
-      }}
-      onTouchStart={(e) => {
-        if (e.target === e.currentTarget) onClose?.();
-      }}
+      onMouseDown={handleOverlayMouseDown}
+      onTouchStart={handleOverlayMouseDown}
       role="presentation"
     >
       <div
@@ -106,139 +139,127 @@ const EditMemberModal = ({ member, onClose, onUpdate }) => {
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-member-title"
+        aria-describedby={error ? 'edit-member-error' : undefined}
+        aria-busy={loading || undefined}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border">
-          <div>
-            <h3 id="edit-member-title" className="text-lg font-semibold text-foreground">
-              Edit Member
-            </h3>
-          </div>
+          <h3 id="edit-member-title" className="text-lg font-semibold text-foreground">
+            Edit Member
+          </h3>
           <Button variant="ghost" size="sm" onClick={onClose} iconName="X" disabled={loading} />
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6">
+        <form onSubmit={handleSubmit} className="p-6" noValidate>
           <div className="space-y-4">
             {/* Full Name */}
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Full Name</label>
+              <label htmlFor="full_name" className="block text-sm font-medium text-foreground mb-2">
+                Full Name
+              </label>
               <Input
+                id="full_name"
                 type="text"
                 placeholder={src.full_name || ''}
-                value={formData.full_name}
-                onChange={(e) => handleInputChange('full_name', e.target.value)}
+                value={form.full_name}
+                onChange={onNameChange}
                 required
                 disabled={loading}
+                aria-invalid={!!error && !form.full_name}
               />
             </div>
 
             {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Email</label>
+              <label htmlFor="email" className="block text-sm font-medium text-foreground mb-2">
+                Email
+              </label>
               <Input
+                id="email"
                 type="email"
                 placeholder={src.email || ''}
-                value={formData.email}
-                onChange={(e) => handleInputChange('email', e.target.value)}
-                disabled={loading}
+                value={form.email}
+                onChange={onEmailChange}
                 required
+                disabled={loading}
+                aria-invalid={!!error && !form.email}
               />
             </div>
 
             {/* Role */}
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Role</label>
+              <label htmlFor="role" className="block text-sm font-medium text-foreground mb-2">
+                Role
+              </label>
               <Select
-                value={formData.role}
-                onChange={(value) => handleInputChange('role', value)}
-                options={[
-                  { value: 'player', label: 'Player' },
-                  { value: 'coach', label: 'Coach' },
-                  { value: 'staff', label: 'Staff' },
-                ]}
+                id="role"
+                value={form.role}
+                onChange={onRoleChange}
+                options={ROLE_OPTIONS}
                 placeholder={src.role || 'player'}
                 required
+                disabled={loading}
               />
             </div>
 
             {/* Phone */}
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Phone Number</label>
+              <label htmlFor="phone_number" className="block text-sm font-medium text-foreground mb-2">
+                Phone Number
+              </label>
               <Input
+                id="phone_number"
                 type="tel"
                 placeholder={src.phone_number || ''}
-                value={formData.phone_number}
-                onChange={(e) => handleInputChange('phone_number', e.target.value)}
+                value={form.phone_number}
+                onChange={onPhoneChange}
+                onBlur={handlePhoneBlur}
                 disabled={loading}
-                required
               />
             </div>
 
             {/* Birthday */}
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Birthday</label>
+              <label htmlFor="birthday" className="block text-sm font-medium text-foreground mb-2">
+                Birthday
+              </label>
               <Input
+                id="birthday"
                 type="date"
-                placeholder={normalizeBirthday(src.birthday) || ''}
-                value={formData.birthday || ''} // must be yyyy-MM-dd
-                onChange={(e) => handleInputChange('birthday', e.target.value)}
+                placeholder={src.birthday || ''}
+                value={form.birthday || ''} // yyyy-MM-dd
+                onChange={onBirthdayChange}
                 disabled={loading}
               />
             </div>
 
             {/* Dietary Restrictions */}
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
+              <label htmlFor="allergies" className="block text-sm font-medium text-foreground mb-2">
                 Dietary Restrictions / Allergies
               </label>
               <textarea
-                placeholder=""
-                value={formData.allergies ?? ''}
-                onChange={(e) => handleInputChange('allergies', e.target.value)}
+                id="allergies"
+                value={form.allergies ?? ''}
+                onChange={onAllergiesChange}
                 rows={3}
                 disabled={loading}
                 className="text-sm w-full px-3 py-2 border border-border rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed resize-none"
               />
             </div>
 
-            {/* Active Status */}
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="is_active"
-                checked={!!formData.is_active}
-                onChange={(e) => handleInputChange('is_active', e?.target?.checked)}
-                disabled={loading}
-              />
-              <label htmlFor="is_active" className="text-sm text-foreground">
-                Active member (can participate in polls and orders)
-              </label>
-            </div>
-
             {/* Error Message */}
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center space-x-2">
+              <div
+                id="edit-member-error"
+                role="alert"
+                className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center space-x-2"
+              >
                 <Icon name="AlertCircle" size={16} className="text-red-600 flex-shrink-0" />
                 <p className="text-sm text-red-800">{error}</p>
               </div>
             )}
-          </div>
-
-          {/* Member Stats */}
-          <div className="mt-6 p-4 bg-muted rounded-lg">
-            <h4 className="text-sm font-medium text-foreground mb-2">Member Statistics</h4>
-            <div className="grid grid-cols-2 gap-4 text-xs">
-              <div>
-                <p className="text-muted-foreground">Joined</p>
-                <p className="text-foreground font-medium">
-                  {src.joined_at ? new Date(src.joined_at).toLocaleDateString() : '—'}
-                </p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Status</p>
-                <p className="text-foreground font-medium">{src.is_active ? 'Active' : 'Inactive'}</p>
-              </div>
-            </div>
           </div>
 
           {/* Actions */}
@@ -251,9 +272,8 @@ const EditMemberModal = ({ member, onClose, onUpdate }) => {
               disabled={loading}
               iconName={loading ? 'Loader2' : 'Save'}
               iconPosition="left"
-              className={loading ? 'animate-spin' : ''}
             >
-              {loading ? 'Updating...' : 'Update Member'}
+              {loading ? 'Updating…' : 'Update Member'}
             </Button>
           </div>
         </form>

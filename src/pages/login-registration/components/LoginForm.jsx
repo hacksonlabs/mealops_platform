@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Input from '../../../components/ui/Input';
-import Button from '../../../components/ui/Button';
-import { Checkbox } from '../../../components/ui/Checkbox';
+import Input from '../../../components/ui/custom/Input';
+import Button from '../../../components/ui/custom/Button';
+import { Checkbox } from '../../../components/ui/custom/Checkbox';
 import Icon from '../../../components/AppIcon';
 import { useAuth } from '../../../contexts';
 import { supabase } from '../../../lib/supabase';

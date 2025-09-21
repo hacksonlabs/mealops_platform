@@ -140,6 +140,7 @@ RETURNS UUID
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 SELECT tm.team_id
 FROM public.team_members tm
@@ -147,18 +148,502 @@ WHERE tm.user_id = auth.uid()
 LIMIT 1
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_access_location_address(location_address_uuid UUID)
-RETURNS BOOLEAN
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-AS $$
-SELECT EXISTS (
-    SELECT 1 FROM public.location_addresses la
-    JOIN public.saved_locations sl ON la.location_id = sl.id
-    WHERE la.id = location_address_uuid
-    AND public.is_team_member(sl.team_id)
+-- finalize cancellation (called by jobs/webhooks)
+CREATE OR REPLACE FUNCTION public.finalize_order_cancellation(
+  p_order_id UUID,
+  p_success  BOOLEAN,
+  p_message  TEXT DEFAULT NULL,
+  p_payload  JSONB DEFAULT '{}'::jsonb
 )
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_order public.meal_orders%ROWTYPE;
+  v_new_status public.order_status;
+BEGIN
+  SELECT * INTO v_order
+  FROM public.meal_orders
+  WHERE id = p_order_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'order not found';
+  END IF;
+
+  IF p_success THEN
+    v_new_status := 'cancelled';
+    UPDATE public.meal_orders
+    SET order_status  = v_new_status,
+        canceled_at   = COALESCE(canceled_at, NOW())
+    WHERE id = v_order.id;
+
+    INSERT INTO public.order_events(order_id, type, payload)
+    VALUES (
+      v_order.id, 'cancelled',
+      jsonb_build_object('message', p_message, 'provider', p_payload)
+    );
+  ELSE
+    v_new_status := 'cancel_failed';
+    UPDATE public.meal_orders
+    SET order_status = v_new_status
+    WHERE id = v_order.id;
+
+    INSERT INTO public.order_events(order_id, type, payload)
+    VALUES (
+      v_order.id, 'cancel_denied',
+      jsonb_build_object('message', p_message, 'provider', p_payload)
+    );
+  END IF;
+
+  RETURN jsonb_build_object('order_id', v_order.id, 'order_status', v_new_status);
+END;
+$$;
+
+-- request cancellation (creator/coach/admin)
+CREATE OR REPLACE FUNCTION public.request_order_cancellation(
+  p_order_id UUID,
+  p_reason   TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_order public.meal_orders%ROWTYPE;
+BEGIN
+  -- Load + lock the order
+  SELECT * INTO v_order
+  FROM public.meal_orders
+  WHERE id = p_order_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'order not found';
+  END IF;
+
+  -- Authorization: creator OR coach/admin
+  IF NOT (
+    v_order.created_by = auth.uid()
+    OR public.is_team_coach(v_order.team_id)
+    OR public.is_team_admin(v_order.team_id)
+  ) THEN
+    RAISE EXCEPTION 'permission denied';
+  END IF;
+
+  -- If already terminal, no-op
+  IF v_order.order_status IN ('completed','cancelled','failed') THEN
+    RETURN jsonb_build_object(
+      'order_id', v_order.id,
+      'order_status', v_order.order_status,
+      'no_change', TRUE
+    );
+  END IF;
+
+  -- If not actually placed yet and still early, cancel immediately
+  IF COALESCE(v_order.order_placed, FALSE) = FALSE
+     AND v_order.order_status IN ('draft','scheduled') THEN
+
+    UPDATE public.meal_orders
+    SET order_status        = 'cancelled',
+        canceled_at         = NOW(),
+        cancel_requested_at = NOW(),
+        cancel_requested_by = auth.uid(),
+        cancel_reason       = COALESCE(p_reason, cancel_reason)
+    WHERE id = v_order.id;
+
+    INSERT INTO public.order_events(order_id, type, payload)
+    VALUES (
+      v_order.id, 'cancelled',
+      jsonb_build_object('by', auth.uid(), 'reason', p_reason)
+    );
+
+    RETURN jsonb_build_object('order_id', v_order.id, 'order_status', 'cancelled');
+  END IF;
+
+  -- Otherwise: mark as cancellation requested (to be resolved async by provider)
+  UPDATE public.meal_orders
+  SET order_status        = 'cancellation_requested',
+      cancel_requested_at = COALESCE(cancel_requested_at, NOW()),
+      cancel_requested_by = COALESCE(cancel_requested_by, auth.uid()),
+      cancel_reason       = COALESCE(p_reason, cancel_reason)
+  WHERE id = v_order.id;
+
+  INSERT INTO public.order_events(order_id, type, payload)
+  VALUES (
+    v_order.id, 'cancel_requested',
+    jsonb_build_object('by', auth.uid(), 'reason', p_reason)
+  );
+
+  RETURN jsonb_build_object('order_id', v_order.id, 'order_status', 'cancellation_requested');
+END;
+$$;
+
+-- meal carts
+CREATE OR REPLACE FUNCTION public.tg_touch_meal_carts()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
+
+create or replace function public.tg_cart_set_creator()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_member_id uuid;
+begin
+  select tm.id into v_member_id
+    from public.team_members tm
+   where tm.team_id = NEW.team_id
+     and tm.user_id = auth.uid()
+   limit 1;
+
+  if v_member_id is not null then
+    if NEW.created_by_member_id is null then
+      NEW.created_by_member_id := v_member_id;
+    end if;
+  end if;
+
+  return NEW;
+end;
+$$;
+
+create or replace function public.tg_cart_auto_membership_after()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_member_id uuid;
+begin
+  -- resolve current user's team_member for this team
+  select tm.id into v_member_id
+    from public.team_members tm
+   where tm.team_id = NEW.team_id
+     and tm.user_id = auth.uid()
+   limit 1;
+
+  if v_member_id is not null then
+    insert into public.meal_cart_members (cart_id, member_id, role)
+    values (NEW.id, v_member_id, 'owner')
+    on conflict (cart_id, member_id) do nothing;
+  end if;
+
+  return NEW;  -- (ignored for AFTER, but conventional)
+end;
+$$;
+
+
+-- lock ownership on cart items + touch updated_at
+CREATE OR REPLACE FUNCTION public.tg_lock_item_owner()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.added_by_member_id IS DISTINCT FROM OLD.added_by_member_id THEN
+      RAISE EXCEPTION 'added_by_member_id cannot be changed';
+    END IF;
+    NEW.updated_at := now();
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- fill added_by_member_id on INSERT if null and validate it belongs to cart team
+-- Ensure we have the owner/team validation trigger for cart ITEMS
+CREATE OR REPLACE FUNCTION public.tg_item_fill_owner()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_member_id  uuid;
+  v_cart_team  uuid;
+  v_member_team uuid;
+BEGIN
+  -- Autofill owner if null using current user’s team_member for the cart’s team
+  IF NEW.added_by_member_id IS NULL THEN
+    SELECT tm.id INTO v_member_id
+      FROM public.team_members tm
+     WHERE tm.user_id = auth.uid()
+       AND tm.team_id = (SELECT team_id FROM public.meal_carts c WHERE c.id = NEW.cart_id)
+     LIMIT 1;
+
+    IF v_member_id IS NULL THEN
+      RAISE EXCEPTION 'You are not a member of this cart''s team';
+    END IF;
+
+    NEW.added_by_member_id := v_member_id;
+  END IF;
+
+  -- Validate owner belongs to the same team as the cart
+  SELECT team_id INTO v_cart_team   FROM public.meal_carts  WHERE id = NEW.cart_id;
+  SELECT team_id INTO v_member_team FROM public.team_members WHERE id = NEW.added_by_member_id;
+
+  IF v_cart_team IS DISTINCT FROM v_member_team THEN
+    RAISE EXCEPTION 'Item owner must belong to the same team as the cart';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- capacity check: assignees (members + extras) must not exceed item.quantity
+CREATE OR REPLACE FUNCTION public.tg_assignees_capacity_check()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_qty int;
+  v_count int;
+BEGIN
+  SELECT quantity INTO v_qty FROM public.meal_cart_items WHERE id = COALESCE(NEW.cart_item_id, OLD.cart_item_id);
+
+  SELECT COUNT(*) INTO v_count
+    FROM public.meal_cart_item_assignees a
+   WHERE a.cart_item_id = COALESCE(NEW.cart_item_id, OLD.cart_item_id);
+
+  IF TG_OP = 'INSERT' THEN
+    v_count := v_count + 1;
+  END IF;
+
+  IF v_count > v_qty THEN
+    RAISE EXCEPTION 'Too many assignees for this item (count %, qty %)', v_count, v_qty;
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+-- validate member_id (when provided) belongs to the same team as the cart
+CREATE OR REPLACE FUNCTION public.tg_assignee_member_team_check()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_cart_id uuid;
+  v_cart_team uuid;
+  v_member_team uuid;
+BEGIN
+  IF (COALESCE(NEW.member_id, OLD.member_id)) IS NULL THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
+  SELECT cart_id INTO v_cart_id FROM public.meal_cart_items WHERE id = COALESCE(NEW.cart_item_id, OLD.cart_item_id);
+  SELECT team_id INTO v_cart_team FROM public.meal_carts WHERE id = v_cart_id;
+  SELECT team_id INTO v_member_team FROM public.team_members WHERE id = COALESCE(NEW.member_id, OLD.member_id);
+
+  IF v_cart_team IS DISTINCT FROM v_member_team THEN
+    RAISE EXCEPTION 'Assignee must belong to the same team as the cart';
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+-- Helper: is current user a coach of a given team?
+create or replace function public.is_coach_of_team(p_team_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v boolean;
+begin
+  select exists (
+    select 1
+      from public.team_members tm
+     where tm.team_id = p_team_id
+       and tm.user_id = auth.uid()
+       and tm.role = 'coach'
+  ) into v;
+  return v;
+end $$;
+
+create or replace function public.is_member_of_cart(p_cart_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v boolean;
+begin
+  select exists (
+    select 1
+      from public.meal_cart_members m
+      left join public.team_members tm on tm.id = m.member_id
+     where m.cart_id = p_cart_id
+       and (
+         m.user_id = auth.uid()           -- <--  recognize session linked in cart-members
+         or tm.user_id = auth.uid()       -- “owner/rostered user” path
+       )
+  ) into v;
+  return v;
+end $$;
+
+
+CREATE OR REPLACE FUNCTION public.tg_validate_cart_creator_team()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_member_team uuid;
+BEGIN
+  IF NEW.created_by_member_id IS NOT NULL THEN
+    SELECT team_id INTO v_member_team
+      FROM public.team_members
+     WHERE id = NEW.created_by_member_id;
+
+    IF v_member_team IS NULL THEN
+      RAISE EXCEPTION 'created_by_member_id % is not a valid team member', NEW.created_by_member_id;
+    END IF;
+
+    IF v_member_team IS DISTINCT FROM NEW.team_id THEN
+      RAISE EXCEPTION 'created_by_member_id must belong to the same team as the cart';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+create or replace function public.join_cart_as_member(p_cart_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_team_id uuid;
+  v_member_id uuid;
+begin
+  select team_id into v_team_id from public.meal_carts where id = p_cart_id;
+  if v_team_id is null then
+    raise exception 'Cart not found';
+  end if;
+
+  select tm.id into v_member_id
+    from public.team_members tm
+   where tm.team_id = v_team_id
+     and tm.user_id = auth.uid()
+   limit 1;
+
+  if v_member_id is null then
+    raise exception 'You are not a member of this team';
+  end if;
+
+  insert into public.meal_cart_members (cart_id, member_id)
+  values (p_cart_id, v_member_id)
+  on conflict (cart_id, member_id) do nothing;
+end;
+$$;
+
+create or replace function public.join_cart_with_email(
+  p_cart_id uuid,
+  p_email   text
+)
+returns table (
+  member_id uuid,
+  full_name text,
+  email     text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_team_id   uuid;
+  v_member_id uuid;
+  v_full_name text;
+  v_email     text;
+begin
+  select team_id into v_team_id
+  from public.meal_carts
+  where id = p_cart_id;
+
+  if v_team_id is null then
+    raise exception 'Cart not found';
+  end if;
+
+  select tm.id, tm.full_name, tm.email
+    into v_member_id, v_full_name, v_email
+  from public.team_members tm
+  where tm.team_id = v_team_id
+    and lower(trim(tm.email)) = lower(trim(p_email))
+  limit 1;
+
+  if v_member_id is null then
+    raise exception 'No team member with that email on this team';
+  end if;
+
+  insert into public.meal_cart_members (cart_id, member_id, user_id)
+  values (p_cart_id, v_member_id, auth.uid())
+  on conflict on constraint meal_cart_members_cart_id_member_id_key do update
+    set user_id = coalesce(public.meal_cart_members.user_id, excluded.user_id);
+
+  member_id := v_member_id;
+  full_name := v_full_name;
+  email     := coalesce(v_email, p_email);
+  return next;
+end;
+$$;
+
+
+CREATE OR REPLACE FUNCTION public.fn_check_item_assignment_totals()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_item_id uuid;
+  v_expected int;
+  v_actual   int;
+BEGIN
+  IF TG_TABLE_NAME = 'meal_cart_item_assignees' THEN
+    v_item_id := COALESCE(NEW.cart_item_id, OLD.cart_item_id);
+  ELSIF TG_TABLE_NAME = 'meal_cart_items' THEN
+    v_item_id := COALESCE(NEW.id, OLD.id);
+  ELSE
+    RAISE EXCEPTION 'Unexpected table % for fn_check_item_assignment_totals', TG_TABLE_NAME;
+  END IF;
+
+  SELECT quantity INTO v_expected
+  FROM public.meal_cart_items
+  WHERE id = v_item_id;
+
+  IF v_expected IS NULL THEN
+    RETURN NULL; -- item may be gone; FK will enforce consistency
+  END IF;
+
+  SELECT COALESCE(SUM(unit_qty), 0) INTO v_actual
+  FROM public.meal_cart_item_assignees
+  WHERE cart_item_id = v_item_id;
+
+  IF v_actual <> v_expected THEN
+    RAISE EXCEPTION
+      'Sum of assignee units (%) must equal cart item quantity (%) for cart_item_id %',
+      v_actual, v_expected, v_item_id
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NULL;
+END;
 $$;
 
 
@@ -168,8 +653,6 @@ ALTER FUNCTION public.is_team_coach(UUID)     SET search_path = public;
 ALTER FUNCTION public.handle_new_user_profile SET search_path = public;
 ALTER FUNCTION public.ensure_created_by SET search_path = public;
 ALTER FUNCTION public.set_updated_at     SET search_path = public;
-ALTER FUNCTION public.can_access_location_address(uuid) SET search_path = public;
-
 
 -- Triggers
 drop trigger if exists trg_notifications_set_created_by on public.notifications;
@@ -243,7 +726,82 @@ CREATE TRIGGER trg_member_groups_updated_at
 BEFORE UPDATE ON public.member_groups
 FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
-DROP TRIGGER IF EXISTS trg_location_addresses_updated_at ON public.location_addresses;
-CREATE TRIGGER trg_location_addresses_updated_at
-BEFORE UPDATE ON public.location_addresses
-FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+-- Auto-fill created_by on insert
+DROP TRIGGER IF EXISTS trg_order_events_set_created_by ON public.order_events;
+CREATE TRIGGER trg_order_events_set_created_by
+BEFORE INSERT ON public.order_events
+FOR EACH ROW EXECUTE FUNCTION public.ensure_created_by();
+
+DROP TRIGGER IF EXISTS trg_touch_meal_carts ON public.meal_carts;
+CREATE TRIGGER trg_touch_meal_carts
+BEFORE UPDATE ON public.meal_carts
+FOR EACH ROW
+EXECUTE FUNCTION public.tg_touch_meal_carts();
+
+-- BEFORE trigger: set creator
+drop trigger if exists trg_cart_set_creator on public.meal_carts;
+create trigger trg_cart_set_creator
+before insert on public.meal_carts
+for each row execute function public.tg_cart_set_creator();
+
+-- AFTER trigger: add membership (FK-safe)
+drop trigger if exists trg_cart_auto_membership_after on public.meal_carts;
+create trigger trg_cart_auto_membership_after
+after insert on public.meal_carts
+for each row execute function public.tg_cart_auto_membership_after();
+
+DROP TRIGGER IF EXISTS trg_lock_item_owner ON public.meal_cart_items;
+CREATE TRIGGER trg_lock_item_owner
+BEFORE UPDATE ON public.meal_cart_items
+FOR EACH ROW
+EXECUTE FUNCTION public.tg_lock_item_owner();
+
+DROP TRIGGER IF EXISTS trg_item_fill_owner ON public.meal_cart_items;
+CREATE TRIGGER trg_item_fill_owner
+BEFORE INSERT ON public.meal_cart_items
+FOR EACH ROW
+EXECUTE FUNCTION public.tg_item_fill_owner();
+
+DROP TRIGGER IF EXISTS trg_assignees_capacity_insert ON public.meal_cart_item_assignees;
+CREATE TRIGGER trg_assignees_capacity_insert
+BEFORE INSERT ON public.meal_cart_item_assignees
+FOR EACH ROW
+EXECUTE FUNCTION public.tg_assignees_capacity_check();
+
+DROP TRIGGER IF EXISTS trg_assignees_capacity_update ON public.meal_cart_item_assignees;
+CREATE TRIGGER trg_assignees_capacity_update
+BEFORE UPDATE ON public.meal_cart_item_assignees
+FOR EACH ROW
+EXECUTE FUNCTION public.tg_assignees_capacity_check();
+
+DROP TRIGGER IF EXISTS trg_assignee_member_team ON public.meal_cart_item_assignees;
+CREATE TRIGGER trg_assignee_member_team
+BEFORE INSERT OR UPDATE ON public.meal_cart_item_assignees
+FOR EACH ROW
+EXECUTE FUNCTION public.tg_assignee_member_team_check();
+
+DROP TRIGGER IF EXISTS trg_validate_cart_creator_team_ins ON public.meal_carts;
+CREATE TRIGGER trg_validate_cart_creator_team_ins
+BEFORE INSERT ON public.meal_carts
+FOR EACH ROW
+EXECUTE FUNCTION public.tg_validate_cart_creator_team();
+
+DROP TRIGGER IF EXISTS trg_validate_cart_creator_team_upd ON public.meal_carts;
+CREATE TRIGGER trg_validate_cart_creator_team_upd
+BEFORE UPDATE OF team_id, created_by_member_id ON public.meal_carts
+FOR EACH ROW
+EXECUTE FUNCTION public.tg_validate_cart_creator_team();
+
+-- Fire on assignee changes (insert/update/delete)
+DROP TRIGGER IF EXISTS trg_check_assign_totals_assignees ON public.meal_cart_item_assignees;
+CREATE CONSTRAINT TRIGGER trg_check_assign_totals_assignees
+AFTER INSERT OR UPDATE OR DELETE ON public.meal_cart_item_assignees
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION public.fn_check_item_assignment_totals();
+
+-- Fire on item quantity change ONLY (not on INSERT)
+DROP TRIGGER IF EXISTS trg_check_assign_totals_items ON public.meal_cart_items;
+CREATE CONSTRAINT TRIGGER trg_check_assign_totals_items
+AFTER UPDATE OF quantity ON public.meal_cart_items
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION public.fn_check_item_assignment_totals();

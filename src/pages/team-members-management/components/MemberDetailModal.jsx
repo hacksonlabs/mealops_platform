@@ -1,11 +1,27 @@
+// src/pages/team-members-management/components/MemberDetailModal.jsx
 import React, { useMemo, useEffect } from 'react';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 import Icon from '../../../components/AppIcon';
 import { normalizeBirthday, formatDateToMMDDYYYY } from '../../../utils/stringUtils';
 import { ROLE_CONFIG } from '../../../utils/addingTeamMembersUtils';
 
+const RoleBadge = ({ role }) => {
+  const cfg =
+    ROLE_CONFIG?.[role] || {
+      bg: 'bg-gray-100',
+      text: 'text-gray-800',
+      label: role ? role[0].toUpperCase() + role.slice(1) : 'Member',
+    };
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${cfg.bg} ${cfg.text}`}>
+      {cfg.label}
+    </span>
+  );
+};
+
 const MemberDetailModal = ({ member, onClose }) => {
-  // Normalize to the flat team_members shape
+  // Normalize to flat team_members shape (no is_active)
   const src = useMemo(
     () => ({
       id: member?.id ?? null,
@@ -15,7 +31,6 @@ const MemberDetailModal = ({ member, onClose }) => {
       role: (member?.role ?? 'player')?.toLowerCase(),
       allergies: member?.allergies ?? '',
       birthday: member?.birthday ?? null,
-      is_active: typeof member?.is_active === 'boolean' ? member.is_active : true,
       joined_at: member?.joined_at ?? member?.created_at ?? null,
     }),
     [member]
@@ -23,9 +38,7 @@ const MemberDetailModal = ({ member, onClose }) => {
 
   // Close on Escape
   useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') onClose?.();
-    };
+    const onKey = (e) => e.key === 'Escape' && onClose?.();
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
@@ -43,30 +56,6 @@ const MemberDetailModal = ({ member, onClose }) => {
     if (Number.isNaN(d.getTime())) return '—';
     return d.toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
   };
-
-  const getRoleBadge = (role) => {
-    const config =
-      ROLE_CONFIG[role] || { bg: 'bg-gray-100', text: 'text-gray-800', label: role ? role[0].toUpperCase() + role.slice(1) : 'Member' };
-
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
-        {config.label}
-      </span>
-    );
-  };
-
-  const getStatusBadge = (isActive) =>
-    isActive ? (
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-        <span className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1.5" />
-        Active
-      </span>
-    ) : (
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-        <span className="w-1.5 h-1.5 bg-red-400 rounded-full mr-1.5" />
-        Inactive
-      </span>
-    );
 
   return (
     // Overlay — close only when clicking the overlay, not the dialog
@@ -89,7 +78,7 @@ const MemberDetailModal = ({ member, onClose }) => {
         aria-modal="true"
         aria-labelledby="member-details-title"
       >
-        {/* Header (non-scrolling) */}
+        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border shrink-0">
           <h3 id="member-details-title" className="text-lg font-semibold text-foreground">
             Member Details
@@ -97,7 +86,7 @@ const MemberDetailModal = ({ member, onClose }) => {
           <Button variant="ghost" size="sm" onClick={onClose} iconName="X" aria-label="Close" />
         </div>
 
-        {/* Body (scrolls) */}
+        {/* Body */}
         <div className="flex-1 overflow-y-auto overscroll-contain p-6">
           {/* Profile */}
           <div className="flex items-center space-x-4 mb-6">
@@ -108,8 +97,7 @@ const MemberDetailModal = ({ member, onClose }) => {
               <h4 className="text-xl font-semibold text-foreground">{src.full_name || '—'}</h4>
               <p className="text-muted-foreground">{src.email || '—'}</p>
               <div className="flex items-center space-x-2 mt-2">
-                {getRoleBadge(src.role)}
-                {getStatusBadge(src.is_active)}
+                <RoleBadge role={src.role} />
               </div>
             </div>
           </div>
@@ -185,14 +173,6 @@ const MemberDetailModal = ({ member, onClose }) => {
                   </p>
                 </div>
               </div>
-
-              <div className="flex items-center space-x-3">
-                <Icon name="Activity" size={16} className="text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium text-foreground">Status</p>
-                  <p className="text-sm text-muted-foreground">{src.is_active ? 'Active member' : 'Inactive member'}</p>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -212,7 +192,7 @@ const MemberDetailModal = ({ member, onClose }) => {
           </div>
         </div>
 
-        {/* Footer (non-scrolling) */}
+        {/* Footer */}
         <div className="flex items-center justify-end space-x-3 p-6 border-t border-border shrink-0">
           <Button onClick={onClose}>Close</Button>
         </div>

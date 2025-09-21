@@ -3,6 +3,19 @@ import React from 'react';
 import Icon from '../components/AppIcon';
 
 // --- Meal type helpers ---
+export const MEAL_TYPES = [
+  { value: 'breakfast', label: 'Breakfast' },
+  { value: 'lunch',     label: 'Lunch' },
+  { value: 'dinner',    label: 'Dinner' },
+  { value: 'snack',     label: 'Snack' },
+  // { value: 'other',     label: 'Other' },
+];
+
+export const SERVICE_TYPES = [
+  { value: 'delivery', label: 'Delivery', icon: 'Truck' },
+  { value: 'pickup',   label: 'Pickup',   icon: 'Package' },
+];
+
 export const getMealTypeIcon = (mealType) => {
   const icons = {
     breakfast: 'Coffee',
@@ -16,7 +29,7 @@ export const getMealTypeIcon = (mealType) => {
 
 // --- Status helpers ---
 export const STATUS_META = {
-  draft:                { bg:'bg-zinc-50',   text:'text-zinc-700',   ring:'ring-zinc-200',   icon:null,     label:'Draft' },
+  draft:                { bg:'bg-amber-50',   text:'text-amber-700',   ring:'ring-amber-200',   icon:'Cart',     label:'Draft' },
   scheduled:            { bg:'bg-blue-50',   text:'text-blue-700',   ring:'ring-blue-200',   icon:'Calendar', label:'Scheduled' },
   pending_confirmation: { bg:'bg-amber-50',  text:'text-amber-700',  ring:'ring-amber-200',  icon:'Clock',   label:'Pending Confirmation', labelShort:'Pending' },
   preparing:            { bg:'bg-sky-50',    text:'text-sky-700',    ring:'ring-sky-200',    icon:'Loader',  label:'Preparing' },

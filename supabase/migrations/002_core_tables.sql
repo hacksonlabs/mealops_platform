@@ -42,20 +42,9 @@ CREATE TABLE public.team_members (
     UNIQUE(team_id, user_id)
 );
 
-CREATE TABLE public.saved_locations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    address TEXT NOT NULL,
-    location_type public.location_type DEFAULT 'school'::public.location_type,
-    notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
 -- restaurants table with API integration fields and restored location_id
 CREATE TABLE public.restaurants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    location_id UUID REFERENCES public.saved_locations(id) ON DELETE CASCADE, -- Restored as per user's base schema
     name TEXT NOT NULL,
     cuisine_type TEXT,
     phone_number TEXT,
@@ -73,7 +62,9 @@ CREATE TABLE public.restaurants (
     minimum_order DECIMAL(8,2),
     is_available BOOLEAN DEFAULT TRUE, -- Current availability from API
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP 
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    supported_providers text[] DEFAULT ARRAY['grubhub'],
+    provider_restaurant_ids jsonb DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE public.menu_items (
@@ -98,7 +89,14 @@ CREATE TABLE public.payment_methods (
     last_four TEXT NOT NULL,
     is_default BOOLEAN DEFAULT false,
     created_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    provider TEXT DEFAULT 'stripe',                 -- 'stripe' | 'braintree' | ...
+    provider_customer_id TEXT,                      -- e.g. Stripe customer id (cus_***)
+    provider_payment_method_id TEXT,                -- e.g. Stripe pm_***
+    brand TEXT,                                     -- 'visa', 'mastercard', ...
+    exp_month INT,
+    exp_year INT,
+    billing_zip TEXT
 );
 
 -- the parent row for an order. One row per order placed (or drafted) with a vendor. (money stored in *_cents while legacy decimals remain)
@@ -106,7 +104,6 @@ CREATE TABLE public.meal_orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
     restaurant_id UUID REFERENCES public.restaurants(id) ON DELETE SET NULL,
-    location_id UUID REFERENCES public.saved_locations(id) ON DELETE SET NULL, -- Keeping this for internal location tracking
     title TEXT NOT NULL,
     meal_type public.meal_type,
     description TEXT,
@@ -118,6 +115,10 @@ CREATE TABLE public.meal_orders (
     created_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    cancel_requested_at TIMESTAMPTZ,
+    cancel_requested_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
+    cancel_reason TEXT,
+    canceled_at TIMESTAMPTZ,
     -- API Integration Fields
     api_order_id TEXT, -- The ID returned by the external API for this order
     api_source public.api_source_type, -- Which API the order was placed through
@@ -132,9 +133,9 @@ CREATE TABLE public.meal_orders (
     driver_tip_cents INTEGER,
     pickup_tip_cents INTEGER,
     -- Contact / requester
-    -- user_name TEXT,
-    -- user_email TEXT,
-    -- user_phone TEXT,
+    user_name TEXT,
+    user_email TEXT,
+    user_phone TEXT,
     -- Delivery address
     delivery_address_line1 TEXT,
     delivery_address_line2 TEXT,
@@ -153,6 +154,8 @@ CREATE TABLE public.meal_orders (
     delivery_time_min_minutes INTEGER,
     delivery_time_max_minutes INTEGER,
     -- Totals (in cents)
+    promo_code TEXT,
+    promo_discount_cents INTEGER,
     subtotal_cents INTEGER,
     delivery_fee_cents INTEGER,
     service_fee_cents INTEGER,
@@ -211,8 +214,9 @@ CREATE TABLE public.meal_orders (
       delivery_longitude IS NULL OR (delivery_longitude BETWEEN -180 AND 180)
     ),
     -- If it’s delivery, require an address.
-    CONSTRAINT ck_meal_orders_delivery_address_required CHECK (
+    CONSTRAINT ck_meal_orders_delivery_addr_when_active CHECK (
       fulfillment_method <> 'delivery'
+      OR order_status IN ('draft','scheduled')
       OR (
         delivery_address_line1 IS NOT NULL
         AND delivery_city      IS NOT NULL
@@ -262,20 +266,6 @@ CREATE TABLE public.meal_order_item_options (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE public.order_items (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id UUID REFERENCES public.meal_orders(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
-  team_member_id UUID REFERENCES public.team_members(id) ON DELETE SET NULL,
-  menu_item_id UUID REFERENCES public.menu_items(id) ON DELETE SET NULL,
-  item_name TEXT NOT NULL, -- Kept as a fallback/display name for now
-  quantity INTEGER DEFAULT 1,
-  price DECIMAL(8,2), -- Price at the time of order
-  special_instructions TEXT,
-  selected_options JSONB, -- Store selected options/modifications (e.g., "no onions", "extra cheese")
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE public.meal_polls (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
@@ -321,6 +311,19 @@ CREATE TABLE public.api_integrations (
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Audit/events table (lightweight)
+CREATE TABLE IF NOT EXISTS public.order_events (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id    UUID NOT NULL REFERENCES public.meal_orders(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL CHECK (type IN (
+                'created','status_changed','cancel_requested','cancelled',
+                'cancel_denied','provider_webhook','note'
+              )),
+  payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by  UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 create table if not exists public.notifications (
   id          uuid primary key default gen_random_uuid(),
   team_id     uuid not null references public.teams(id) on delete cascade,
@@ -349,14 +352,64 @@ create table if not exists public.member_group_members (
   primary key (group_id, member_id)
 );
 
-CREATE TABLE public.location_addresses (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    location_id UUID REFERENCES public.saved_locations(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    address TEXT NOT NULL,
-    address_type public.location_type DEFAULT 'other'::public.location_type,
-    notes TEXT,
-    is_primary BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+-- Parent cart row (one per restaurant/session)
+CREATE TABLE IF NOT EXISTS public.meal_carts (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id              uuid NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+  restaurant_id        uuid REFERENCES public.restaurants(id) ON DELETE SET NULL,
+  status               public.cart_status NOT NULL DEFAULT 'draft',
+  title                text,
+  created_by_member_id uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+  share_token          text UNIQUE,
+  provider_type TEXT,
+  provider_restaurant_id TEXT,
+  fulfillment_service public.fulfillment_method,              -- 'delivery' | 'pickup' | 'dine-in'
+  fulfillment_address TEXT,
+  fulfillment_latitude DOUBLE PRECISION,
+  fulfillment_longitude DOUBLE PRECISION,
+  fulfillment_date DATE,
+  fulfillment_time TIME WITHOUT TIME ZONE,
+  meal_type public.meal_type
+);
+
+-- Cart membership (who can add to the cart)
+CREATE TABLE IF NOT EXISTS public.meal_cart_members (
+  cart_id     uuid NOT NULL REFERENCES public.meal_carts(id) ON DELETE CASCADE,
+  member_id   uuid NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  user_id uuid,
+  role        public.cart_member_role NOT NULL DEFAULT 'member',
+  joined_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (cart_id, member_id)
+);
+
+-- Items in a cart
+CREATE TABLE IF NOT EXISTS public.meal_cart_items (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cart_id               uuid NOT NULL REFERENCES public.meal_carts(id) ON DELETE CASCADE,
+  added_by_member_id    uuid NOT NULL REFERENCES public.team_members(id) ON DELETE SET NULL,
+  menu_item_id          uuid REFERENCES public.menu_items(id) ON DELETE SET NULL,
+  item_name             text NOT NULL,   -- fallback display name
+  quantity              integer NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  price                 numeric(8,2) NOT NULL DEFAULT 0,  -- unit price at time of add
+  selected_options      jsonb,            -- normalized options for UI/rehydration
+  special_instructions  text,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now()
+);
+
+-- Assignees for a cart item (supports multiple and “Extra”)
+CREATE TABLE IF NOT EXISTS public.meal_cart_item_assignees (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cart_item_id  uuid NOT NULL REFERENCES public.meal_cart_items(id) ON DELETE CASCADE,
+  member_id     uuid REFERENCES public.team_members(id) ON DELETE SET NULL, -- NULL when is_extra = true
+  is_extra      boolean NOT NULL DEFAULT false,
+  unit_qty      integer NOT NULL DEFAULT 1,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_assignee_valid
+    CHECK (
+      (is_extra = true AND member_id IS NULL)
+      OR (is_extra = false AND member_id IS NOT NULL)
+    )
 );

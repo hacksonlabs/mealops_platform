@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 
 const UpcomingMealsCalendar = ({ upcomingMeals, onDateClick }) => {
   const [currentDate, setCurrentDate] = useState(new Date());

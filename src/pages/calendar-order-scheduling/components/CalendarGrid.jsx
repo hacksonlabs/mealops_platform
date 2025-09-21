@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { STATUS_META } from '../../../utils/ordersUtils';
 
 const CalendarGrid = ({
   currentDate,
@@ -12,18 +13,32 @@ const CalendarGrid = ({
   loading = false,
 }) => {
   const [hoveredDate, setHoveredDate] = useState(null);
+  // Midnight helper so "today" isn't considered past mid-day.
+  const todayMidnight = () => {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    return t;
+  };
 
   const labelFor = (o) =>
     o?.type === 'birthday'
       ? `🎂 ${o?.label ?? ''}`
-      : `${o?.time ?? ''} - ${o?.restaurant ?? o?.label ?? ''}`;
+      : o?.type === 'cart'
+        ? `🛒 ${o?.time ?? ''} - ${o?.restaurant ?? o?.label ?? 'Draft Cart'}`
+        : `${o?.time ?? ''} - ${o?.restaurant ?? o?.label ?? ''}`;
 
   const getDaysInMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   const getFirstDayOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1).getDay();
   const isToday = (date) => date.toDateString() === new Date().toDateString();
-  const isPastDate = (date) => { const t = new Date(); t.setHours(0,0,0,0); return date < t; };
+  const isPastDate = (date) => date < todayMidnight();
   const isSameDate = (a, b) => a?.toDateString() === b?.toDateString();
   const getEventsForDate = (d) => orders?.filter(o => isSameDate(new Date(o.date), d));
+  const isPastEvent = (evt) => {
+    const d = new Date(evt?.date);
+    return Number.isFinite(d.getTime?.()) ? d < todayMidnight() : false;
+  };
+  const pastMod = (evt) => (isPastEvent(evt) ? 'opacity-60' : '');
+
 
   // consistent ordering — birthdays first, then by time, then label
   const eventSort = (a, b) => {
@@ -41,11 +56,13 @@ const CalendarGrid = ({
   };
 
   const badgeFor = (evt) => {
-    if (evt?.type === 'birthday') return 'bg-rose-100 text-rose-800 border-rose-200';
-    const s = evt?.status;
-    return s === 'scheduled' ? 'bg-blue-100 text-blue-800 border-blue-200'
-         : s === 'confirmed' ? 'bg-green-100 text-green-800 border-green-200'
-         : 'bg-gray-100 text-gray-800 border-gray-200';
+    if (evt?.type === 'birthday') return 'bg-rose-50 text-rose-700 border-rose-200';
+    const meta =
+      STATUS_META[evt?.status] ??
+      STATUS_META.scheduled ??
+      { bg: 'bg-zinc-50', text: 'text-zinc-700', ring: 'ring-zinc-200' };
+    const border = meta.ring?.replace(/^ring-/, 'border-') || 'border-transparent';
+    return `${meta.bg} ${meta.text} ${border}`;
   };
 
   const EventLabel = ({ evt }) => (
@@ -82,7 +99,7 @@ const CalendarGrid = ({
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
-      const dayEvents = getEventsForDate(date).slice().sort(eventSort); // <<< SORT HERE
+      const dayEvents = getEventsForDate(date).slice().sort(eventSort);
       const isSelected = selectedDate && isSameDate(date, selectedDate);
       const isCurrentDay = isToday(date);
       const isPast = isPastDate(date);
@@ -109,7 +126,7 @@ const CalendarGrid = ({
                 {dayEvents.slice(0, 2).map((evt) => (
                   <div
                     key={evt?.id}
-                    className={`text-xs px-2 py-1 rounded border ${badgeFor(evt)} ${evt?.type === 'birthday' ? 'cursor-pointer ring-1 ring-rose-200/60' : 'cursor-pointer'}`}
+                    className={`text-xs px-2 py-1 rounded border ${badgeFor(evt)} ${pastMod(evt)} ${evt?.type === 'birthday' ? 'cursor-pointer ring-1 ring-rose-200/60' : 'cursor-pointer'}`}
                     onClick={(e) => { e.stopPropagation(); onOrderClick?.(evt); }}
                   >
                     <div className="font-medium truncate"><EventLabel evt={evt} /></div>
@@ -129,7 +146,7 @@ const CalendarGrid = ({
                 {dayEvents.map((evt) => ( // already sorted
                   <div key={evt?.id} className="text-xs mb-1">
                     <EventLabel evt={evt} />
-                    {evt?.type !== 'birthday' && (
+                    {evt?.type === 'order' && (
                       <div className="text-muted-foreground text-center mt-0.5">{evt?.attendees} attendees</div>
                     )}
                   </div>
@@ -230,7 +247,7 @@ const CalendarGrid = ({
                     {dayEvents.slice(0, 3).map((evt) => (
                       <div
                         key={evt.id}
-                        className={`text-xs px-2 py-1 rounded border ${badgeFor(evt)} cursor-pointer ${evt?.type === 'birthday' ? 'ring-1 ring-rose-200/60' : ''}`}
+                        className={`text-xs px-2 py-1 rounded border ${badgeFor(evt)} ${pastMod(evt)} cursor-pointer ${evt?.type === 'birthday' ? 'ring-1 ring-rose-200/60' : ''}`}
                         onClick={(e) => { e.stopPropagation(); onOrderClick?.(evt); }}
                       >
                         <div className="font-medium truncate">{labelFor(evt)}</div>
@@ -252,7 +269,7 @@ const CalendarGrid = ({
                         <div className="font-semibold text-[13px] leading-5 whitespace-normal break-words">
                           {labelFor(evt)}
                         </div>
-                        {evt?.type !== 'birthday' && (
+                        {evt?.type === 'order' && (
                           <div className="text-muted-foreground text-xs text-center">{evt.attendees} attendees</div>
                         )}
                       </div>

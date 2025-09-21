@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
 import Icon from '../AppIcon';
-import Button from './Button';
 import mealLogo from '../images/meal.png';
+import { useCartBadge } from '@/hooks/cart';
+import CartOverlays from './cart/CartOverlays';
 
 const Header = ({ notifications = 0, className = '' }) => {
   const { user, userProfile, teams, activeTeam, loadingTeams, switchActiveTeam, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showTeamMenu, setShowTeamMenu] = useState(false);
   const teamMenuRef = useRef(null);
+
+  const isInlineCartRoute = /\/restaurant\/|\/shopping-cart-checkout/.test(location.pathname);
+  const cartBadge = useCartBadge();
 
 
   // Close the team menu when clicking outside of it
@@ -28,60 +31,11 @@ const Header = ({ notifications = 0, className = '' }) => {
   }, []);
 
   const navigationItems = [
-    { 
-      label: 'Dashboard', 
-      path: '/dashboard-home', 
-      icon: 'LayoutDashboard',
-      tooltip: 'Team meal overview and quick actions'
-    },
-    { 
-      label: 'Calendar', 
-      path: '/calendar-order-scheduling',
-      icon: 'Calendar',
-      tooltip: 'Schedule and manage meal orders'
-    },
-    // { 
-    //   label: 'Polling', 
-    //   path: '/meal-polling-system', 
-    //   icon: 'Vote',
-    //   tooltip: 'Create and manage meal polls'
-    // },
-    { 
-      label: 'Orders', 
-      path: '/order-history-management', 
-      icon: 'ClipboardList',
-      tooltip: 'View and manage order history'
-    },
-    // { 
-    //   label: 'Reports', 
-    //   path: '/expense-reports-analytics', 
-    //   icon: 'BarChart3',
-    //   tooltip: 'Financial analytics and expense reports'
-    // },
-    { 
-      label: 'Team', 
-      path: '/team-members-management', 
-      icon: 'Users',
-      tooltip: 'Manage team members and roles'
-    },
-    // { 
-    //   label: 'Locations', 
-    //   path: '/saved-addresses-locations', 
-    //   icon: 'MapPin',
-    //   tooltip: 'Saved addresses and restaurant partners'
-    // },
-    // { 
-    //   label: 'Billing', 
-    //   path: '/payment-methods-billing', 
-    //   icon: 'CreditCard',
-    //   tooltip: 'Payment methods and billing management'
-    // }
+    { label: 'Dashboard', path: '/dashboard-home', icon: 'LayoutDashboard', tooltip: 'Team meal overview and quick actions' },
+    { label: 'Calendar', path: '/calendar-order-scheduling', icon: 'Calendar', tooltip: 'Schedule and manage meal orders' },
+    { label: 'Orders', path: '/order-history-management', icon: 'ClipboardList', tooltip: 'View and manage order history' },
+    { label: 'Team', path: '/team-members-management', icon: 'Users', tooltip: 'Manage team members and roles' },
   ];
-
-  // const handleNavigation = (path) => {
-  //   navigate(path);
-  //   setIsMobileMenuOpen(false);
-  // };
 
   const handleNavigation = (path) => {
     if (path === '/team-members-management' && teams.length === 0 && !loadingTeams) {
@@ -93,27 +47,25 @@ const Header = ({ notifications = 0, className = '' }) => {
     setIsMobileMenuOpen(false);
   };
 
-  const handleUserMenuToggle = () => {
-    setIsUserMenuOpen(!isUserMenuOpen);
-  };
+  const handleUserMenuToggle = () => setIsUserMenuOpen(!isUserMenuOpen);
 
   const handleLogout = () => {
     setIsUserMenuOpen(false);
     signOut();
-    navigate('/login-registration')
+    navigate('/login-registration');
   };
 
-  const isActivePath = (path) => {
-    return location?.pathname === path || (location?.pathname === '/' && path === '/dashboard-home');
-  };
+  const isActivePath = (path) =>
+    location?.pathname === path || (location?.pathname === '/' && path === '/dashboard-home');
 
-  const fullName = userProfile?.first_name || userProfile?.last_name 
-    ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() 
-    : '';
+  const fullName =
+    userProfile?.first_name || userProfile?.last_name
+      ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim()
+      : '';
 
   const initials = fullName
     .split(' ')
-    .map(name => name.charAt(0))
+    .map((name) => name.charAt(0))
     .join('')
     .toUpperCase();
 
@@ -126,10 +78,11 @@ const Header = ({ notifications = 0, className = '' }) => {
             <Link to="/" className="flex items-center space-x-2">
               <img src={mealLogo} alt="MealOps Logo" className="h-12 w-auto object-contain" />
             </Link>
+
             {/* Team Info Display */}
             {!loadingTeams && activeTeam && (
               <>
-                <div className='h-10 border-l border-border' />
+                <div className="h-10 border-l border-border" />
                 <div className="relative w-20" ref={teamMenuRef}>
                   <button
                     onClick={() => setShowTeamMenu((s) => !s)}
@@ -138,9 +91,7 @@ const Header = ({ notifications = 0, className = '' }) => {
                     aria-expanded={showTeamMenu}
                   >
                     <div className="flex flex-col items-center">
-                      <span className="text-md font-bold text-foreground">
-                        {activeTeam.name}
-                      </span>
+                      <span className="text-md font-bold text-foreground">{activeTeam.name}</span>
                       <div className="flex items-center space-x-2">
                         <span className="text-xs text-muted-foreground font-medium uppercase">
                           {activeTeam.gender}
@@ -151,7 +102,11 @@ const Header = ({ notifications = 0, className = '' }) => {
                       </div>
                     </div>
                     {!loadingTeams && teams.length > 1 && (
-                      <Icon name={showTeamMenu ? 'ChevronUp' : 'ChevronDown'} size={16} className="ml-2 text-muted-foreground" />
+                      <Icon
+                        name={showTeamMenu ? 'ChevronUp' : 'ChevronDown'}
+                        size={16}
+                        className="ml-2 text-muted-foreground"
+                      />
                     )}
                   </button>
 
@@ -216,6 +171,26 @@ const Header = ({ notifications = 0, className = '' }) => {
 
         {/* Right Side Actions */}
         <div className="flex items-center space-x-3">
+          {/* Cart button (global) */}
+          <button
+            className="relative p-2 text-muted-foreground hover:text-foreground transition-athletic"
+            onClick={() => {
+              if (isInlineCartRoute) window.dispatchEvent(new Event('openCartDrawer'));
+              else {
+                window.dispatchEvent(new Event('openCartHub'));
+              }
+            }}
+            aria-label={`Open cart${cartBadge.count ? ` (${cartBadge.count})` : ''}`}
+            title="Cart"
+          >
+            <Icon name="ShoppingCart" size={20} className="-scale-x-100" />
+            {isInlineCartRoute && cartBadge.count > 0 && (
+              <span className="absolute -top-1 -left-1 min-w-[20px] h-5 px-1 rounded-full bg-primary text-primary-foreground text-[11px] font-bold flex items-center justify-center">
+                {cartBadge.count > 99 ? '99+' : cartBadge.count}
+              </span>
+            )}
+          </button>
+
           {/* Notifications */}
           <button className="relative p-2 text-muted-foreground hover:text-foreground transition-athletic">
             <Icon name="Bell" size={20} />
@@ -229,15 +204,12 @@ const Header = ({ notifications = 0, className = '' }) => {
           {/* User Menu */}
           <div className="relative">
             <button
-              onClick={handleUserMenuToggle}
+              onClick={() => setIsUserMenuOpen((s) => !s)}
               className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted transition-athletic"
             >
               <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
-                {/* Conditionally render initials or generic icon */}
                 {userProfile?.first_name ? (
-                  <span className="text-white font-bold text-xs">
-                    {initials}
-                  </span>
+                  <span className="text-white font-bold text-xs">{initials}</span>
                 ) : (
                   <Icon name="User" size={16} color="white" />
                 )}
@@ -247,10 +219,10 @@ const Header = ({ notifications = 0, className = '' }) => {
                   {/* {userProfile?.first_name} */}
                 </span>
               )}
-              <Icon 
-                name="ChevronDown" 
-                size={16} 
-                className={`text-muted-foreground transition-transform duration-100 ${isUserMenuOpen ? 'rotate-180' : ''}`} 
+              <Icon
+                name="ChevronDown"
+                size={16}
+                className={`text-muted-foreground transition-transform duration-100 ${isUserMenuOpen ? 'rotate-180' : ''}`}
               />
             </button>
 
@@ -259,12 +231,8 @@ const Header = ({ notifications = 0, className = '' }) => {
               <div className="absolute right-0 mt-2 w-48 bg-popover border border-border rounded-md shadow-athletic-lg z-50">
                 <div className="py-1">
                   <div className="px-4 py-2 border-b border-border">
-                    <p className="text-sm font-medium text-foreground">
-                      {'Hi ' + userProfile?.first_name + ',' || 'User'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {user?.email || 'user@example.com'}
-                    </p>
+                    <p className="text-sm font-medium text-foreground">{userProfile?.first_name ? `Hi ${userProfile.first_name},` : 'User'}</p>
+                    <p className="text-xs text-muted-foreground">{user?.email || 'user@example.com'}</p>
                   </div>
                   <button
                     onClick={() => setIsUserMenuOpen(false)}
@@ -299,10 +267,11 @@ const Header = ({ notifications = 0, className = '' }) => {
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="lg:hidden p-2 text-muted-foreground hover:text-foreground transition-athletic"
           >
-            <Icon name={isMobileMenuOpen ? "X" : "Menu"} size={20} />
+            <Icon name={isMobileMenuOpen ? 'X' : 'Menu'} size={20} />
           </button>
         </div>
       </div>
+
       {/* Mobile Navigation */}
       {isMobileMenuOpen && (
         <div className="lg:hidden bg-card border-t border-border shadow-athletic-md">
@@ -331,13 +300,12 @@ const Header = ({ notifications = 0, className = '' }) => {
           </nav>
         </div>
       )}
+
       {/* Click outside to close user menu */}
-      {isUserMenuOpen && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setIsUserMenuOpen(false)}
-        />
-      )}
+      {isUserMenuOpen && <div className="fixed inset-0 z-40" onClick={() => setIsUserMenuOpen(false)} />}
+
+      <CartOverlays />
+
     </header>
   );
 };

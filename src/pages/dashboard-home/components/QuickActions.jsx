@@ -1,10 +1,10 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { teamService } from '../../../services/teamService';
+import { teamService } from '../../../services/not_used_yet/teamService';
 import { useAuth } from '../../../contexts';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 
 export function QuickActions() {
   const { user } = useAuth();

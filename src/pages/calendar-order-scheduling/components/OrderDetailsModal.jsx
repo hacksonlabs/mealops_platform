@@ -1,250 +1,186 @@
-import React, { useState } from 'react';
+// src/pages/calendar-order-scheduling/components/OrderDetailsModal.jsx
+import React, { useState, useRef } from 'react';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
+import PeopleTooltip from '../../../components/ui/PeopleTooltip';
+import { getStatusBadge, getMealTypeIcon } from '../../../utils/ordersUtils';
 
-const OrderDetailsModal = ({ 
-  isOpen, 
-  onClose, 
-  order,
-  onEdit,
-  onCancel,
-  onRepeat 
-}) => {
+const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDetail }) => {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
+  // Tooltip (attendees)
+  const [peopleOpen, setPeopleOpen] = useState(false);
+  const [peoplePos, setPeoplePos] = useState({ x: 0, y: 0 });
+  const peopleAnchorRef = useRef(null);
   if (!isOpen || !order) return null;
 
-  const formatDate = (dateString) => {
-    return new Date(dateString)?.toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+  const formatDate = (dateString) =>
+    new Date(dateString)?.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
     });
-  };
 
   const formatTime = (time) => {
-    const [hours, minutes] = time?.split(':');
-    const hour = parseInt(hours);
+    const [hours, minutes] = (time || '').split(':');
+    const hour = parseInt(hours || '0', 10);
     const ampm = hour >= 12 ? 'PM' : 'AM';
     const displayHour = hour % 12 || 12;
-    return `${displayHour}:${minutes} ${ampm}`;
+    return `${displayHour}:${minutes ?? '00'} ${ampm}`;
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'scheduled':
-        return 'text-blue-600 bg-blue-50 border-blue-200';
-      case 'confirmed':
-        return 'text-green-600 bg-green-50 border-green-200';
-      case 'completed':
-        return 'text-gray-600 bg-gray-50 border-gray-200';
-      case 'cancelled':
-        return 'text-red-600 bg-red-50 border-red-200';
-      default:
-        return 'text-gray-600 bg-gray-50 border-gray-200';
-    }
-  };
-
-  const getMealTypeIcon = (mealType) => {
-    switch (mealType) {
-      case 'breakfast':
-        return 'Coffee';
-      case 'lunch':
-        return 'Utensils';
-      case 'dinner':
-        return 'UtensilsCrossed';
-      case 'snack':
-        return 'Cookie';
-      default:
-        return 'Utensils';
-    }
-  };
+  const attendees = Array.isArray(order.team_members) ? order.team_members : [];
+  const attendeesCount = attendees.length;
+  const peopleNames = attendees.map((m, i) => m?.name || `Member ${i + 1}`);
+  const peopleForTooltip = attendees.map((m, i) => ({
+    name: m?.name || `Member ${i + 1}`,
+    role: m?.role || '',
+  }));
 
   const canEdit = order?.status === 'scheduled' && new Date(order.date) > new Date();
   const canCancel = order?.status !== 'cancelled' && order?.status !== 'completed';
 
   const handleCancel = () => {
-    onCancel(order?.id);
+    onCancel?.(order?.id);
     setShowCancelConfirm(false);
-    onClose();
+    onClose?.();
   };
-
-  const handleRepeat = () => {
-    onRepeat(order);
-    onClose();
-  };
-
   const handleEdit = () => {
-    onEdit(order);
-    onClose();
+    onEdit?.(order);
+    onClose?.();
   };
+
+  const openPeople = () => {
+    const el = peopleAnchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setPeoplePos({ x: rect.left + rect.width / 2, y: rect.top });
+    setPeopleOpen(true);
+  };
+  const closePeople = () => setPeopleOpen(false);
+
+  const showDeliveryInstructions =
+    order?.fulfillment_method === 'delivery' && !!order?.delivery_instructions;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       {/* Modal */}
-      <div className="relative bg-card border border-border rounded-lg shadow-athletic-lg w-full max-w-lg max-h-[90vh] overflow-hidden">
+      <div className="relative bg-card border border-border rounded-lg shadow-athletic-lg w-full max-w-xl max-h-[90vh] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Icon name={getMealTypeIcon(order?.mealType)} size={20} className="text-primary" />
-            </div>
-            <div>
-              <h2 className="text-xl font-heading font-semibold text-foreground">
-                {order?.restaurant}
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Order Details
-              </p>
+        <div className="p-6 border-b border-border">
+          {/* Row 1: Title (left) | Meal type icon + Status + Close (right) */}
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-xl font-heading font-semibold text-foreground truncate flex-1">
+              {order?.title || 'Meal'}
+            </h2>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="p-2 bg-primary/10 rounded-lg inline-flex items-center justify-center">
+                <Icon name={getMealTypeIcon(order?.mealType)} size={18} className="text-primary" />
+              </span>
+              {getStatusBadge(order?.status)}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClose}
+                iconName="X"
+                iconSize={20}
+                aria-label="Close"
+              />
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-            iconName="X"
-            iconSize={20}
-          />
+
+          {/* Row 2: Restaurant */}
+          <div className="mt-2 text-sm text-muted-foreground flex items-center gap-2 min-w-0">
+            <Icon name="Store" size={14} className="text-muted-foreground shrink-0" />
+            <span className="truncate">{order?.restaurant}</span>
+          </div>
+
+          {/* Row 3: Order number */}
+          <div className="mt-1 text-sm text-muted-foreground">Order #{order?.id}</div>
         </div>
 
         {/* Content */}
         <div className="p-6 space-y-6">
-          {/* Status Badge */}
-          <div className="flex items-center justify-between">
-            <span className={`
-              px-3 py-1 rounded-full text-sm font-medium border
-              ${getStatusColor(order?.status)}
-            `}>
-              {order?.status?.charAt(0)?.toUpperCase() + order?.status?.slice(1)}
-            </span>
-            <span className="text-sm text-muted-foreground">
-              Order #{order?.id}
-            </span>
-          </div>
-
-          {/* Order Information */}
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-2">
-                  <Icon name="Calendar" size={16} className="text-muted-foreground" />
-                  <span className="text-sm font-medium text-foreground">Date</span>
-                </div>
-                <p className="text-sm text-muted-foreground pl-6">
-                  {formatDate(order?.date)}
-                </p>
+          <div className="grid grid-cols-2 gap-4">
+            {/* Date */}
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Icon name="Calendar" size={16} className="text-muted-foreground" />
+                <span className="text-sm font-medium text-foreground">Date</span>
               </div>
-              
-              <div className="space-y-1">
-                <div className="flex items-center space-x-2">
-                  <Icon name="Clock" size={16} className="text-muted-foreground" />
-                  <span className="text-sm font-medium text-foreground">Time</span>
-                </div>
-                <p className="text-sm text-muted-foreground pl-6">
-                  {formatTime(order?.time)}
-                </p>
-              </div>
+              <p className="text-sm text-muted-foreground pl-6">{formatDate(order?.date)}</p>
             </div>
 
+            {/* Time */}
             <div className="space-y-1">
-              <div className="flex items-center space-x-2">
-                <Icon name="Utensils" size={16} className="text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">Meal Type</span>
+              <div className="flex items-center gap-2">
+                <Icon name="Clock" size={16} className="text-muted-foreground" />
+                <span className="text-sm font-medium text-foreground">Time</span>
               </div>
-              <p className="text-sm text-muted-foreground pl-6 capitalize">
-                {order?.mealType}
-              </p>
+              <p className="text-sm text-muted-foreground pl-6">{formatTime(order?.time)}</p>
             </div>
 
-            <div className="space-y-1">
-              <div className="flex items-center space-x-2">
+            {/* Attendees */}
+            <div className="space-y-1 col-span-2">
+              <div className="flex items-center gap-2">
                 <Icon name="Users" size={16} className="text-muted-foreground" />
                 <span className="text-sm font-medium text-foreground">Attendees</span>
               </div>
-              <p className="text-sm text-muted-foreground pl-6">
-                {order?.attendees} team members
-              </p>
+              <div className="pl-6">
+                <span
+                  ref={peopleAnchorRef}
+                  onMouseEnter={openPeople}
+                  onMouseLeave={closePeople}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-green-700 underline underline-offset-2 decoration-2 decoration-green-500 cursor-default"
+                  title={peopleForTooltip.map((p) => p.name).join(', ')}
+                >
+                  <Icon name="Users" size={14} />
+                  {attendeesCount} {attendeesCount === 1 ? 'person' : 'people'}
+                </span>
+                <PeopleTooltip
+                  open={peopleOpen}
+                  x={peoplePos.x}
+                  y={peoplePos.y}
+                  names={peopleNames} // works if your PeopleTooltip supports {name, role}
+                  onMouseEnter={() => setPeopleOpen(true)}
+                  onMouseLeave={closePeople}
+                  title="Attendees"
+                />
+              </div>
             </div>
 
-            {order?.notes && (
-              <div className="space-y-1">
-                <div className="flex items-center space-x-2">
-                  <Icon name="FileText" size={16} className="text-muted-foreground" />
-                  <span className="text-sm font-medium text-foreground">Special Instructions</span>
+            {/* Delivery instructions (only for delivery) */}
+            {showDeliveryInstructions && (
+              <div className="space-y-1 col-span-2">
+                <div className="flex items-center gap-2">
+                  <Icon name="Truck" size={16} className="text-muted-foreground" />
+                  <span className="text-sm font-medium text-foreground">Delivery Instructions</span>
                 </div>
-                <p className="text-sm text-muted-foreground pl-6">
-                  {order?.notes}
+                <p className="text-sm text-muted-foreground pl-6 whitespace-pre-wrap">
+                  {order?.delivery_instructions}
                 </p>
               </div>
             )}
           </div>
 
-          {/* Team Members */}
-          {order?.members && order?.members?.length > 0 && (
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium text-foreground">Team Members</h4>
-              <div className="max-h-32 overflow-y-auto space-y-2">
-                {order?.members?.map(member => (
-                  <div key={member?.id} className="flex items-center space-x-3 p-2 bg-muted/30 rounded-md">
-                    <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
-                      <Icon name="User" size={14} color="white" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-sm font-medium text-foreground">
-                        {member?.name}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {member?.role}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {/* Created */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Icon name="History" size={16} className="text-muted-foreground" />
+              <span className="text-sm font-medium text-foreground">Created</span>
             </div>
-          )}
-
-          {/* Order Timeline */}
-          <div className="space-y-3">
-            <h4 className="text-sm font-medium text-foreground">Order Timeline</h4>
-            <div className="space-y-2">
-              <div className="flex items-center space-x-3">
-                <div className="w-2 h-2 bg-primary rounded-full"></div>
-                <div className="text-sm">
-                  <span className="font-medium text-foreground">Order Created</span>
-                  <span className="text-muted-foreground ml-2">
-                    {new Date(order.createdAt)?.toLocaleDateString('en-US', { 
-                      month: 'short', 
-                      day: 'numeric',
-                      hour: 'numeric',
-                      minute: '2-digit'
-                    })}
-                  </span>
-                </div>
-              </div>
-              
-              {order?.status === 'confirmed' && (
-                <div className="flex items-center space-x-3">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <div className="text-sm">
-                    <span className="font-medium text-foreground">Order Confirmed</span>
-                    <span className="text-muted-foreground ml-2">
-                      {new Date()?.toLocaleDateString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit'
-                      })}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
+            <p className="text-sm text-muted-foreground pl-6">
+              {new Date(order?.created_at)?.toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+            </p>
           </div>
         </div>
 
@@ -254,15 +190,15 @@ const OrderDetailsModal = ({
             <Button
               variant="outline"
               size="sm"
-              onClick={handleRepeat}
-              iconName="RotateCcw"
+              onClick={() => onOpenDetail?.(order.id)}
+              iconName="Maximize2"
               iconSize={16}
             >
-              Repeat Order
+              View Full Details
             </Button>
           </div>
-          
-          <div className="flex items-center space-x-2">
+
+          {/* <div className="flex items-center space-x-2">
             {canCancel && !showCancelConfirm && (
               <Button
                 variant="destructive"
@@ -274,38 +210,24 @@ const OrderDetailsModal = ({
                 Cancel Order
               </Button>
             )}
-            
+
             {showCancelConfirm && (
               <div className="flex items-center space-x-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowCancelConfirm(false)}
-                >
+                <Button variant="outline" size="sm" onClick={() => setShowCancelConfirm(false)}>
                   Keep Order
                 </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleCancel}
-                >
+                <Button variant="destructive" size="sm" onClick={handleCancel}>
                   Confirm Cancel
                 </Button>
               </div>
             )}
-            
+
             {canEdit && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleEdit}
-                iconName="Edit"
-                iconSize={16}
-              >
+              <Button variant="default" size="sm" onClick={handleEdit} iconName="Edit" iconSize={16}>
                 Edit Order
               </Button>
             )}
-          </div>
+          </div> */}
         </div>
       </div>
     </div>

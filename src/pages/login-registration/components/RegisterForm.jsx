@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Input from '../../../components/ui/Input';
-import Button from '../../../components/ui/Button';
+import Input from '../../../components/ui/custom/Input';
+import Button from '../../../components/ui/custom/Button';
 import Icon from '../../../components/AppIcon';
-import { Checkbox } from '../../../components/ui/Checkbox';
+import { Checkbox } from '../../../components/ui/custom/Checkbox';
 import { useAuth } from '../../../contexts';
-import { emailService } from '../../../services/emailService';
+import { emailService } from '../../../services/not_used_yet/emailService';
 import { supabase } from '../../../lib/supabase'; 
 import { toTitleCase } from '../../../utils/stringUtils'
 

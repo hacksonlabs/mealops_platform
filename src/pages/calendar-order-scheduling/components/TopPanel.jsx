@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
-import Button from '../../../components/ui/Button';
+import Button from '../../../components/ui/custom/Button';
 
 const TopPanel = ({
   upcomingMeals = [],
-  monthStats = { totalMeals: 0, totalSpent: 0, avgPerMeal: 0 },
   onScheduleNew,
-  onOrderClick, // <-- NEW
+  onOrderClick,
 }) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -45,34 +44,6 @@ const TopPanel = ({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-      {/* This Month */}
-      {/* <div className="lg:col-span-5 self-center h-auto bg-card border border-border rounded-lg p-4 shadow-athletic">
-        <h3 className="text-base font-heading font-semibold text-foreground mb-3">This Month</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="border border-border rounded-md p-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Icon name="Calendar" size={16} className="text-blue-500" />
-              <span className="text-foreground">Total Meals</span>
-            </div>
-            <div className="mt-1 text-2xl font-semibold text-foreground">{monthStats.totalMeals}</div>
-          </div>
-          <div className="border border-border rounded-md p-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Icon name="DollarSign" size={16} className="text-green-600" />
-              <span className="text-foreground">Total Spent</span>
-            </div>
-            <div className="mt-1 text-2xl font-semibold text-foreground">{money(monthStats.totalSpent)}</div>
-          </div>
-          <div className="border border-border rounded-md p-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Icon name="TrendingUp" size={16} className="text-purple-600" />
-              <span className="text-foreground">Avg per Meal</span>
-            </div>
-            <div className="mt-1 text-2xl font-semibold text-foreground">{money(monthStats.avgPerMeal)}</div>
-          </div>
-        </div>
-      </div> */}
-
       {/* Upcoming */}
       <div className="lg:col-span-6 lg:col-start-4 self-stretch bg-card border border-border rounded-lg p-4 shadow-athletic">
         <div className="flex items-baseline justify-between mb-3">

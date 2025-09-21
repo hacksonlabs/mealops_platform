@@ -1,139 +1,95 @@
-import { supabase } from '../lib/supabase';
+// src/services/orderService.js
+
+const ORDERS_MOCK = (import.meta?.env?.VITE_ORDERS_MOCK ?? '1') === '1';
+
+/**
+ * Unified shape:
+ * - createDraft(orderInput) -> { orderId, quote: { ...totals } }
+ * - finalize(orderId)       -> { orderId, status }
+ *
+ * "orderInput" mirrors MealMe's Create Order payload.
+ */
+
+// -------- MealMe adapter (REAL; behind your proxy) ----------
+const mealmeAdapter = {
+  async createDraft(orderInput) {
+    // Your backend should proxy to https://api.mealme.ai/order/order/v4
+    // with place_order:false and include_final_quote:true
+    const res = await fetch('/api/mealme/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...orderInput,
+        place_order: false,
+        include_final_quote: true,
+      }),
+    });
+    if (!res.ok) throw new Error('MealMe: failed to create order');
+    const json = await res.json();
+    return {
+      orderId: json.order_id,
+      quote: json.final_quote || json.quote || null,
+    };
+  },
+
+  async finalize(orderId) {
+    // Your backend should proxy to https://api.mealme.ai/order/finalize
+    const res = await fetch('/api/mealme/finalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId }),
+    });
+    if (!res.ok) throw new Error('MealMe: failed to finalize order');
+    const json = await res.json();
+    return { orderId: json.order_id, status: json.status || 'placed' };
+  },
+};
+
+// -------- Mock adapter (DEV) ----------
+const mockAdapter = {
+  async createDraft(orderInput) {
+    // Simulate totals from the cart/orderInput
+    const fakeOrderId = `ord_mock_${Math.random().toString(36).slice(2, 10)}`;
+    const items = Array.isArray(orderInput?.items) ? orderInput.items : [];
+
+    const subtotalCents = items.reduce((sum, it) => {
+      // if you store price on items, you can pass it as 'price_cents' in your orderInput for better mocks
+      const price = Number(it.price_cents ?? 1299); // default 12.99
+      const qty = Math.max(1, Number(it.quantity ?? 1));
+      return sum + price * qty;
+    }, 0);
+
+    const deliveryFeeCents = orderInput?.pickup ? 0 : 299;
+    const taxCents = Math.round(subtotalCents * 0.08);
+    const tipCents = orderInput?.pickup
+      ? Number(orderInput?.pickup_tip_cents ?? 0)
+      : Number(orderInput?.driver_tip_cents ?? 0);
+
+    const totalCents = subtotalCents + deliveryFeeCents + taxCents + tipCents;
+
+    return {
+      orderId: fakeOrderId,
+      quote: {
+        subtotal_cents: subtotalCents,
+        fees_cents: deliveryFeeCents,
+        tax_cents: taxCents,
+        tip_cents: tipCents,
+        total_with_tip_cents: totalCents,
+      },
+    };
+  },
+
+  async finalize(orderId) {
+    // Pretend the marketplace placed it
+    await new Promise((r) => setTimeout(r, 350));
+    return { orderId, status: 'placed' };
+  },
+};
+
+// -------- Public API -----------
+const adapter = ORDERS_MOCK ? mockAdapter : mealmeAdapter;
 
 export const orderService = {
-  async getTeamOrders(teamId) {
-    try {
-      const { data, error } = await supabase?.from('meal_orders')?.select(`
-          *,
-          restaurants:restaurant_id (
-            name,
-            cuisine_type
-          ),
-          saved_locations:location_id (
-            name,
-            address
-          ),
-          user_profiles:created_by (
-            full_name
-          ),
-          order_items (
-            id,
-            item_name,
-            quantity,
-            price,
-            special_instructions,
-            user_profiles:user_id (
-              full_name
-            )
-          )
-        `)?.eq('team_id', teamId)?.order('scheduled_date', { ascending: false });
-
-      if (error) throw error;
-      return { data: data || [], error: null };
-    } catch (error) {
-      console.error('Get team orders error:', error?.message);
-      return { data: [], error };
-    }
-  },
-
-  async createOrder(orderData) {
-    try {
-      const user = (await supabase?.auth?.getUser())?.data?.user;
-      
-      const { data, error } = await supabase?.from('meal_orders')?.insert({
-          ...orderData,
-          created_by: user?.id,
-        })?.select()?.single();
-
-      if (error) throw error;
-      return { data, error: null };
-    } catch (error) {
-      console.error('Create order error:', error?.message);
-      return { data: null, error };
-    }
-  },
-
-  async updateOrder(orderId, orderData) {
-    try {
-      const { data, error } = await supabase?.from('meal_orders')?.update({
-          ...orderData,
-          updated_at: new Date()?.toISOString(),
-        })?.eq('id', orderId)?.select()?.single();
-
-      if (error) throw error;
-      return { data, error: null };
-    } catch (error) {
-      console.error('Update order error:', error?.message);
-      return { data: null, error };
-    }
-  },
-
-  async deleteOrder(orderId) {
-    try {
-      const { error } = await supabase?.from('meal_orders')?.delete()?.eq('id', orderId);
-
-      if (error) throw error;
-      return { error: null };
-    } catch (error) {
-      console.error('Delete order error:', error?.message);
-      return { error };
-    }
-  },
-
-  async addOrderItem(orderItem) {
-    try {
-      const user = (await supabase?.auth?.getUser())?.data?.user;
-      
-      const { data, error } = await supabase?.from('order_items')?.insert({
-          ...orderItem,
-          user_id: user?.id,
-        })?.select()?.single();
-
-      if (error) throw error;
-      return { data, error: null };
-    } catch (error) {
-      console.error('Add order item error:', error?.message);
-      return { data: null, error };
-    }
-  },
-
-  async updateOrderItem(itemId, itemData) {
-    try {
-      const { data, error } = await supabase?.from('order_items')?.update(itemData)?.eq('id', itemId)?.select()?.single();
-
-      if (error) throw error;
-      return { data, error: null };
-    } catch (error) {
-      console.error('Update order item error:', error?.message);
-      return { data: null, error };
-    }
-  },
-
-  async deleteOrderItem(itemId) {
-    try {
-      const { error } = await supabase?.from('order_items')?.delete()?.eq('id', itemId);
-
-      if (error) throw error;
-      return { error: null };
-    } catch (error) {
-      console.error('Delete order item error:', error?.message);
-      return { error };
-    }
-  },
-
-  async getUpcomingOrders(teamId, limit = 5) {
-    try {
-      const { data, error } = await supabase?.from('meal_orders')?.select(`
-          *,
-          restaurants:restaurant_id (name),
-          saved_locations:location_id (name)
-        `)?.eq('team_id', teamId)?.gte('scheduled_date', new Date()?.toISOString())?.order('scheduled_date', { ascending: true })?.limit(limit);
-
-      if (error) throw error;
-      return { data: data || [], error: null };
-    } catch (error) {
-      console.error('Get upcoming orders error:', error?.message);
-      return { data: [], error };
-    }
-  },
+  createDraft: (orderInput) => adapter.createDraft(orderInput),
+  finalize: (orderId) => adapter.finalize(orderId),
 };

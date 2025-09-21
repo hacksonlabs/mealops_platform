@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import Icon from '../../components/AppIcon';
-import Button from '../../components/ui/Button';
+import Button from '../../components/ui/custom/Button';
 import OrderFilters from './components/OrderFilters';
 import OrderTable from './components/OrderTable';
 import OrderDetailModal from './components/OrderDetailModal';
@@ -10,6 +10,8 @@ import BulkActions from './components/BulkActions';
 import ExportModal from './components/ExportModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { downloadReceiptPdf, downloadReceiptsZip } from '../../utils/receipts';
+import { callCancelAPI } from '../../utils/ordersApiUtils';
 
 const OrderHistoryManagement = () => {
   const navigate = useNavigate();
@@ -55,22 +57,16 @@ const OrderHistoryManagement = () => {
     let query = supabase
       .from('meal_orders')
       .select(`
-        id,
-        team_id,
-        title,
-        description,
-        meal_type,
-        scheduled_date,
-        order_status,
-        total_amount,
-        api_order_id,
-        restaurants:restaurants (id, name, address),
-        saved_locations:saved_locations (id, name, address),
-        payment_methods:payment_methods (id, card_name, last_four, is_default),
-        order_items:order_items (
-          id, user_id, team_member_id, item_name, quantity, price, special_instructions,
-          user_profiles:user_profiles (first_name, last_name),
-          team_members:team_members (full_name)
+        id, team_id, title, description, meal_type, scheduled_date, order_status,
+        total_amount, api_order_id,
+        delivery_address_line1, delivery_city, delivery_state, delivery_zip, delivery_instructions,
+
+        restaurant:restaurants ( id, name, address ),
+        payment_method:payment_methods ( id, card_name, last_four, is_default ),
+
+        meal_items:meal_order_items (
+          id, name, quantity, product_marked_price_cents, notes,
+          team_member:team_members ( id, full_name )
         )
       `)
       .eq('team_id', teamId)
@@ -80,31 +76,37 @@ const OrderHistoryManagement = () => {
     if (filters.dateTo)   query = query.lte('scheduled_date', filters.dateTo);
 
     const { data, error } = await query;
-
     if (error) {
       console.error('Error fetching orders:', error.message);
       setErrorOrders('Failed to load orders.');
       setOrders([]);
     } else {
       const transformedOrders = (data || []).map(order => {
-        // unique attendees by user_id
-        const uniqueUsers = new Map();
-        (order.order_items || []).forEach((it) => {
-          const key = it.team_member_id || it.user_id || it.id;
-          if (!uniqueUsers.has(key)) {
-            const name =
-              it.team_members?.full_name ??
-              (it.user_profiles ? `${it.user_profiles.first_name} ${it.user_profiles.last_name}` : 'Team Member');
-            uniqueUsers.set(key, name);
-          }
-        });
+        const items = order.meal_items || [];
+
+        // unique assignees (by team member)
+        const uniqNames = new Set(
+          items.map(i => i?.team_member?.full_name).filter(Boolean)
+        );
+
+        const attendees =
+          uniqNames.size > 0
+            ? uniqNames.size
+            : items.reduce((sum, it) => sum + (it?.quantity ?? 1), 0);
+
+        const locationStr = [
+          order?.delivery_address_line1,
+          order?.delivery_city,
+          order?.delivery_state,
+          order?.delivery_zip
+        ].filter(Boolean).join(', ');
 
         return {
           id: order.id,
           date: order.scheduled_date,
-          restaurant: order.restaurants?.name || 'Unknown Restaurant',
+          restaurant: order.restaurant?.name || 'Unknown Restaurant',
           mealType: (() => {
-            if (order.meal_type) return order.meal_type; // enum from DB
+            if (order.meal_type) return order.meal_type;
             const haystack = `${order.title ?? ''} ${order.description ?? ''}`.toLowerCase();
             if (/\bbreakfast\b/.test(haystack)) return 'breakfast';
             if (/\blunch\b/.test(haystack))     return 'lunch';
@@ -112,14 +114,14 @@ const OrderHistoryManagement = () => {
             if (/\bsnacks?\b/.test(haystack))   return 'snack';
             return 'other';
           })(),
-          location: order.saved_locations?.name || 'Unknown Location',
-          attendees: uniqueUsers.size,
+          location: locationStr || '—',
+          attendees,
           totalCost: Number(order.total_amount) || 0,
           status: order.order_status,
           orderNumber: order.api_order_id || `ORD-${String(order.id).substring(0, 8)}`,
-          teamMembers: Array.from(uniqueUsers.values()),
-          paymentMethod: order.payment_methods
-            ? `${order.payment_methods.card_name} (**** ${order.payment_methods.last_four})`
+          teamMembers: Array.from(uniqNames),
+          paymentMethod: order.payment_method
+            ? `${order.payment_method.card_name} (**** ${order.payment_method.last_four})`
             : '—',
           originalOrderData: order
         };
@@ -128,7 +130,10 @@ const OrderHistoryManagement = () => {
       setOrders(transformedOrders);
     }
     setLoadingOrders(false);
-  }, [teamId, activeTab, filters]);
+  }, [teamId, filters]);
+
+  const fetchOrdersRef = useRef(() => {});
+  useEffect(() => { fetchOrdersRef.current = fetchOrders; }, [fetchOrders]);
 
   useEffect(() => {
     if (!teamId) return;
@@ -143,14 +148,18 @@ const OrderHistoryManagement = () => {
           table: 'meal_orders',
           filter: `team_id=eq.${teamId}`
         },
-        () => fetchOrders()
+        () => fetchOrdersRef.current()
       )
       .subscribe();
 
+    const customHandler = () => fetchOrdersRef.current();
+    window.addEventListener('orders:refresh', customHandler);
+
     return () => {
       supabase.removeChannel(channel);
+      window.removeEventListener('orders:refresh', customHandler);
     };
-  }, [teamId, fetchOrders]);
+  }, [teamId]);
 
   const tabs = [
     { id: 'scheduled', label: 'Scheduled', icon: 'Calendar', count: orders?.filter(o => ['scheduled','pending_confirmation','preparing','out_for_delivery'].includes(o.status))?.length },
@@ -231,15 +240,10 @@ const OrderHistoryManagement = () => {
         navigate('/calendar-order-scheduling', { state: { editOrder: order?.originalOrderData } });
         break;
       case 'cancel':
-        try {
-          const { error } = await supabase
-            .from('meal_orders')
-            .update({ order_status: 'cancelled' })
-            .eq('id', order?.id);
-          if (error) throw error;
-        } catch (error) {
-          console.error('Error cancelling order:', error.message);
-        }
+        await callCancelAPI(order?.id);
+        await fetchOrders();
+        setIsDetailModalOpen(false);
+        setSelectedOrder(null);
         break;
       case 'repeat':
         navigate('/calendar-order-scheduling', { state: { repeatOrder: order?.originalOrderData } });
@@ -248,8 +252,11 @@ const OrderHistoryManagement = () => {
         navigate('/calendar-order-scheduling', { state: { copyOrder: order?.originalOrderData } });
         break;
       case 'receipt':
-        // TODO: implement download
-        console.log('Downloading receipt for order:', order?.id);
+        try {
+          await downloadReceiptPdf(order?.id);
+        } catch (err) {
+          console.error('Failed to download receipt:', err);
+        }
         break;
       default:
         break;
@@ -259,7 +266,12 @@ const OrderHistoryManagement = () => {
   const handleBulkAction = async (action, orderIds) => {
     switch (action) {
       case 'download-receipts':
-        // TODO
+        try {
+          if (!orderIds?.length) return;
+          await downloadReceiptsZip(orderIds);
+        } catch (err) {
+          console.error('Failed to bulk download receipts:', err);
+        }
         break;
       case 'export-csv':
         setIsExportModalOpen(true);
@@ -272,14 +284,11 @@ const OrderHistoryManagement = () => {
         break;
       case 'cancel-orders':
         try {
-          const { error } = await supabase
-            .from('meal_orders')
-            .update({ order_status: 'cancelled' })
-            .in('id', orderIds);
-          if (error) throw error;
+          await Promise.allSettled((orderIds || []).map((id) => callCancelAPI(id)));
           setSelectedOrders([]);
+          await fetchOrders();
         } catch (error) {
-          console.error('Error bulk cancelling orders:', error.message);
+          console.error('Error bulk cancelling orders:', error?.message);
         }
         break;
       default:
@@ -359,14 +368,6 @@ const OrderHistoryManagement = () => {
               </div>
               <div className="flex items-center space-x-3">
                 <Button
-                  variant="outline"
-                  onClick={() => setIsExportModalOpen(true)}
-                  iconName="Download"
-                  iconPosition="left"
-                >
-                  Export Data
-                </Button>
-                <Button
                   onClick={() => navigate('/calendar-order-scheduling')}
                   iconName="Plus"
                   iconPosition="left"
@@ -434,6 +435,7 @@ const OrderHistoryManagement = () => {
             onSelectAll={handleSelectAll}
             onOrderAction={handleOrderAction}
             activeTab={activeTab}
+            onRefresh={fetchOrders}
           />
 
           {/* Pagination */}
@@ -442,14 +444,14 @@ const OrderHistoryManagement = () => {
               <div className="text-sm text-muted-foreground">
                 Showing {filteredOrders?.length} of {totalInTab} orders
               </div>
-              <div className="flex items-center space-x-2">
+              {/* <div className="flex items-center space-x-2">
                 <Button variant="outline" size="sm" disabled iconName="ChevronLeft">
                   Previous
                 </Button>
                 <Button variant="outline" size="sm" disabled iconName="ChevronRight">
                   Next
                 </Button>
-              </div>
+              </div> */}
             </div>
           )}
         </div>

@@ -1,48 +1,66 @@
-import React, { useState, useRef, useEffect } from 'react';
-import Button from '../../../components/ui/Button';
-import Input from '../../../components/ui/Input';
-import Select from '../../../components/ui/Select';
+// src/pages/team-members-management/components/EditTeamModal.jsx
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import Button from '../../../components/ui/custom/Button';
+import Input from '../../../components/ui/custom/Input';
+import Select from '../../../components/ui/custom/Select';
 import Icon from '../../../components/AppIcon';
 import { toTitleCase } from '../../../utils/stringUtils';
+
+const GENDER_OPTIONS = [
+  { value: 'womens', label: 'Womens' },
+  { value: 'mens', label: 'Mens' },
+  { value: 'coed', label: 'Coed' },
+];
 
 const EditTeamModal = ({
   team,
   onClose,
   onUpdate,
   loading,
-  canDelete = false,            // passed in by parent
-  onDeleteTeam,                 // passed in by parent (async)
+  canDelete = false,
+  onDeleteTeam,
 }) => {
-  const [name, setName] = useState(team?.name || '');
-  const [sport, setSport] = useState(team?.sport || '');
-  const [conferenceName, setConferenceName] = useState(team?.conference_name || '');
-  const [gender, setGender] = useState(team?.gender || '');
+  // Consolidated form state
+  const [form, setForm] = useState({
+    name: team?.name || '',
+    sport: team?.sport || '',
+    conferenceName: team?.conference_name || '',
+    gender: team?.gender || '',
+  });
+
   const [error, setError] = useState('');
 
-  // delete state
+  // Delete-confirm state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
-  // keep local state in sync if the parent passes a new team
+  // Keep local form in sync with incoming team
   useEffect(() => {
-    setName(team?.name || '');
-    setSport(team?.sport || '');
-    setConferenceName(team?.conference_name || '');
-    setGender(team?.gender || '');
+    setForm({
+      name: team?.name || '',
+      sport: team?.sport || '',
+      conferenceName: team?.conference_name || '',
+      gender: team?.gender || '',
+    });
   }, [team]);
 
-  // --- Close on overlay click & Esc (outer modal) ---
+  const isBusy = loading || deleting;
+
+  // ---------- Overlay & Esc handling ----------
   const overlayRef = useRef(null);
-  const handleOverlayMouseDown = (e) => {
-    // If the confirm dialog is open, don't close the parent on backdrop click
-    if (showDeleteConfirm) return;
-    if (e.target === overlayRef.current) onClose?.();
-  };
+
+  const handleOverlayMouseDown = useCallback(
+    (e) => {
+      if (showDeleteConfirm) return; // don't close parent if confirm dialog is open
+      if (e.target === overlayRef.current) onClose?.();
+    },
+    [showDeleteConfirm, onClose]
+  );
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
-      // If confirm dialog is open, close it first
       if (showDeleteConfirm) {
         setShowDeleteConfirm(false);
         return;
@@ -53,43 +71,46 @@ const EditTeamModal = ({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose, showDeleteConfirm]);
 
-  // --- Confirm dialog overlay click + Esc ---
+  // Separate handler for the confirm dialog overlay + Esc
   const confirmOverlayRef = useRef(null);
   const handleConfirmOverlayMouseDown = (e) => {
     if (e.target === confirmOverlayRef.current) setShowDeleteConfirm(false);
   };
   useEffect(() => {
     if (!showDeleteConfirm) return;
-    const onKey = (e) => {
-      if (e.key === 'Escape') setShowDeleteConfirm(false);
-    };
+    const onKey = (e) => e.key === 'Escape' && setShowDeleteConfirm(false);
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [showDeleteConfirm]);
 
-  // --- Format on input change ---
-  const onNameChange = (e) => {
-    const v = toTitleCase(e.target.value).replace(/\s+/g, ' ');
-    setName(v);
+  // ---------- Form handlers ----------
+  const handleChange = (field, transform) => (e) => {
+    const raw = e?.target?.value ?? '';
+    const next = transform ? transform(raw) : raw;
+    setForm((prev) => ({ ...prev, [field]: next }));
   };
-  const onSportChange = (e) => {
-    const v = toTitleCase(e.target.value).replace(/\s+/g, ' ');
-    setSport(v);
-  };
-  const onConferenceChange = (e) => {
-    const v = String(e.target.value || '').toUpperCase().replace(/\s+/g, ' ');
-    setConferenceName(v);
-  };
+
+  // Title-case name/sport; uppercase conference; collapse repeated spaces
+  const onNameChange = handleChange('name', (v) =>
+    toTitleCase(v).replace(/\s+/g, ' ')
+  );
+  const onSportChange = handleChange('sport', (v) =>
+    toTitleCase(v).replace(/\s+/g, ' ')
+  );
+  const onConferenceChange = handleChange('conferenceName', (v) =>
+    String(v).toUpperCase().replace(/\s+/g, ' ')
+  );
+  const onGenderChange = (val) => setForm((p) => ({ ...p, gender: val }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
     const payload = {
-      name: toTitleCase((name || '').trim()),
-      sport: toTitleCase((sport || '').trim()),
-      conference_name: (conferenceName || '').trim().toUpperCase(),
-      gender: (gender || '').trim(),
+      name: toTitleCase((form.name || '').trim()),
+      sport: toTitleCase((form.sport || '').trim()),
+      conference_name: (form.conferenceName || '').trim().toUpperCase(),
+      gender: (form.gender || '').trim(),
     };
 
     if (!payload.name || !payload.sport || !payload.gender) {
@@ -97,19 +118,16 @@ const EditTeamModal = ({
       return;
     }
 
-    await onUpdate(payload);
+    await onUpdate?.(payload);
     onClose?.();
   };
 
   const handleConfirmDelete = async () => {
     if (!team?.id || !onDeleteTeam) return;
-
     setDeleteError('');
     setDeleting(true);
-
     try {
       const res = await onDeleteTeam(team);
-
       if (res && res.success === false) {
         throw new Error(res.error || res.message || 'Failed to delete team.');
       }
@@ -122,6 +140,7 @@ const EditTeamModal = ({
     }
   };
 
+  // ---------- Render ----------
   return (
     <>
       {/* Main edit modal */}
@@ -139,6 +158,7 @@ const EditTeamModal = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="edit-team-title"
+          aria-describedby={error ? 'edit-team-error' : undefined}
         >
           <div className="flex items-center justify-between mb-4">
             <h2 id="edit-team-title" className="text-2xl font-bold text-foreground">
@@ -150,12 +170,15 @@ const EditTeamModal = ({
               onClick={onClose}
               iconName="X"
               aria-label="Close"
-              disabled={loading || deleting}
+              disabled={isBusy}
             />
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-red-800 flex items-center">
+            <div
+              id="edit-team-error"
+              className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-red-800 flex items-center"
+            >
               <Icon name="AlertCircle" size={18} className="mr-2" /> {error}
             </div>
           )}
@@ -167,12 +190,12 @@ const EditTeamModal = ({
               </label>
               <Input
                 id="teamName"
-                value={name}
+                value={form.name}
                 onChange={onNameChange}
                 placeholder="e.g., Panthers"
                 required
                 autoFocus
-                disabled={loading || deleting}
+                disabled={isBusy}
               />
             </div>
 
@@ -182,11 +205,11 @@ const EditTeamModal = ({
               </label>
               <Input
                 id="teamSport"
-                value={sport}
+                value={form.sport}
                 onChange={onSportChange}
                 placeholder="e.g., Basketball"
                 required
-                disabled={loading || deleting}
+                disabled={isBusy}
               />
             </div>
 
@@ -196,11 +219,11 @@ const EditTeamModal = ({
               </label>
               <Input
                 id="teamConference"
-                value={conferenceName}
+                value={form.conferenceName}
                 onChange={onConferenceChange}
-                placeholder="e.g., Pac-12 💀"
-                disabled={loading || deleting}
+                placeholder="e.g., PAC-12"
                 required
+                disabled={isBusy}
               />
             </div>
 
@@ -210,21 +233,17 @@ const EditTeamModal = ({
               </label>
               <Select
                 id="teamGender"
-                value={gender}
-                onChange={setGender}
-                options={[
-                  { value: 'womens', label: 'Womens' },
-                  { value: 'mens', label: 'Mens' },
-                  { value: 'coed', label: 'Coed' },
-                ]}
+                value={form.gender}
+                onChange={onGenderChange}
+                options={GENDER_OPTIONS}
                 placeholder="Select gender"
                 required
-                disabled={loading || deleting}
+                disabled={isBusy}
               />
             </div>
 
             <div className="mt-16 flex justify-between items-center">
-              {/* Danger zone: open confirm modal */}
+              {/* Danger zone */}
               <div className="flex items-center">
                 {canDelete ? (
                   <Button
@@ -233,7 +252,7 @@ const EditTeamModal = ({
                     className="text-red-600 hover:text-red-700"
                     iconName="Trash2"
                     onClick={() => setShowDeleteConfirm(true)}
-                    disabled={loading || deleting}
+                    disabled={isBusy}
                   >
                     Delete Team
                   </Button>
@@ -245,10 +264,10 @@ const EditTeamModal = ({
               </div>
 
               <div className="flex gap-3">
-                <Button variant="outline" type="button" onClick={onClose} disabled={loading || deleting}>
+                <Button variant="outline" type="button" onClick={onClose} disabled={isBusy}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={loading || deleting}>
+                <Button type="submit" disabled={isBusy}>
                   {loading ? 'Saving...' : 'Save Changes'}
                 </Button>
               </div>
@@ -257,7 +276,7 @@ const EditTeamModal = ({
         </div>
       </div>
 
-      {/* Separate confirmation popup */}
+      {/* Delete confirmation dialog */}
       {showDeleteConfirm && (
         <div
           ref={confirmOverlayRef}
@@ -289,7 +308,8 @@ const EditTeamModal = ({
             </div>
 
             <p className="text-sm text-muted-foreground mb-4">
-              This will permanently delete <strong className="text-foreground">{team?.name}</strong> and remove all of its
+              This will permanently delete{' '}
+              <strong className="text-foreground">{team?.name}</strong> and remove all of its
               members. This action cannot be undone.
             </p>
 
