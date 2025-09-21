@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/custom/Button';
 
@@ -7,38 +7,60 @@ const TopPanel = ({
   onScheduleNew,
   onOrderClick,
 }) => {
-  const [expanded, setExpanded] = useState(false);
+  const UPCOMING_BATCH_SIZE = 5;
+  const [page, setPage] = useState(0);
 
-  const money = (n) =>
-    (Number(n) || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  useEffect(() => {
+    setPage(0);
+  }, [upcomingMeals.length]);
 
   const formatTime = (time) => {
     if (!time) return '';
-    const [h, m = '00'] = time.split(':');
-    const hour = parseInt(h, 10);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const displayHour = hour % 12 || 12;
-    return `${displayHour}:${m} ${ampm}`;
+    const raw = String(time).trim();
+
+    // If the source already contains an AM/PM indicator, normalize spacing and casing only.
+    if (/\b(am|pm)\b/i.test(raw)) {
+      return raw
+        .replace(/\s+/g, ' ')
+        .replace(/\b(am|pm)\b/gi, (match) => match.toUpperCase());
+    }
+
+    const [hoursPart, minutesPart = '00'] = raw.split(':');
+    const hourNum = Number(hoursPart);
+    if (!Number.isFinite(hourNum)) return raw;
+    const minutes = minutesPart.slice(0, 2).padEnd(2, '0');
+    const ampm = hourNum >= 12 ? 'PM' : 'AM';
+    const displayHour = (hourNum % 12) || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
   };
 
   const formatDay = (iso) =>
     new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
   const statusBadge = (status) => {
-    switch (status) {
+    const normalized = status === 'confirmed' ? 'scheduled' : status;
+    switch (normalized) {
       case 'scheduled': return 'text-blue-600 bg-blue-50 border-blue-200';
-      case 'confirmed': return 'text-green-600 bg-green-50 border-green-200';
       case 'completed': return 'text-gray-600 bg-gray-50 border-gray-200';
       default: return 'text-gray-600 bg-gray-50 border-gray-200';
     }
   };
 
+  const displayStatus = (status) => (status === 'confirmed' ? 'Scheduled' : status);
+
   const mealTypeIcon = (t) =>
     t === 'breakfast' ? 'Coffee' : t === 'dinner' ? 'UtensilsCrossed' : t === 'snack' ? 'Cookie' : 'Utensils';
 
-  const LIMIT = 8;
-  const hasMore = upcomingMeals.length > LIMIT;
-  const list = expanded ? upcomingMeals : upcomingMeals.slice(0, LIMIT);
+  const totalMeals = upcomingMeals.length;
+  const totalPages = Math.max(1, Math.ceil(totalMeals / UPCOMING_BATCH_SIZE));
+  const currentPage = Math.min(page, totalPages - 1);
+  const startIndex = currentPage * UPCOMING_BATCH_SIZE;
+  const visibleMeals = upcomingMeals.slice(startIndex, startIndex + UPCOMING_BATCH_SIZE);
+  const canPrev = currentPage > 0;
+  const canNext = currentPage < totalPages - 1 && totalMeals > 0;
+  const rangeLabel = totalMeals === 0
+    ? 'Showing 0 of 0'
+    : `Showing ${startIndex + 1}-${Math.min(startIndex + UPCOMING_BATCH_SIZE, totalMeals)} of ${totalMeals}`;
 
   const activate = (m) => onOrderClick && onOrderClick(m);
 
@@ -52,10 +74,10 @@ const TopPanel = ({
         </div>
 
         <div className="relative">
-          <div className={['overflow-y-auto transition-[max-height] duration-300', expanded ? 'max-h-[62vh]' : 'max-h-[34vh] lg:max-h-[300px]', 'pr-1'].join(' ')}>
-            {list.length ? (
+          <div className="overflow-y-auto max-h-[34vh] lg:max-h-[300px] pr-1">
+            {visibleMeals.length ? (
               <ul className="border border-border rounded-md divide-y divide-border">
-                {list.map((m) => (
+                {visibleMeals.map((m) => (
                   <li
                     key={m.id}
                     role="button"
@@ -96,9 +118,9 @@ const TopPanel = ({
                     </div>
 
                     {/* col 4: status */}
-                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium justify-self-end ${statusBadge(m.status)}`}>
-                      {m.status}
-                    </span>
+                    {/* <span className={`text-xs px-2 py-0.5 rounded-full border font-medium justify-self-end ${statusBadge(m.status)}`}>
+                      {displayStatus(m.status)}
+                    </span> */}
                   </li>
                 ))}
               </ul>
@@ -110,25 +132,28 @@ const TopPanel = ({
             )}
           </div>
 
-          {!expanded && hasMore && (
-            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-10 rounded-b-lg bg-gradient-to-t from-background to-transparent" />
-          )}
         </div>
 
-        <div className="mt-3 flex items-center justify-between">
-          {hasMore ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setExpanded((v) => !v)}
-              iconName={expanded ? 'ChevronUp' : 'ChevronDown'}
-              iconSize={16}
-            >
-              {expanded ? 'Collapse' : `Show all (${upcomingMeals.length - LIMIT} more)`}
-            </Button>
-          ) : (
-            <span className="text-xs text-transparent select-none">.</span>
-          )}
+        <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+          <Button
+            variant="outline"
+            size="sm"
+            iconName="ChevronLeft"
+            onClick={() => setPage((prev) => Math.max(0, prev - 1))}
+            disabled={!canPrev}
+          >
+            {/* Previous {UPCOMING_BATCH_SIZE} */}
+          </Button>
+          <span>{rangeLabel}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            iconName="ChevronRight"
+            onClick={() => setPage((prev) => (canNext ? prev + 1 : prev))}
+            disabled={!canNext}
+          >
+            {/* Next {UPCOMING_BATCH_SIZE} */}
+          </Button>
         </div>
       </div>
     </div>
