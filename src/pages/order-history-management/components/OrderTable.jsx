@@ -374,11 +374,6 @@ const OrderTable = ({
                 </div>
                 <div className="shrink-0 flex flex-col items-end gap-1">
                   {getStatusBadge(order?.status)}
-                  {activeTab === 'scheduled' && SCHEDULED_STATUSES.includes(order?.status) && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
-                      Scheduled
-                    </span>
-                  )}
                 </div>
               </div>
 

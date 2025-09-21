@@ -481,7 +481,7 @@ const OrderHistoryManagement = () => {
                 onClick={() => setCurrentPage((prev) => Math.max(0, prev - 1))}
                 disabled={!canGoPrev}
               >
-                Previous {PAGE_SIZE}
+                Previous
               </Button>
               <div className="text-sm text-muted-foreground">
                 Showing {filteredOrders.length === 0 ? 0 : `${pageStart}-${pageEnd}`} of {filteredOrders.length} orders
@@ -493,7 +493,7 @@ const OrderHistoryManagement = () => {
                 onClick={() => setCurrentPage((prev) => (canGoNext ? prev + 1 : prev))}
                 disabled={!canGoNext}
               >
-                Next {PAGE_SIZE}
+                Next
               </Button>
             </div>
           )}
