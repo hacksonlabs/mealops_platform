@@ -57,7 +57,7 @@ const OrderHistoryManagement = () => {
     let query = supabase
       .from('meal_orders')
       .select(`
-        id, team_id, title, description, meal_type, scheduled_date, order_status,
+        id, team_id, title, description, meal_type, scheduled_date, order_status, fulfillment_method,
         total_amount, api_order_id,
         delivery_address_line1, delivery_city, delivery_state, delivery_zip, delivery_instructions,
 
@@ -123,6 +123,7 @@ const OrderHistoryManagement = () => {
           paymentMethod: order.payment_method
             ? `${order.payment_method.card_name} (**** ${order.payment_method.last_four})`
             : '—',
+          fulfillmentMethod: order.fulfillment_method || '',
           originalOrderData: order
         };
       });
@@ -357,20 +358,21 @@ const OrderHistoryManagement = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Page Header */}
           <div className="mb-8">
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-2">
                 <h1 className="text-3xl font-heading font-bold text-foreground">
                   Order History & Management
                 </h1>
-                <p className="text-muted-foreground mt-2">
+                <p className="text-muted-foreground">
                   Track, manage, and analyze your team's meal orders
                 </p>
               </div>
-              <div className="flex items-center space-x-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 gap-3 sm:gap-0 w-full sm:w-auto">
                 <Button
                   onClick={() => navigate('/calendar-order-scheduling')}
                   iconName="Plus"
                   iconPosition="left"
+                  className="w-full sm:w-auto"
                 >
                   New Order
                 </Button>
@@ -381,32 +383,35 @@ const OrderHistoryManagement = () => {
           {/* Tabs */}
           <div className="mb-6">
             <div className="border-b border-border">
-              <nav className="-mb-px flex space-x-8">
-                {tabs?.map((tab) => (
-                  <button
-                    key={tab?.id}
-                    onClick={() => handleTabChange(tab?.id)}
-                    className={`
-                      flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-athletic
-                      ${activeTab === tab?.id
-                        ? 'border-primary text-primary' :'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-                      }
-                    `}
-                  >
-                    <Icon name={tab?.icon} size={16} />
-                    <span>{tab?.label}</span>
-                    <span className={`
-                      inline-flex items-center justify-center px-2 py-1 text-xs font-medium rounded-full
-                      ${activeTab === tab?.id
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground'
-                      }
-                    `}>
-                      {tab?.count}
-                    </span>
-                  </button>
-                ))}
-              </nav>
+              <div className="-mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto">
+                <nav className="-mb-px flex gap-4 sm:gap-8 whitespace-nowrap">
+                  {tabs?.map((tab) => (
+                    <button
+                      key={tab?.id}
+                      onClick={() => handleTabChange(tab?.id)}
+                      className={`
+                        flex items-center gap-2 py-3 sm:py-4 px-1 border-b-2 font-medium text-sm transition-athletic
+                        ${activeTab === tab?.id
+                          ? 'border-primary text-primary'
+                          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                        }
+                      `}
+                    >
+                      <Icon name={tab?.icon} size={16} />
+                      <span>{tab?.label}</span>
+                      <span className={`
+                        inline-flex items-center justify-center px-2 py-1 text-xs font-medium rounded-full
+                        ${activeTab === tab?.id
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted text-muted-foreground'
+                        }
+                      `}>
+                        {tab?.count}
+                      </span>
+                    </button>
+                  ))}
+                </nav>
+              </div>
             </div>
           </div>
 
