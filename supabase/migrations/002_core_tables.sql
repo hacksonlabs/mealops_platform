@@ -133,9 +133,9 @@ CREATE TABLE public.meal_orders (
     driver_tip_cents INTEGER,
     pickup_tip_cents INTEGER,
     -- Contact / requester
-    -- user_name TEXT,
-    -- user_email TEXT,
-    -- user_phone TEXT,
+    user_name TEXT,
+    user_email TEXT,
+    user_phone TEXT,
     -- Delivery address
     delivery_address_line1 TEXT,
     delivery_address_line2 TEXT,
@@ -154,6 +154,8 @@ CREATE TABLE public.meal_orders (
     delivery_time_min_minutes INTEGER,
     delivery_time_max_minutes INTEGER,
     -- Totals (in cents)
+    promo_code TEXT,
+    promo_discount_cents INTEGER,
     subtotal_cents INTEGER,
     delivery_fee_cents INTEGER,
     service_fee_cents INTEGER,
@@ -368,7 +370,8 @@ CREATE TABLE IF NOT EXISTS public.meal_carts (
   fulfillment_latitude DOUBLE PRECISION,
   fulfillment_longitude DOUBLE PRECISION,
   fulfillment_date DATE,
-  fulfillment_time TIME WITHOUT TIME ZONE
+  fulfillment_time TIME WITHOUT TIME ZONE,
+  meal_type public.meal_type
 );
 
 -- Cart membership (who can add to the cart)

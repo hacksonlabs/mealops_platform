@@ -10,6 +10,7 @@ const RestaurantCard = React.memo(function RestaurantCard({
   selectedService = 'delivery',
   fulfillment,
   initialCartTitle,
+  mealType,
 }) {
   const navigate = useNavigate();
 
@@ -21,8 +22,8 @@ const RestaurantCard = React.memo(function RestaurantCard({
 
   const goToRestaurant = useCallback(() => {
     const title = (initialCartTitle ?? '').trim();
-    navigate(href, { state: { restaurant, fulfillment, initialCartTitle: title || undefined } });
-  }, [navigate, href, restaurant, fulfillment, initialCartTitle]);
+    navigate(href, { state: { restaurant, fulfillment, initialCartTitle: title || undefined, mealType: mealType || undefined } });
+  }, [navigate, href, restaurant, fulfillment, initialCartTitle, mealType]);
 
   const onKeyActivate = useCallback(
     (e) => {

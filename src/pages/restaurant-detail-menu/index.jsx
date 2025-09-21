@@ -34,6 +34,7 @@ const RestaurantDetailMenu = () => {
   const { provider, setProvider } = useProvider();
   const { setActiveCartId } = useSharedCart();
   const initialCartTitle = (location.state?.initialCartTitle ?? '').trim();
+  const mealType = (location.state?.mealType ?? '').trim();
 
   // Fulfillment + URL sync
   const {
@@ -84,7 +85,7 @@ const RestaurantDetailMenu = () => {
   } = useCartOnPage({
     activeTeam, restaurant, provider: localProvider,
     fulfillment, setProvider, setActiveCartId,
-    location, cartDbService, EXTRA_SENTINEL, initialCartTitle
+    location, cartDbService, EXTRA_SENTINEL, initialCartTitle, mealType
   });
 
   // Edit modal boot (coming from Drawer -> “Edit”)
@@ -221,6 +222,7 @@ const RestaurantDetailMenu = () => {
                     fulfillment={fulfillment}
                     onCreated={(newId) => setActiveCartId?.(newId)}
                     cartTitle={initialCartTitle}
+                    mealType={mealType}
                   />
                 </div>
               }

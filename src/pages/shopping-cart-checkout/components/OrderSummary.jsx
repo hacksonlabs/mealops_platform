@@ -82,7 +82,7 @@ const OrderSummary = ({
   // Apply default 15% once when subtotal first becomes available and no external tip is set.
   useEffect(() => {
     if (defaultAppliedRef.current) return;
-    if (Number(tipAmount || 0) === 0 && Number(subtotal || 0) > 0) {
+    if (serviceType === 'delivery' && Number(tipAmount || 0) === 0 && Number(subtotal || 0) > 0) {
       const def = Number(((Number(subtotal) * 15) / 100).toFixed(2));
       setLocalTip(def);
       setMode('15');       // reflect selection in UI
@@ -252,69 +252,71 @@ const OrderSummary = ({
       </div>
 
       {/* Tip */}
-      <div className="mt-5 pt-5 border-t border-border">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Tip</h3>
-          <div className="text-right text-lg font-semibold tabular-nums">{fmt(localTip)}</div>
-        </div>
-
-        <div className="mt-3 inline-flex w-full rounded-full bg-muted p-1">
-          {percents.map((p) => {
-            const active = mode === String(p);
-            return (
-              <button
-                key={p}
-                type="button"
-                onClick={() => selectPercent(p)}
-                className={[
-                  'flex-1 px-5 py-2 rounded-full text-sm font-semibold transition',
-                  active
-                    ? 'bg-primary text-background shadow'
-                    : 'text-secondary/80 hover:text-secondary'
-                ].join(' ')}
-                aria-pressed={active}
-                title={`${p}%`}
-              >
-                {p}%
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={selectOther}
-            className={[
-              'flex-1 px-5 py-2 rounded-full text-sm font-semibold transition',
-              mode === 'other'
-                ? 'bg-primary text-background shadow'
-                : 'text-secondary/80 hover:text-secondary'
-            ].join(' ')}
-            aria-pressed={mode === 'other'}
-          >
-            Other
-          </button>
-        </div>
-
-        {mode === 'other' && (
-          <div className="mt-3">
-            <label className="block text-sm font-medium mb-1">Enter custom tip</label>
-            <div className="relative w-32">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-              <input
-                ref={customRef}
-                type="text" // no up/down steppers
-                inputMode="decimal"
-                pattern="[0-9]*[.,]?[0-9]*"
-                value={customTipInput}
-                onChange={(e) => handleCustomChange(e.target.value)}
-                onBlur={handleCustomBlur}
-                className="w-full pl-5 pr-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
-                placeholder="0.00"
-                aria-label="Custom tip"
-              />
-            </div>
+      {serviceType === 'delivery' && (
+        <div className="mt-5 pt-5 border-t border-border">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Tip</h3>
+            <div className="text-right text-lg font-semibold tabular-nums">{fmt(localTip)}</div>
           </div>
-        )}
-      </div>
+
+          <div className="mt-3 inline-flex w-full rounded-full bg-muted p-1">
+            {percents.map((p) => {
+              const active = mode === String(p);
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => selectPercent(p)}
+                  className={[
+                    'flex-1 px-5 py-2 rounded-full text-sm font-semibold transition',
+                    active
+                      ? 'bg-primary text-background shadow'
+                      : 'text-secondary/80 hover:text-secondary'
+                  ].join(' ')}
+                  aria-pressed={active}
+                  title={`${p}%`}
+                >
+                  {p}%
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={selectOther}
+              className={[
+                'flex-1 px-5 py-2 rounded-full text-sm font-semibold transition',
+                mode === 'other'
+                  ? 'bg-primary text-background shadow'
+                  : 'text-secondary/80 hover:text-secondary'
+              ].join(' ')}
+              aria-pressed={mode === 'other'}
+            >
+              Other
+            </button>
+          </div>
+
+          {mode === 'other' && (
+            <div className="mt-3">
+              <label className="block text-sm font-medium mb-1">Enter custom tip</label>
+              <div className="relative w-32">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                <input
+                  ref={customRef}
+                  type="text" // no up/down steppers
+                  inputMode="decimal"
+                  pattern="[0-9]*[.,]?[0-9]*"
+                  value={customTipInput}
+                  onChange={(e) => handleCustomChange(e.target.value)}
+                  onBlur={handleCustomBlur}
+                  className="w-full pl-5 pr-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  placeholder="0.00"
+                  aria-label="Custom tip"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Total (live) */}
       <div className="mt-5 pt-5 border-t border-border">

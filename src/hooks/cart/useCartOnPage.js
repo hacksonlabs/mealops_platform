@@ -5,7 +5,7 @@ export default function useCartOnPage({
   activeTeam, restaurant, provider, fulfillment,
   setProvider, setActiveCartId, location,
   cartDbService, EXTRA_SENTINEL,
-  initialCartTitle,
+  initialCartTitle, mealType
 }) {
   const [cartId, setCartId] = useState(null);
 
@@ -44,7 +44,7 @@ export default function useCartOnPage({
     if (location.state?.cartId) return;
     let cancelled = false;
     (async () => {
-      const id = await cartDbService.findActiveCartForRestaurant(activeTeam.id, restaurant.id, provider, fulfillment);
+      const id = await cartDbService.findActiveCartForRestaurant(activeTeam.id, restaurant.id, provider, fulfillment, mealType);
       if (!id || cancelled) return;
       setCartId(id);
       const snap = await cartDbService.getCartSnapshot(id);
@@ -135,6 +135,7 @@ export default function useCartOnPage({
           providerType: provider,
           providerRestaurantId: restaurant?.provider_restaurant_ids?.[provider] || null,
           fulfillment,
+          mealType,
         }
       );
       await cartDbService.upsertCartFulfillment(id, fulfillment, {

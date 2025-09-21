@@ -13,7 +13,8 @@ const RestaurantGrid = ({
   fulfillment,
   onLoadingChange,
   suppressEmptyUntilLoaded = true,
-  initialCartTitle
+  initialCartTitle,
+  mealType
 }) => {
   const { rows, setRows, loading, err, hasLoadedOnce } = useRestaurantsSource();
   const { distanceReady } = useDistances(centerCoords, rows, setRows);
@@ -113,6 +114,7 @@ const RestaurantGrid = ({
             selectedService={selectedService}
             fulfillment={fulfillment}
             initialCartTitle={initialCartTitle}
+            mealType={mealType}
           />
         ))}
       </div>

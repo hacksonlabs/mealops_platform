@@ -35,6 +35,7 @@ const HomeRestaurantDiscovery = () => {
 
   const params = new URLSearchParams(location.search);
   const initialCartTitle = params.get('title') || '';
+  const mealType = params.get('mealType') || '';
 
   return (
     <div className="min-h-screen bg-background">
@@ -62,6 +63,7 @@ const HomeRestaurantDiscovery = () => {
           fulfillment={fulfillment}
           onLoadingChange={setGridLoading}
           initialCartTitle={initialCartTitle}
+          mealType={mealType}
         />
       </main>
 

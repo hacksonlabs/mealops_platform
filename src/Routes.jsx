@@ -22,6 +22,8 @@ import RestaurantDetailMenu from './pages/restaurant-detail-menu';
 import ShoppingCartCheckout from './pages/shopping-cart-checkout';
 import SharedCartMenu from './pages/shared-cart';
 import PayPage from './pages/payments';
+import OrderSuccess from './pages/order-success';
+
 const Routes = () => {
   return (
     <BrowserRouter>
@@ -49,6 +51,7 @@ const Routes = () => {
         <Route path="/shopping-cart-checkout" element={<ShoppingCartCheckout />} />
         <Route path="/shared-cart/:cartId" element={<SharedCartMenu />} />
         <Route path="/pay" element={<PayPage />} />
+        <Route path="/order/success" element={<OrderSuccess />} />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>

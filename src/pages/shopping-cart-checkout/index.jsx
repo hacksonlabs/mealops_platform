@@ -1,3 +1,4 @@
+// src/pages/shopping-cart-checkout/index.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import Header from '../../components/ui/Header';
@@ -15,6 +16,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import cartDbService from '../../services/cartDBService';
 import { paymentService, PROVIDER_CONFIG } from '../../services/paymentService';
 import { useSharedCart } from "../../contexts/SharedCartContext";
+import { orderService } from '../../services/orderService';
+import { orderDbService } from '../../services/orderDbService';
 
 /** Toggle this to bypass real provider calls while designing the flow */
 const PAYMENTS_MOCK = (import.meta?.env?.VITE_PAYMENTS_MOCK ?? '1') === '1';
@@ -56,6 +59,7 @@ const ShoppingCartCheckout = () => {
     coords: inStateFulfillment?.coords ?? null,
     date: inStateFulfillment?.date ?? toDateInput(now),
     time: inStateFulfillment?.time ?? toTimeInput(now),
+    instructions: inStateFulfillment?.instructions ?? '',
   }); 
 
   const [restaurant] = useState(
@@ -80,6 +84,7 @@ const ShoppingCartCheckout = () => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
   const [tipAmount, setTipAmount] = useState(0);
   const [promoDiscount, setPromoDiscount] = useState(0);
+  const [promoCode, setPromoCode] = useState('');
   const [estimatedTime, setEstimatedTime] = useState('30-40 min');
 
   const [savedPaymentMethods, setSavedPaymentMethods] = useState([]);
@@ -95,15 +100,14 @@ const ShoppingCartCheckout = () => {
     [cartItems]
   );
 
-  // NEW: Account details
+  // Account details
   const [account, setAccount] = useState({
     contactName: user?.user_metadata?.full_name || user?.full_name || '',
     email: user?.email || '',
     phone: '',
-    teamName: sharedCartData?.cart?.teamName || ''
   });
 
-  // NEW: items modal
+  // items modal
   const [showItemsModal, setShowItemsModal] = useState(false);
 
   const mapMethods = (rows = []) => rows.map((m) => ({
@@ -273,46 +277,83 @@ const ShoppingCartCheckout = () => {
       WELCOME20: 5.0,
       FREESHIP: deliveryFee,
     };
+    setPromoCode(code || '');
     setPromoDiscount(discounts?.[code] || 0);
   };
 
-  const handlePlaceOrder = async () => {
-    const orderData = {
-      restaurant,
-      items: cartItems,
-      serviceType,
-      deliveryAddress,
-      pickupTime,
-      paymentMethod: selectedPaymentMethod,
-      tip: tipAmount,
-      total,
-      account,
-    };
+  const cents = (d) => Math.round(Number(d || 0) * 100);
 
-    /** -------------------------------------------------------------
-     * MOCK: Skip provider calls, go straight to success
-     * ------------------------------------------------------------ */
+  const handlePlaceOrder = async () => {
+    // compute cents we want to persist
+    const subtotalCents = cents(subtotal);
+    const deliveryFeeCents = cents(deliveryFee);
+    const taxCents = cents(tax);
+    const tipCents = cents(tipAmount);
+    const promoDiscountCents = cents(promoDiscount);
+    // If you have a separate service fee, compute it; otherwise leave 0/null
+    const computedTotalCents = cents(total);
+    const serviceFeeCents = Math.max(
+      0,
+      computedTotalCents - (subtotalCents + deliveryFeeCents + taxCents + tipCents - promoDiscountCents)
+    );
+
+    // Build the MealMe-shaped payload (we already have this helper)
+    const orderInput = buildMealMePayloadFromCart();
+
+    // Snapshot of the selected payment method for analytics/reporting (optional)
+    const paymentSnap = savedPaymentMethods.find(m => m.id === selectedPaymentMethod) || null;
+
+    // 1) Create local draft (safe status + all info persisted)
+    const { localOrderId } = await orderDbService.createDraftFromCart({
+      cartSnapshot: sharedCartData,
+      orderInput,
+      quote: {
+        subtotal_cents: subtotalCents,
+        fees_cents: deliveryFeeCents,
+        service_fee_cents: serviceFeeCents || null,
+        tax_cents: taxCents,
+        tip_cents: tipCents,
+        total_with_tip_cents: computedTotalCents,
+      },
+      provider: MEALME_ENABLED ? 'mealme' : 'manual',
+      isSandbox: PAYMENTS_MOCK,
+      createdBy: user?.id,
+      paymentMethodId: selectedPaymentMethod || null,
+      deliveryInstructions: fulfillment?.instructions || '',
+      account: { name: account.contactName, email: account.email, phone: account.phone },
+      paymentSnapshot: paymentSnap,
+      promoCode: promoCode || null,
+      promoDiscountCents,
+    });
+
+    // 2) In MOCK: jump to confirmed & success
     if (PAYMENTS_MOCK) {
+      await orderDbService.markConfirmed(localOrderId, {
+        response_payload: { mock: true },
+      });
+      // (Optional) log activity
       if (isSharedCart && currentCartId) {
         try {
           await logCartActivity?.(currentCartId, 'order_placed', {
-            total_amount: total,
+            total_amount_cents: computedTotalCents,
             item_count: cartItems?.length,
             mock: true,
+            promo_code: promoCode || null,
           });
         } catch (e) {
           console.error('Mock order log error:', e);
         }
       }
-      navigate('/order/success', { replace: true, state: { mock: true, total } });
+      navigate('/order/success', { replace: true, state: { mock: true, orderId: localOrderId } });
       return;
     }
 
-    // REAL PROVIDERS (when you flip PAYMENTS_MOCK off)
+    // 3) REAL STRIPE path (unchanged)
     if (ACTIVE_PAYMENTS_PROVIDER === 'stripe') {
+      await orderDbService.markPendingConfirmation(localOrderId); // we’re heading to payment
       const { kind, url } = await paymentService.startCheckout({
         lineItems: buildStripeLineItems(cartItems),
-        metadata: { cartId: currentCartId },
+        metadata: { cartId: currentCartId, localOrderId },
         successUrl: `${window.location.origin}/order/success`,
         cancelUrl: `${window.location.origin}${location.pathname}${location.search}`,
       }, { provider: 'stripe', customerId: user?.stripe_customer_id });
@@ -320,36 +361,32 @@ const ShoppingCartCheckout = () => {
       return;
     }
 
-    if (ACTIVE_PAYMENTS_PROVIDER === 'mealme') {
-      const result = await paymentService.startCheckout({
-        mealmePayload: buildMealMePayloadFromCart(),
-      }, { provider: 'mealme' });
-      navigate('/pay', {
-        state: {
-          clientSecret: result.clientSecret,
-          publishableKey: result.publishableKey,
-          orderId: result.orderId,
-          total,
-        },
-      });
-      return;
-    }
+    // 4) REAL MEALME path: create provider draft, then go to pay page
+    await orderDbService.markPendingConfirmation(localOrderId);
+    const { orderId: providerOrderId } = await orderService.createDraft(orderInput);
 
-    // Fallback (external providers)
-    if (isSharedCart && currentCartId) {
-      try {
-        await logCartActivity?.(currentCartId, 'order_placed', {
-          total_amount: total,
-          item_count: cartItems?.length,
-        });
-        console.log('Shared cart order placed:', orderData);
-      } catch (error) {
-        console.error('Error placing shared cart order:', error);
-      }
-    } else {
-      console.log('Regular order placed:', orderData);
-    }
+    // keep provider id on our order
+    await orderDbService.attachProviderInfo(localOrderId, {
+      api_order_id: providerOrderId,
+    });
+
+    // In real mode, get client secret from backend, then open /pay
+    const result = await paymentService.startCheckout(
+      { mealmePayload: { ...orderInput, order_id: providerOrderId } },
+      { provider: 'mealme' }
+    );
+
+    navigate('/pay', {
+      state: {
+        clientSecret: result.clientSecret,
+        publishableKey: result.publishableKey,
+        orderId: providerOrderId,
+        localOrderId,
+        mode: 'payment',
+      },
+    });
   };
+
 
   useEffect(() => {
     setEstimatedTime(serviceType === 'delivery' ? '30-40 min' : '20-25 min');
@@ -461,7 +498,7 @@ const ShoppingCartCheckout = () => {
       const { kind, url } = await paymentService.startSetup({
         provider: 'stripe',
         customerId: user?.stripe_customer_id,
-        successUrl: `${window.location.origin}/checkout?added=1`,
+        successUrl: `${window.location.origin}/shopping-cart-checkout?added=1`,
         cancelUrl: `${window.location.origin}${location.pathname}${location.search}`,
       });
       if (kind === 'redirect') window.location.href = url;
@@ -497,22 +534,24 @@ const ShoppingCartCheckout = () => {
       quantity: Number(it.quantity || 1),
       notes: it.notes || undefined,
       selected_options: [],
+      price_cents: Math.round((it.price || 0) * 100), 
     })),
     pickup: serviceType === 'pickup',
     driver_tip_cents: serviceType === 'delivery' ? Math.round(Number(tipAmount || 0) * 100) : 0,
     pickup_tip_cents: serviceType === 'pickup' ? Math.round(Number(tipAmount || 0) * 100) : 0,
     user_latitude: fulfillment?.coords?.lat,
     user_longitude: fulfillment?.coords?.lng,
-    user_street_num: '',
-    user_street_name: deliveryAddress,
-    user_city: '',
-    user_state: '',
+    user_street_num: '',                // split from address parser later
+    user_street_name: deliveryAddress,  // split from address parser later
+    user_city: '',                      // split from address parser later
+    user_state: '',                     // split from address parser later
     user_country: 'US',
     user_zipcode: '',
     user_name: account?.contactName,
     user_email: account?.email,
     user_phone: account?.phone,
     user_id: user?.id,
+    include_final_quote: true,
   });
 
   const provider = sharedCartData?.cart?.providerType || 'grubhub';
@@ -550,6 +589,8 @@ const ShoppingCartCheckout = () => {
           total={total}
           serviceType={serviceType}
           onPromoCodeApply={handlePromoCodeApply}
+          tipAmount={tipAmount}
+          onTipChange={setTipAmount}
         />
 
         <Button
@@ -639,6 +680,10 @@ const ShoppingCartCheckout = () => {
                       setFulfillment((prev) => ({ ...prev, coords: details.location }));
                     }
                   }}
+                  instructions={fulfillment.instructions}
+                  onInstructionsChange={(val) =>
+                    setFulfillment(prev => ({ ...prev, instructions: val }))
+                  }
                   pickupTime={pickupTime}
                   onPickupTimeChange={setPickupTime}
                   pickupAddress={pickupAddress}

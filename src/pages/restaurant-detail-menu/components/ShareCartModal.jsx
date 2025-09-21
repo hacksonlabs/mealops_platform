@@ -15,6 +15,7 @@ export default function ShareCartModal({
   fulfillment,             // { service, address, coords, date, time }
   onCreated,               // (newCartId) => void
   cartTitle,
+  mealType,
 }) {
   const { activeTeam } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -56,6 +57,7 @@ export default function ShareCartModal({
         providerType: providerType ?? null,
         providerRestaurantId: restaurant?.provider_restaurant_ids?.[providerType] || null,
         fulfillment: fulfillment || {},
+        mealType: mealType,
       }
     );
 

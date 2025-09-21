@@ -165,7 +165,7 @@ async function syncAssigneesToQuantity(itemId, newQty) {
 
 // If date is provided: match that date (and time if provided).
 // If date is not provided: prefer carts with NULL date (unscheduled).
-async function findActiveCartForRestaurant(teamId, restaurantId, providerType = null, fulfillment = {}) {
+async function findActiveCartForRestaurant(teamId, restaurantId, providerType = null, fulfillment = {}, mealType = null) {
   let q = supabase
     .from('meal_carts')
     .select('id, fulfillment_date, fulfillment_time, updated_at')
@@ -174,6 +174,9 @@ async function findActiveCartForRestaurant(teamId, restaurantId, providerType = 
     .eq('status', 'draft');
 
   if (providerType != null) q = q.eq('provider_type', providerType);
+  // keep carts separated by meal type (breakfast/lunch/dinner/etc.)
+  if (mealType) q = q.eq('meal_type', mealType);
+  else q = q.is('meal_type', null);
 
   const hasDate = Boolean(fulfillment?.date);
   const hasTime = Boolean(fulfillment?.time);
@@ -196,9 +199,9 @@ async function findActiveCartForRestaurant(teamId, restaurantId, providerType = 
 async function ensureCartForRestaurant(
   teamId,
   restaurantId,
-  { title, providerType = null, providerRestaurantId = null, fulfillment = {} } = {}
+  { title, providerType = null, providerRestaurantId = null, fulfillment = {}, mealType = null } = {}
 ) {
-  const existingId = await findActiveCartForRestaurant(teamId, restaurantId, providerType, fulfillment);
+  const existingId = await findActiveCartForRestaurant(teamId, restaurantId, providerType, fulfillment, mealType);
   if (existingId) return existingId;
 
   const cleanTitle = normalizeTitle(title);
@@ -217,6 +220,7 @@ async function ensureCartForRestaurant(
       fulfillment_longitude: fulfillment?.coords?.lng ?? null,
       fulfillment_date: fulfillment?.date ?? null,
       fulfillment_time: normalizeDbTime(fulfillment?.time) ?? null,
+      meal_type: mealType,
     })
     .select('id')
     .single();
@@ -247,7 +251,7 @@ async function getCartSnapshot(cartId) {
       fulfillment_service, fulfillment_address, fulfillment_latitude, fulfillment_longitude,
       fulfillment_date, fulfillment_time,
       restaurants ( id, name, image_url, address, phone_number, rating ),
-      status
+      status, meal_type
     `)
     .eq('id', cartId)
     .maybeSingle();
@@ -302,6 +306,7 @@ async function getCartSnapshot(cartId) {
       fulfillment_longitude: cart.fulfillment_longitude ?? null,
       fulfillment_date: cart.fulfillment_date ?? null,
       fulfillment_time: cart.fulfillment_time ?? null,
+      meal_type: cart.meal_type ?? null,
     },
     restaurant: cart.restaurants
       ? {

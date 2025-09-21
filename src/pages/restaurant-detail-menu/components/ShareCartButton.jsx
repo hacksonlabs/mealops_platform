@@ -10,6 +10,7 @@ const ShareCartButton = ({
   fulfillment,     // pass-through
   onCreated,       // pass-through
   cartTitle,
+  mealType,
   variant = "outline",
   className = ""
 }) => {
@@ -36,6 +37,7 @@ const ShareCartButton = ({
           fulfillment={fulfillment}
           onCreated={onCreated}
           cartTitle={cartTitle}
+          mealType={mealType}
         />
       )}
     </>
