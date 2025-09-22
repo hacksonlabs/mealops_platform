@@ -41,6 +41,68 @@ function toScheduledDate(cart) {
   return new Date().toISOString();
 }
 
+const normalizePriceCents = (value) => {
+  const num = Number(value);
+  if (Number.isFinite(num)) return Math.round(num);
+  return 0;
+};
+
+function extractCustomizationsFromSelections(selectedOptions) {
+  if (!selectedOptions || typeof selectedOptions !== 'object') return null;
+
+  const metaSource = selectedOptions.__meta__;
+  const groups = [];
+
+  const buildOptions = (options = []) => {
+    return options
+      .map((opt) => {
+        if (!opt) return null;
+        const optionId = opt.optionId ?? opt.id ?? opt.value ?? null;
+        const name = opt.name || opt.label || opt.title || (optionId != null ? String(optionId) : 'Option');
+        const priceCents = normalizePriceCents(
+          opt.priceCents ?? opt.price_cents ?? (Number.isFinite(Number(opt.price)) ? Number(opt.price) * 100 : 0)
+        );
+        const quantity = Number.isFinite(Number(opt.quantity)) ? Math.max(1, Math.round(Number(opt.quantity))) : 1;
+        return {
+          optionId: optionId != null ? String(optionId) : null,
+          name,
+          priceCents,
+          quantity,
+        };
+      })
+      .filter(Boolean);
+  };
+
+  if (metaSource && typeof metaSource === 'object') {
+    Object.entries(metaSource).forEach(([groupKey, groupMeta]) => {
+      if (!groupMeta) return;
+      const options = buildOptions(groupMeta.options);
+      if (options.length) {
+        groups.push({
+          name: groupMeta.name || groupMeta.id || groupKey,
+          options,
+        });
+      }
+    });
+  }
+
+  if (groups.length) return groups;
+
+  const fallback = [];
+  Object.entries(selectedOptions).forEach(([groupKey, value]) => {
+    if (groupKey.startsWith('__')) return;
+    const options = buildOptions(Array.isArray(value) ? value : [value]);
+    if (options.length) {
+      fallback.push({
+        name: groupKey,
+        options,
+      });
+    }
+  });
+
+  return fallback.length ? fallback : null;
+}
+
 export const orderDbService = {
   async createDraftFromCart({
     cartSnapshot,
@@ -107,6 +169,7 @@ export const orderDbService = {
       sales_tax_cents:       quote?.tax_cents ?? null,
       tip_cents:             quote?.tip_cents ?? null,
       total_with_tip_cents:  quote?.total_with_tip_cents ?? null,
+      total_amount:          quote?.total_with_tip_cents != null ? Number(quote.total_with_tip_cents) / 100 : null,
       total_without_tips_cents:
         (quote?.total_with_tip_cents != null && quote?.tip_cents != null)
             ? Math.max(0, quote.total_with_tip_cents - quote.tip_cents)
@@ -147,20 +210,129 @@ export const orderDbService = {
 
     const orderId = data.id;
 
-    const items = (cartSnapshot?.items || []).map(i => ({
-      order_id: orderId,
-      team_member_id: i.assigned_to_member_id || null,
-      product_id: i.product_id || i.id,
-      name: i.item_name || i.name,
-      description: i.description || null,
-      image_url: i.image_url || null,
-      notes: i.special_instructions || i.notes || null,
-      quantity: Number(i.quantity || 1),
-      product_marked_price_cents: Math.round(Number(i.price || 0) * 100),
-    }));
-    if (items.length) {
-      const { error: itemsErr } = await supabase.from('meal_order_items').insert(items);
+    const cartItems = cartSnapshot?.items || [];
+    const cartItemIds = cartItems.map((item) => item?.id).filter(Boolean);
+
+    const assignmentsMap = new Map();
+    if (cartItemIds.length) {
+      const { data: assignments, error: assErr } = await supabase
+        .from('meal_cart_item_assignees')
+        .select('cart_item_id, member_id, is_extra, unit_qty')
+        .in('cart_item_id', cartItemIds);
+      if (assErr) throw assErr;
+      (assignments || []).forEach((row) => {
+        const list = assignmentsMap.get(row.cart_item_id) || [];
+        list.push(row);
+        assignmentsMap.set(row.cart_item_id, list);
+      });
+    }
+
+    const orderItemRows = [];
+    const customizationPerRow = [];
+
+    cartItems.forEach((item) => {
+      const baseQuantity = Math.max(1, Number(item.quantity || 1));
+      const basePriceCents = Math.round(Number(item.price || 0) * 100);
+      const baseRow = {
+        order_id: orderId,
+        team_member_id: item.added_by_member_id || item.addedByMemberId || null,
+        product_id: item.menu_item_id || item.menuItemId || item.product_id || item.id,
+        name: item.item_name || item.name,
+        description: item.description || null,
+        image_url: item.image_url || null,
+        notes: item.special_instructions
+          || (typeof item.specialInstructions === 'string' ? item.specialInstructions : null)
+          || item.notes
+          || null,
+        quantity: baseQuantity,
+        product_marked_price_cents: basePriceCents,
+      };
+
+      const groups = extractCustomizationsFromSelections(item?.selectedOptions || item?.selected_options);
+
+      const assignments = assignmentsMap.get(item.id) || [];
+      if (assignments.length) {
+        let accounted = 0;
+        assignments.forEach((assignment) => {
+          const qty = Math.max(0, Number(assignment.unit_qty || 0));
+          if (!qty) return;
+          accounted += qty;
+          orderItemRows.push({
+            ...baseRow,
+            team_member_id: assignment.is_extra ? null : assignment.member_id,
+            quantity: qty,
+          });
+          customizationPerRow.push(groups);
+        });
+
+        const residual = Math.max(0, baseQuantity - accounted);
+        if (residual > 0) {
+          orderItemRows.push({
+            ...baseRow,
+            team_member_id: null,
+            quantity: residual,
+          });
+          customizationPerRow.push(groups);
+        }
+      } else {
+        orderItemRows.push(baseRow);
+        customizationPerRow.push(groups);
+      }
+    });
+
+    if (orderItemRows.length) {
+      const { data: insertedItems, error: itemsErr } = await supabase
+        .from('meal_order_items')
+        .insert(orderItemRows)
+        .select('id');
       if (itemsErr) throw itemsErr;
+
+      const customizationRows = [];
+      const optionGroups = [];
+
+      (insertedItems || []).forEach((row, idx) => {
+        const groups = customizationPerRow[idx];
+        if (!groups) return;
+        groups.forEach((group) => {
+          if (!group?.options?.length) return;
+          customizationRows.push({
+            order_item_id: row.id,
+            name: group.name || 'Customization',
+          });
+          optionGroups.push(group.options);
+        });
+      });
+
+      if (customizationRows.length) {
+        const { data: insertedCustomizations, error: custErr } = await supabase
+          .from('meal_order_item_customizations')
+          .insert(customizationRows)
+          .select('id');
+        if (custErr) throw custErr;
+
+        const optionRows = [];
+        (insertedCustomizations || []).forEach((cust, idx) => {
+          const opts = optionGroups[idx] || [];
+          opts.forEach((opt) => {
+            optionRows.push({
+              customization_id: cust.id,
+              option_id: opt.optionId ? String(opt.optionId) : null,
+              name: opt.name || 'Option',
+              price_cents: normalizePriceCents(opt.priceCents),
+              quantity: Number.isFinite(Number(opt.quantity)) && Number(opt.quantity) > 0
+                ? Math.round(Number(opt.quantity))
+                : 1,
+            });
+          });
+        });
+
+        if (optionRows.length) {
+          const { error: optErr } = await supabase
+            .from('meal_order_item_options')
+            .insert(optionRows);
+          if (optErr) throw optErr;
+        }
+      }
     }
 
     await supabase.from('meal_carts')
