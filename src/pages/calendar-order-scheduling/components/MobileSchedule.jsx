@@ -68,14 +68,31 @@ const MobileSchedule = ({ events = [], onSelectEvent, onSchedule, onLoadMore, lo
   const sentinelRef = useRef(null);
   const dayRefs = useRef({});
   const loadGuardRef = useRef({ pending: false, prevCount: events.length });
+  const hasInteractedRef = useRef(false);
   const today = useMemo(() => startOfDay(new Date()), []);
   const todayKey = today.toISOString().slice(0, 10);
   const [range, setRange] = useState(() => createInitialRange(0, futureDays));
+  const lastFutureDaysRef = useRef(futureDays);
+  const prevEventsLengthRef = useRef(events.length);
 
   useEffect(() => {
-    setRange(createInitialRange(0, futureDays));
-    loadGuardRef.current = { pending: false, prevCount: events.length };
-  }, [futureDays]);
+    const last = lastFutureDaysRef.current;
+    if (futureDays < last) {
+      setRange(createInitialRange(0, futureDays));
+      loadGuardRef.current = { pending: false, prevCount: events.length };
+      hasInteractedRef.current = false;
+    }
+    lastFutureDaysRef.current = futureDays;
+  }, [futureDays, events.length]);
+
+  useEffect(() => {
+    if (events.length === 0 && prevEventsLengthRef.current > 0) {
+      setRange(createInitialRange(0, futureDays));
+      loadGuardRef.current = { pending: false, prevCount: 0 };
+      hasInteractedRef.current = false;
+    }
+    prevEventsLengthRef.current = events.length;
+  }, [events.length, futureDays]);
 
   useEffect(() => {
     if (loadGuardRef.current.pending && events.length !== loadGuardRef.current.prevCount) {
@@ -83,13 +100,6 @@ const MobileSchedule = ({ events = [], onSelectEvent, onSchedule, onLoadMore, lo
       loadGuardRef.current.prevCount = events.length;
     }
   }, [events.length]);
-
-  useEffect(() => {
-    if (loadGuardRef.current.pending) {
-      loadGuardRef.current.pending = false;
-      loadGuardRef.current.prevCount = events.length;
-    }
-  }, [range.end, events.length]);
 
   const sortedEvents = useMemo(() => {
     const arr = [...(events || [])];
@@ -101,15 +111,17 @@ const MobileSchedule = ({ events = [], onSelectEvent, onSchedule, onLoadMore, lo
   const days = useMemo(() => buildContinuousDays(range.start, range.end, buckets), [range, buckets]);
 
   const requestMore = useCallback(() => {
-    if (loadGuardRef.current.pending) return;
+    if (loadGuardRef.current.pending || !hasInteractedRef.current) return;
     loadGuardRef.current.pending = true;
     loadGuardRef.current.prevCount = events.length;
     setRange((prev) => extendRange(prev, { future: futureDays }));
     onLoadMore?.();
+    hasInteractedRef.current = false;
   }, [events.length, onLoadMore, futureDays]);
 
   const handleScroll = useCallback((event) => {
     const el = event.currentTarget;
+    hasInteractedRef.current = true;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) {
       requestMore();
     }
@@ -123,13 +135,15 @@ const MobileSchedule = ({ events = [], onSelectEvent, onSchedule, onLoadMore, lo
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             requestMore();
+          } else if (loadGuardRef.current.pending) {
+            loadGuardRef.current.pending = false;
           }
         });
       },
       {
         root: listRef.current ?? null,
         rootMargin: listRef.current ? '0px 0px 160px 0px' : '0px 0px 200px 0px',
-        threshold: listRef.current ? 0.1 : 0,
+        threshold: listRef.current ? 0.05 : 0,
       }
     );
     observer.observe(node);
@@ -165,6 +179,7 @@ const MobileSchedule = ({ events = [], onSelectEvent, onSchedule, onLoadMore, lo
         ref={listRef}
         className="flex-1 border border-border rounded-lg overflow-y-auto"
         onScroll={handleScroll}
+        onPointerDown={() => { hasInteractedRef.current = true; }}
       >
         {loading && !events.length ? (
           <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>

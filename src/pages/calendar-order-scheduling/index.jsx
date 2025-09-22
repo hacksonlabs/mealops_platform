@@ -72,7 +72,7 @@ const CalendarOrderScheduling = () => {
     const events = [...orders, ...birthdayEvents, ...(carts ?? [])];
     events.sort(compareEvents);
     return events;
-  }, [orders, birthdayEvents, carts]);
+  }, [orders, birthdayEvents, carts, activeTeam?.id]);
 
   // responsiveness
   useEffect(() => {

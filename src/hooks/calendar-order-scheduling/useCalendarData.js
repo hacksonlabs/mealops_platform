@@ -186,7 +186,9 @@ export function useCalendarData(
           };
         });
 
-        if (!cancelled) setOrders(mapped);
+        if (!cancelled) {
+          setOrders(mapped);
+        }
       } catch (e) {
         if (!cancelled) { setErr(e?.message || 'Failed to load calendar data'); setOrders([]); }
       } finally {
