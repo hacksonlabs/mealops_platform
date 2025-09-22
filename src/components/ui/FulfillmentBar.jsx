@@ -30,35 +30,8 @@ const FulfillmentBar = ({ value, onChange, onUseCurrentLocation, className = '' 
     <div className={`bg-card border-b border-border ${className}`}>
       <div className="px-4 lg:px-6 pt-3">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 p-2 sm:p-3">
-          {/* Service segmented toggle */}
-          <div className="shrink-0">
-            <div className="bg-muted/70 p-1 rounded-lg inline-flex">
-              {[
-                { id: 'delivery', label: 'Delivery', icon: 'Truck' },
-                { id: 'pickup', label: 'Pickup', icon: 'Store' },
-              ].map((opt) => {
-                const active = service === opt.id;
-                return (
-                  <Button
-                    key={opt.id}
-                    variant={active ? 'default' : 'ghost'}
-                    onClick={() => emit({ service: opt.id })}
-                    className={`px-3 py-2 rounded-md text-sm flex items-center gap-2 ${
-                      active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    <Icon name={opt.icon} size={16} />
-                    <span>{opt.label}</span>
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="hidden xl:block w-px self-stretch bg-border/60" />
-
           {/* Address */}
-          <div className="flex-1 min-w-[240px]">
+          <div className="flex-1 min-w-[240px] order-1 sm:order-2">
             <div className="relative h-11">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-primary">
                 <Icon name="MapPin" size={16} />
@@ -86,7 +59,7 @@ const FulfillmentBar = ({ value, onChange, onUseCurrentLocation, className = '' 
           </div>
 
           {/* Date */}
-          <div className="w-full sm:w-auto sm:min-w-[190px]">
+          <div className="flex-1 min-w-[120px] order-2 sm:order-3 sm:flex-none sm:w-auto sm:min-w-[190px]">
             <div className="relative h-11">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                 <Icon name="Calendar" size={16} />
@@ -102,7 +75,7 @@ const FulfillmentBar = ({ value, onChange, onUseCurrentLocation, className = '' 
           </div>
 
           {/* Time */}
-          <div className="w-full sm:w-auto sm:min-w-[160px]">
+          <div className="flex-1 min-w-[110px] order-3 sm:order-4 sm:flex-none sm:w-auto sm:min-w-[160px]">
             <div className="relative h-11">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                 <Icon name="Clock" size={16} />
@@ -114,6 +87,31 @@ const FulfillmentBar = ({ value, onChange, onUseCurrentLocation, className = '' 
                 className="h-11 w-full sm:w-[160px] pl-9 pr-3 rounded-lg bg-muted/30 border border-border/60 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent text-sm"
                 aria-label="Time"
               />
+            </div>
+          </div>
+
+          {/* Service segmented toggle */}
+          <div className="w-full sm:w-auto order-4 sm:order-1">
+            <div className="bg-muted/70 p-1 rounded-lg inline-flex w-full justify-center sm:justify-start">
+              {[
+                { id: 'delivery', label: 'Delivery', icon: 'Truck' },
+                { id: 'pickup', label: 'Pickup', icon: 'Store' },
+              ].map((opt) => {
+                const active = service === opt.id;
+                return (
+                  <Button
+                    key={opt.id}
+                    variant={active ? 'default' : 'ghost'}
+                    onClick={() => emit({ service: opt.id })}
+                    className={`px-3 py-2 rounded-md text-sm flex items-center gap-2 ${
+                          active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Icon name={opt.icon} size={16} />
+                    <span>{opt.label}</span>
+                  </Button>
+                );
+              })}
             </div>
           </div>
         </div>
