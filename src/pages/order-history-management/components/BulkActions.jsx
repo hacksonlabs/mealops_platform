@@ -44,59 +44,36 @@ const BulkActions = ({ selectedOrders, orders, onBulkAction, onClearSelection })
 
   return (
     <div className="bg-primary text-primary-foreground rounded-lg p-4 mb-6 shadow-athletic">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex items-center gap-2">
             <Icon name="CheckSquare" size={20} />
             <span className="font-medium">
               {selectedOrders?.length} order{selectedOrders?.length !== 1 ? 's' : ''} selected
             </span>
           </div>
-          <div className="hidden md:flex items-center space-x-4 text-sm opacity-90">
+          <div className="flex items-center gap-2 text-sm opacity-90">
             <span>Total: {formatCurrency(calculateTotalCost())}</span>
           </div>
         </div>
-        {/* Quick Actions */}
-        <div className="flex items-center">
+
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 md:justify-end md:flex-1">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => onBulkAction('download-receipts', selectedOrders)}
             iconName="Download"
             iconPosition="left"
-            className="text-primary-foreground hover:bg-primary-foreground/10"
+            className="w-full sm:w-auto text-primary-foreground hover:bg-primary-foreground/10"
           >
             Download Receipts
           </Button>
-          {/* <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onBulkAction('export-csv', selectedOrders)}
-            iconName="FileText"
-            iconPosition="left"
-            className="text-primary-foreground hover:bg-primary-foreground/10"
-          >
-            Export CSV
-          </Button> */}
-          {/* <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onBulkAction('generate-report', selectedOrders)}
-            iconName="BarChart3"
-            iconPosition="left"
-            className="text-primary-foreground hover:bg-primary-foreground/10"
-          >
-            Generate Report
-          </Button> */}
-        </div>
-
-        <div className="flex items-center space-x-3">
           <Button
             variant="ghost"
             size="sm"
             onClick={onClearSelection}
             iconName="X"
-            className="text-primary-foreground hover:bg-primary-foreground/10"
+            className="w-full sm:w-auto text-primary-foreground hover:bg-primary-foreground/10"
           >
             Clear
           </Button>

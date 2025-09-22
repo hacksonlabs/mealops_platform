@@ -1,6 +1,119 @@
 // src/hooks/cart/useCartOnPage.js
 import { useEffect, useState } from 'react';
 
+const toArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null) return [];
+  return [value];
+};
+
+const normalizePriceCents = (value) => {
+  const cents = Number(value);
+  if (Number.isFinite(cents)) return Math.round(cents);
+  return 0;
+};
+
+const buildSelectedOptionsPayload = (selections = {}, catalog = []) => {
+  if (selections && typeof selections === 'object' && selections.__meta__) {
+    const cloned = {};
+    Object.entries(selections).forEach(([key, value]) => {
+      if (key.startsWith('__')) return;
+      cloned[key] = toArray(value).map((entry) =>
+        typeof entry === 'object' && entry !== null ? { ...entry } : entry
+      );
+    });
+    cloned.__meta__ = selections.__meta__;
+    return cloned;
+  }
+
+  const payload = {};
+  if (Array.isArray(selections)) {
+    payload.__root__ = selections.map((entry) =>
+      typeof entry === 'object' && entry !== null ? { ...entry } : entry
+    );
+  } else if (selections && typeof selections === 'object') {
+    Object.entries(selections).forEach(([key, value]) => {
+      if (key.startsWith('__')) return;
+      payload[key] = toArray(value).map((entry) =>
+        typeof entry === 'object' && entry !== null ? { ...entry } : entry
+      );
+    });
+  }
+
+  const meta = {};
+  const groupMap = new Map();
+  (Array.isArray(catalog) ? catalog : []).forEach((group) => {
+    if (!group) return;
+    const key = group.id ?? group.name;
+    if (!key) return;
+    groupMap.set(String(key), group);
+  });
+
+  const toRecord = (group, raw) => {
+    const rawObj = typeof raw === 'object' && raw !== null ? raw : {};
+    const candidateId = rawObj.id ?? rawObj.optionId ?? rawObj.value ?? (typeof raw === 'string' ? raw : null);
+    const option = group?.options?.find((opt) => {
+      const optId = opt?.id ?? opt?.value ?? opt?.optionId ?? null;
+      return optId != null && String(optId) === String(candidateId);
+    });
+
+    const name =
+      option?.name ??
+      option?.label ??
+      rawObj.name ??
+      rawObj.label ??
+      (typeof candidateId === 'string' ? candidateId : 'Option');
+
+    const priceCents = (() => {
+      if (Number.isFinite(Number(option?.price_cents))) return Math.round(Number(option.price_cents));
+      if (Number.isFinite(Number(option?.price))) return Math.round(Number(option.price) * 100);
+      if (Number.isFinite(Number(rawObj.price_cents))) return Math.round(Number(rawObj.price_cents));
+      if (Number.isFinite(Number(rawObj.price))) return Math.round(Number(rawObj.price) * 100);
+      return 0;
+    })();
+
+    const quantity = (() => {
+      if (Number.isFinite(Number(option?.quantity))) return Math.max(1, Math.round(Number(option.quantity)));
+      if (Number.isFinite(Number(rawObj.quantity))) return Math.max(1, Math.round(Number(rawObj.quantity)));
+      return 1;
+    })();
+
+    return {
+      id: candidateId != null ? String(candidateId) : null,
+      name,
+      price: priceCents / 100,
+      price_cents: priceCents,
+      quantity,
+    };
+  };
+
+  Object.entries({ ...payload }).forEach(([key, rawValues]) => {
+    if (key.startsWith('__')) return;
+    const group = groupMap.get(key) || null;
+    const processed = Array.isArray(rawValues)
+      ? rawValues.map((entry) => toRecord(group, entry)).filter(Boolean)
+      : [];
+
+    if (processed.length) {
+      payload[key] = processed;
+      meta[key] = {
+        id: group?.id ?? key,
+        name: group?.name ?? key,
+        options: processed.map((opt) => ({
+          optionId: opt.id,
+          name: opt.name,
+          priceCents: normalizePriceCents(opt.price_cents),
+          quantity: opt.quantity,
+        })),
+      };
+    }
+  });
+
+  if (Object.keys(meta).length) payload.__meta__ = meta;
+
+  return payload;
+};
+
 export default function useCartOnPage({
   activeTeam, restaurant, provider, fulfillment,
   setProvider, setActiveCartId, location,
@@ -150,14 +263,17 @@ export default function useCartOnPage({
     const extraCount = (customizedItem.assignedTo || []).filter(a => a?.name === 'Extra' || a?.id === EXTRA_SENTINEL).length;
     const displayNames = (customizedItem.assignedTo || []).map(a => a?.name).filter(Boolean);
 
-    const selectedOptions = customizedItem.selectedOptions || {};
+    const selectedOptionsPayload = buildSelectedOptionsPayload(
+      customizedItem.selectedOptions,
+      customizedItem.optionsCatalog
+    );
     const unitPrice = typeof customizedItem.customizedPrice === 'number'
       ? customizedItem.customizedPrice
       : Number(customizedItem.price || 0);
 
     if (customizedItem.cartRowId) {
       const selWithAssign = {
-        ...selectedOptions,
+        ...selectedOptionsPayload,
         __assignment__: { member_ids: memberIds, extra_count: extraCount, display_names: displayNames },
       };
       await cartDbService.updateItem(id, customizedItem.cartRowId, {
@@ -172,7 +288,7 @@ export default function useCartOnPage({
         quantity,
         unitPrice,
         specialInstructions: customizedItem.specialInstructions || '',
-        selectedOptions,
+        selectedOptions: selectedOptionsPayload,
         assignment: { memberIds, extraCount, displayNames },
       });
     }

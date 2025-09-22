@@ -106,25 +106,26 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
   return (
     <div className="bg-card border border-border rounded-lg shadow-athletic mb-6">
       {/* Filter Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border">
-        <div className="flex items-center space-x-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 border-b border-border">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-3 gap-2">
           <Button
             variant="ghost"
             size="sm"
             onClick={onToggleCollapse}
             iconName={isCollapsed ? 'ChevronDown' : 'ChevronUp'}
             iconPosition="left"
+            className="w-full sm:w-auto"
           >
             Advanced Filters
           </Button>
           {hasActiveFilters && (
-            <span className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded-full">
+            <span className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded-full self-start sm:self-auto">
               Active
             </span>
           )}
         </div>
-        <div className="flex items-center space-x-4">
-          <span className="text-sm text-muted-foreground">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 gap-2">
+          <span className="text-sm text-muted-foreground text-center sm:text-left">
             {resultCount} orders found
           </span>
           {hasActiveFilters && (
@@ -134,6 +135,7 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
               onClick={handleClearFilters}
               iconName="X"
               iconPosition="left"
+              className="w-full sm:w-auto"
             >
               Clear All
             </Button>
@@ -179,7 +181,7 @@ const OrderFilters = ({ filters, onFiltersChange, isCollapsed, onToggleCollapse,
 
             <div className="self-end">
               <Select
-                label="Restaruant"
+                label="Restaurant"
                 searchable
                 options={vendorOptions}
                 value={localFilters?.vendor || ''}

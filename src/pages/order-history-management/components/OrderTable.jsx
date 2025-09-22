@@ -7,6 +7,8 @@ import PeopleTooltip from '../../../components/ui/PeopleTooltip';
 import { getMealTypeIcon, getStatusBadge, formatDate, formatCurrency } from '../../../utils/ordersUtils';
 import { callCancelAPI } from '../../../utils/ordersApiUtils';
 
+const SCHEDULED_STATUSES = ['scheduled', 'confirmed'];
+
 const OrderTable = ({
   orders,
   selectedOrders,
@@ -125,8 +127,33 @@ const OrderTable = ({
     );
   };
 
-  const isAllSelected = orders?.length > 0 && selectedOrders?.length === orders?.length;
-  const isIndeterminate = selectedOrders?.length > 0 && selectedOrders?.length < orders?.length;
+  const renderMobileActions = (order) => (
+    <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
+      <Button
+        size="sm"
+        variant="secondary"
+        className="w-full sm:w-auto"
+        onClick={() => onOrderAction('view', order)}
+        iconName="Eye"
+        iconPosition="left"
+      >
+        View Details
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        className="w-full sm:w-auto"
+        onClick={() => onOrderAction('receipt', order)}
+        iconName="Download"
+        iconPosition="left"
+      >
+        Receipt
+      </Button>
+    </div>
+  );
+
+  const isAllSelected = sortedOrders?.length > 0 && sortedOrders.every(order => selectedOrders?.includes(order.id));
+  const isIndeterminate = sortedOrders?.some(order => selectedOrders?.includes(order.id)) && !isAllSelected;
 
   // ---- Hover tooltip state (portal, upward) ----
   const [hoverOrderId, setHoverOrderId] = useState(null);
@@ -176,64 +203,66 @@ const OrderTable = ({
 
   return (
     <div className="bg-card border border-border rounded-lg shadow-athletic overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-muted">
-            <tr>
-              <th className="w-12 px-4 py-3">
-                <Checkbox
-                  checked={isAllSelected}
-                  indeterminate={isIndeterminate}
-                  onChange={(e) => onSelectAll(e?.target?.checked)}
-                />
-              </th>
-              <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('date')}
-                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
-                >
-                  <span>Date & Time</span>
-                  <Icon name={getSortIcon('date')} size={14} />
-                </button>
-              </th>
-              <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('restaurant')}
-                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
-                >
-                  <span>Restaurant</span>
-                  <Icon name={getSortIcon('restaurant')} size={14} />
-                </button>
-              </th>
-              <th className="px-4 py-3 text-left">
-                <span className="text-sm font-medium text-foreground">Meal Type</span>
-              </th>
-              <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('attendees')}
-                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
-                >
-                  <span>Attendees</span>
-                  <Icon name={getSortIcon('attendees')} size={14} />
-                </button>
-              </th>
-              <th className="px-4 py-3 text-left">
-                <button
-                  onClick={() => handleSort('totalCost')}
-                  className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
-                >
-                  <span>Total Cost</span>
-                  <Icon name={getSortIcon('totalCost')} size={14} />
-                </button>
-              </th>
-              <th className="px-4 py-3 text-left">
-                <span className="text-sm font-medium text-foreground">Status</span>
-              </th>
-              <th className="px-4 py-3 text-right">
-                <span className="text-sm font-medium text-foreground">Actions</span>
-              </th>
-            </tr>
-          </thead>
+      {/* Desktop table view */}
+      <div className="hidden md:block">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-muted">
+              <tr>
+                <th className="w-12 px-4 py-3">
+                  <Checkbox
+                    checked={isAllSelected}
+                    indeterminate={isIndeterminate}
+                    onChange={(e) => onSelectAll(e?.target?.checked, sortedOrders)}
+                  />
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <button
+                    onClick={() => handleSort('date')}
+                    className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
+                  >
+                    <span>Date & Time</span>
+                    <Icon name={getSortIcon('date')} size={14} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <button
+                    onClick={() => handleSort('restaurant')}
+                    className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
+                  >
+                    <span>Restaurant</span>
+                    <Icon name={getSortIcon('restaurant')} size={14} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="text-sm font-medium text-foreground">Meal Type</span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <button
+                    onClick={() => handleSort('attendees')}
+                    className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
+                  >
+                    <span>Attendees</span>
+                    <Icon name={getSortIcon('attendees')} size={14} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <button
+                    onClick={() => handleSort('totalCost')}
+                    className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
+                  >
+                    <span>Total Cost</span>
+                    <Icon name={getSortIcon('totalCost')} size={14} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="text-sm font-medium text-foreground">Status</span>
+                </th>
+                <th className="px-4 py-3 text-right">
+                  <span className="text-sm font-medium text-foreground">Actions</span>
+                </th>
+              </tr>
+            </thead>
 
             <tbody className="divide-y divide-border">
               {sortedOrders?.map((order) => (
@@ -298,13 +327,92 @@ const OrderTable = ({
                     <div className="text-sm font-medium text-foreground">{formatCurrency(order?.totalCost)}</div>
                   </td>
 
-                  <td className="px-4 py-4">{getStatusBadge(order?.status)}</td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-col items-start gap-1">
+                      {getStatusBadge(order?.status)}
+                    </div>
+                  </td>
 
                   <td className="px-4 py-4 text-right">{getActionButtons(order)}</td>
                 </tr>
               ))}
             </tbody>
-        </table>
+          </table>
+        </div>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="md:hidden">
+        {orders?.length > 0 && (
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Checkbox
+                checked={isAllSelected}
+                indeterminate={isIndeterminate}
+                onChange={(e) => onSelectAll(e?.target?.checked, sortedOrders)}
+              />
+              <span>Select all</span>
+            </label>
+            <span className="text-xs text-muted-foreground">
+              {selectedOrders?.length || 0} selected
+            </span>
+          </div>
+        )}
+        <div className="divide-y divide-border">
+          {sortedOrders?.map((order) => (
+            <div key={order?.id} className="p-4 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    checked={selectedOrders?.includes(order?.id)}
+                    onChange={(e) => onOrderSelect(order?.id, e?.target?.checked)}
+                  />
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">{formatDate(order?.date)}</div>
+                    <div className="text-xs text-muted-foreground">{order?.location}</div>
+                  </div>
+                </div>
+                <div className="shrink-0 flex flex-col items-end gap-1">
+                  {getStatusBadge(order?.status)}
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-muted rounded-full flex items-center justify-center">
+                  <Icon name="Store" size={18} className="text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-foreground">{order?.restaurant}</div>
+                  <div className="text-xs text-muted-foreground">Order #{order?.orderNumber}</div>
+                </div>
+              </div>
+
+              <div className="space-y-2 text-sm text-foreground">
+                <div className="flex items-center gap-2">
+                  <Icon name={getMealTypeIcon(order?.mealType)} size={16} className="text-muted-foreground" />
+                  <span className="capitalize">{order?.mealType}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Icon name="Users" size={16} className="text-muted-foreground" />
+                  <span>{order?.attendees} {order?.attendees === 1 ? 'person' : 'people'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Icon name="Receipt" size={16} className="text-muted-foreground" />
+                  <span className="font-semibold">{formatCurrency(order?.totalCost)}</span>
+                </div>
+              </div>
+
+              {order?.teamMembers?.length > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  Attendees: {order.teamMembers.slice(0, 3).join(', ')}
+                  {order.teamMembers.length > 3 && '...'}
+                </div>
+              )}
+
+              {renderMobileActions(order)}
+            </div>
+          ))}
+        </div>
       </div>
 
       {orders?.length === 0 && (

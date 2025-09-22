@@ -189,19 +189,6 @@ const RestaurantDetailMenu = () => {
       <main className="pt-16">
         <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
 
-        {/* Mobile header */}
-        <div className="md:hidden sticky top-24 z-30 bg-background border-b border-border">
-          <div className="flex items-center justify-between p-4">
-            <Button variant="ghost" size="icon" onClick={handleBackClick}>
-              <Icon name="ArrowLeft" size={20} />
-            </Button>
-            <h1 className="text-lg font-semibold text-foreground truncate mx-4">{restaurant?.name}</h1>
-            <Button variant="ghost" size="icon" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-              <Icon name="Info" size={20} />
-            </Button>
-          </div>
-        </div>
-
         <div className="flex">
           <div className="flex-1">
             <RestaurantHero
@@ -209,7 +196,7 @@ const RestaurantDetailMenu = () => {
               selectedService={selectedService}
               onServiceToggle={handleServiceToggle}
               rightContent={
-                <div className="w-full md:w-80">
+                <div className="w-full md:w-80 space-y-3">
                   <MenuSearch
                     searchQuery={searchQuery}
                     onSearch={handleSearch}
@@ -223,6 +210,7 @@ const RestaurantDetailMenu = () => {
                     onCreated={(newId) => setActiveCartId?.(newId)}
                     cartTitle={initialCartTitle}
                     mealType={mealType}
+                    className="w-full justify-center md:justify-center transition-transform duration-150 hover:-translate-y-0.5 hover:shadow-athletic"
                   />
                 </div>
               }
@@ -237,6 +225,7 @@ const RestaurantDetailMenu = () => {
                     selected={localProvider}
                     onChange={setLocalProvider}
                     showIcons={false}
+                    className="inline-flex flex-wrap gap-2"
                   />
                 </div>
               }
