@@ -53,6 +53,14 @@ const HomeRestaurantDiscovery = () => {
           onClearAll={clearAll}
         />
 
+        {gridLoading && (
+          <div className="px-4 lg:px-6 pt-6">
+            <div className="bg-muted/40 border border-border/60 rounded-lg px-4 py-3 text-sm text-muted-foreground">
+              Loading restaurants…
+            </div>
+          </div>
+        )}
+
         <RestaurantGrid
           selectedCategory={selectedCategory}
           selectedService={selectedService}
