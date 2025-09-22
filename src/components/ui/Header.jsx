@@ -71,32 +71,34 @@ const Header = ({ className = '' }) => {
 
   return (
     <header className={`fixed top-0 left-0 right-0 z-50 bg-card border-b border-border shadow-athletic ${className}`}>
-      <div className="flex items-center justify-between h-16 px-4 lg:px-6">
+      <div className="flex items-center justify-between h-14 px-3 sm:px-4 lg:h-16 lg:px-6">
         {/* Logo and Team Info */}
         <div className="flex items-center">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3 lg:space-x-4">
             <Link to="/" className="flex items-center space-x-2">
-              <img src={mealLogo} alt="MealOps Logo" className="h-12 w-auto object-contain" />
+              <img src={mealLogo} alt="MealOps Logo" className="h-10 w-auto object-contain sm:h-11 lg:h-12" />
             </Link>
 
             {/* Team Info Display */}
             {!loadingTeams && activeTeam && (
               <>
-                <div className="h-10 border-l border-border" />
-                <div className="relative w-20" ref={teamMenuRef}>
+                <div className="h-8 border-l border-border sm:h-10" />
+                <div className="relative min-w-[72px]" ref={teamMenuRef}>
                   <button
                     onClick={() => setShowTeamMenu((s) => !s)}
-                    className="flex items-center space-x-2 h-10 px-1 py-2 rounded-md hover:bg-muted transition-athletic"
+                    className="flex items-center gap-1 sm:gap-2 h-8 sm:h-10 px-1.5 py-1 sm:px-1 sm:py-2 rounded-md hover:bg-muted transition-athletic"
                     aria-haspopup="menu"
                     aria-expanded={showTeamMenu}
                   >
                     <div className="flex flex-col items-center">
-                      <span className="text-md font-bold text-foreground">{activeTeam.name}</span>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs text-muted-foreground font-medium uppercase">
+                      <span className="text-sm sm:text-base font-bold text-foreground leading-tight">
+                        {activeTeam.name}
+                      </span>
+                      <div className="flex items-center space-x-1 sm:space-x-2">
+                        <span className="text-[10px] sm:text-xs text-muted-foreground font-medium uppercase">
                           {activeTeam.gender}
                         </span>
-                        <span className="text-xs text-muted-foreground font-medium uppercase">
+                        <span className="text-[10px] sm:text-xs text-muted-foreground font-medium uppercase">
                           {activeTeam.sport}
                         </span>
                       </div>
@@ -165,7 +167,7 @@ const Header = ({ className = '' }) => {
         </nav>
 
         {/* Right Side Actions */}
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2 sm:space-x-3">
           {/* Cart button (global) */}
           <button
             className="relative p-2 text-muted-foreground hover:text-foreground transition-athletic"
@@ -190,7 +192,7 @@ const Header = ({ className = '' }) => {
           <div className="relative">
             <button
               onClick={() => setIsUserMenuOpen((s) => !s)}
-              className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted transition-athletic"
+              className="hidden lg:flex items-center space-x-2 p-2 rounded-md hover:bg-muted transition-athletic"
             >
               <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
                 {userProfile?.first_name ? (
@@ -260,7 +262,31 @@ const Header = ({ className = '' }) => {
       {/* Mobile Navigation */}
       {isMobileMenuOpen && (
         <div className="lg:hidden bg-card border-t border-border shadow-athletic-md">
-          <nav className="px-4 py-2 space-y-1">
+          <div className="px-4 py-3 flex items-center gap-3 border-b border-border">
+            <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center">
+              {userProfile?.first_name ? (
+                <span className="text-white font-semibold text-xs">{initials}</span>
+              ) : (
+                <Icon name="User" size={16} color="white" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground truncate">
+                {fullName || 'Account'}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {user?.email || 'user@example.com'}
+              </p>
+            </div>
+            <button
+              onClick={() => setIsUserMenuOpen(true)}
+              className="p-2 text-muted-foreground hover:text-foreground transition-athletic"
+              aria-label="Open profile menu"
+            >
+              <Icon name="Settings" size={18} />
+            </button>
+          </div>
+          <nav className="px-3 py-2 space-y-1">
             {navigationItems?.map((item) => (
               <button
                 key={item?.path}
@@ -275,13 +301,15 @@ const Header = ({ className = '' }) => {
               >
                 <Icon name={item?.icon} size={18} />
                 <span>{item?.label}</span>
-                {/* {item?.path === '/meal-polling-system' && notifications > 0 && (
-                  <span className="ml-auto px-2 py-0.5 text-xs bg-accent text-accent-foreground rounded-full">
-                    {notifications}
-                  </span>
-                )} */}
               </button>
             ))}
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-medium text-error hover:bg-muted transition-athletic"
+            >
+              <Icon name="LogOut" size={18} />
+              <span>Sign out</span>
+            </button>
           </nav>
         </div>
       )}
