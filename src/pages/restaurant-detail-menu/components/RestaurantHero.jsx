@@ -32,7 +32,7 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService, rightCon
           {/* Left: title/meta + below-title slot */}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-              <h1 className="text-2xl md:text-3xl font-bold text-foreground leading-tight truncate max-w-[55%] md:max-w-[60%]">
+              <h1 className="text-2xl md:text-3xl font-bold text-foreground leading-tight truncate max-w-full md:max-w-[60%]">
                 {restaurant?.name}
               </h1>
 
