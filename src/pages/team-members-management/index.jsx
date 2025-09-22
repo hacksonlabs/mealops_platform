@@ -24,26 +24,51 @@ function PageHeader({ team, teamsCount, onNewTeam, onEditTeam }) {
   ].filter(Boolean);
 
   return (
-    <div className="flex items-center justify-between mb-8">
-      <div className="flex-1">
-        <h1 className="text-4xl font-extrabold text-foreground leading-tight mb-3">
-          {titlePieces.join(' ')}
-        </h1>
+    <div className="mb-8">
+      {/* Mobile layout */}
+      <div className="md:hidden space-y-4">
+        <div>
+          <h1 className="text-3xl font-extrabold text-foreground leading-tight mb-2">
+            {titlePieces.join(' ')}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Manage members, roles, contact information, and groups for{' '}
+            <span className="font-semibold text-foreground">
+              {team?.name || 'your team'}
+            </span>.
+          </p>
+        </div>
 
-        <p className="text-lg text-muted-foreground mb-4">
-          Manage members, roles, contact information, and groups for{' '}
-          <span className="font-semibold text-foreground">
-            {team?.name || 'your team'}
-          </span>.
-        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {teamsCount > 0 && (
+            <Button
+              onClick={onNewTeam}
+              iconName="Plus"
+              iconPosition="left"
+              variant="outline"
+            >
+              New Team
+            </Button>
+          )}
+          {team?.id && (
+            <Button
+              variant="outline"
+              onClick={onEditTeam}
+              iconName="Edit"
+              iconPosition="left"
+            >
+              Edit Team
+            </Button>
+          )}
+        </div>
 
         {team?.conference_name && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-6">
+          <div className="grid grid-cols-1 gap-2">
             <div className="bg-gradient-to-br from-purple-500/10 to-purple-700/10 border border-purple-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
-              <Icon name="ClipboardList" size={20} className="text-purple-500 flex-shrink-0" />
+              <Icon name="ClipboardList" size={18} className="text-purple-500 flex-shrink-0" />
               <div>
-                <p className="text-xs text-muted-foreground">Conference</p>
-                <strong className="text-base text-foreground font-semibold">
+                <p className="text-[11px] text-muted-foreground">Conference</p>
+                <strong className="text-sm text-foreground font-semibold">
                   {team.conference_name}
                 </strong>
               </div>
@@ -52,17 +77,46 @@ function PageHeader({ team, teamsCount, onNewTeam, onEditTeam }) {
         )}
       </div>
 
-      <div className="flex items-center justify-end gap-2">
-        {teamsCount > 0 && (
-          <Button onClick={onNewTeam} iconName="Plus" iconPosition="left" variant="outline">
-            New Team
-          </Button>
-        )}
-        {team?.id && (
-          <Button variant="outline" onClick={onEditTeam} iconName="Edit" iconPosition="left">
-            Edit Team
-          </Button>
-        )}
+      {/* Desktop layout */}
+      <div className="hidden md:flex items-center justify-between">
+        <div className="flex-1">
+          <h1 className="text-4xl font-extrabold text-foreground leading-tight mb-3">
+            {titlePieces.join(' ')}
+          </h1>
+          <p className="text-lg text-muted-foreground mb-4">
+            Manage members, roles, contact information, and groups for{' '}
+            <span className="font-semibold text-foreground">
+              {team?.name || 'your team'}
+            </span>.
+          </p>
+
+          {team?.conference_name && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-6">
+              <div className="bg-gradient-to-br from-purple-500/10 to-purple-700/10 border border-purple-500/20 rounded-lg p-3 flex items-center space-x-3 shadow-md">
+                <Icon name="ClipboardList" size={20} className="text-purple-500 flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Conference</p>
+                  <strong className="text-base text-foreground font-semibold">
+                    {team.conference_name}
+                  </strong>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {teamsCount > 0 && (
+            <Button onClick={onNewTeam} iconName="Plus" iconPosition="left" variant="outline">
+              New Team
+            </Button>
+          )}
+          {team?.id && (
+            <Button variant="outline" onClick={onEditTeam} iconName="Edit" iconPosition="left">
+              Edit Team
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -75,8 +129,8 @@ function TabsNav({ value, onChange }) {
   const idle = 'border-transparent text-muted-foreground hover:text-foreground';
 
   return (
-    <div className="mb-6 border-b border-border">
-      <nav className="-mb-px flex space-x-6" aria-label="Team sections">
+    <div className="mb-6 border-b border-border overflow-x-auto">
+      <nav className="-mb-px flex min-w-max gap-4 px-1" aria-label="Team sections">
         <button
           type="button"
           onClick={() => onChange(TABS.MEMBERS)}
@@ -102,7 +156,6 @@ const TeamMembersManagement = () => {
   const navigate = useNavigate();
   const {
     user,
-    userProfile,
     teams,
     activeTeam,
     loading: authLoading,
@@ -189,7 +242,7 @@ const TeamMembersManagement = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header user={userProfile} notifications={2} />
+      <Header />
 
       <main className="pt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

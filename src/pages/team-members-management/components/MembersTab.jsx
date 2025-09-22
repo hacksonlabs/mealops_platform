@@ -301,7 +301,28 @@ export default function MembersTab() {
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      {/* Mobile stats */}
+      <div className="grid grid-cols-2 gap-3 md:hidden">
+        {[
+          { label: 'Total', icon: 'Users', value: memberStats.total },
+          { label: 'Players', icon: 'UserRound', value: memberStats.players },
+          { label: 'Coaches', icon: 'Trophy', value: memberStats.coaches },
+          { label: 'Staff', icon: 'Briefcase', value: memberStats.staff },
+        ].map((card) => (
+          <div key={card.label} className="bg-card border border-border rounded-lg p-4 shadow-athletic">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase">{card.label}</p>
+                <p className="text-xl font-bold text-foreground">{card.value}</p>
+              </div>
+              <Icon name={card.icon} size={20} className="text-primary" />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop stats */}
+      <div className="hidden md:grid md:grid-cols-4 gap-6">
         <div className="bg-card border border-border rounded-lg p-6 shadow-athletic">
           <div className="flex items-center justify-between">
             <div>
@@ -328,7 +349,7 @@ export default function MembersTab() {
               <p className="text-muted-foreground text-sm">Coaches</p>
               <p className="text-2xl font-bold text-foreground">{memberStats.coaches}</p>
             </div>
-              <Icon name="Trophy" size={24} className="text-purple-600" />
+            <Icon name="Trophy" size={24} className="text-purple-600" />
           </div>
         </div>
 
@@ -344,10 +365,10 @@ export default function MembersTab() {
       </div>
 
       {/* Search & Filters */}
-      <div className="bg-card border border-border rounded-lg p-6 shadow-athletic">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-          <div className="flex flex-1 items-center space-x-4">
-            <div className="relative flex-1">
+      <div className="bg-card border border-border rounded-lg p-5 sm:p-6 shadow-athletic">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:space-x-4 md:gap-0 flex-1">
+            <div className="relative flex-1 min-w-[200px]">
               <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Search members by name or email..."
@@ -356,7 +377,7 @@ export default function MembersTab() {
                 className="pl-10"
               />
             </div>
-            <div className="w-40">
+            <div className="w-full sm:w-48 md:w-40">
               <Select
                 value={roleFilter}
                 multiple
@@ -371,27 +392,38 @@ export default function MembersTab() {
             </div>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:space-x-3 sm:gap-0 w-full lg:w-auto">
             {activeTeam?.id && (
-              <>
-                <Button variant="outline" onClick={() => setShowCSVModal(true)} iconName="Upload" iconPosition="left">
-                  Import CSV
-                </Button>
-                <Button variant="outline" onClick={() => setShowAddModal(true)} iconName="Plus" iconPosition="left">
-                  Add Member
-                </Button>
-              </>
+              <Button
+                variant="outline"
+                onClick={() => setShowAddModal(true)}
+                iconName="Plus"
+                iconPosition="left"
+                className="w-full sm:w-auto"
+              >
+                Add Member
+              </Button>
             )}
             <Button
               variant="outline"
               onClick={() => handleExportMembers(selectedMembers.length > 0)}
               iconName="Download"
               iconPosition="left"
+              className="hidden md:inline-flex"
               aria-label={selectedMembers.length > 0
                 ? `Export ${selectedMembers.length} selected members`
                 : 'Export all members'}
             >
               {selectedMembers.length > 0 ? `Export (${selectedMembers.length} selected)` : 'Export All'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowCSVModal(true)}
+              iconName="Upload"
+              iconPosition="left"
+              className="hidden md:inline-flex"
+            >
+              Import CSV
             </Button>
           </div>
         </div>
