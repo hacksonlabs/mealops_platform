@@ -1,5 +1,5 @@
 // /src/components/ui/schedule-meals/ScheduleMealModal.jsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../../AppIcon';
 import Button from '../custom/Button';
@@ -227,6 +227,16 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
     setOpenAC(false);
   };
 
+  const handleBackdropClick = useCallback((event) => {
+    if (event.target === event.currentTarget) {
+      onClose?.();
+    }
+  }, [onClose]);
+
+  const stopPropagation = useCallback((event) => {
+    event.stopPropagation();
+  }, []);
+
   if (!isOpen) return null;
 
   return (
@@ -234,212 +244,216 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal */}
+      {/* Modal wrapper: give mobile screens breathing room without touching desktop layout */}
       <div
-        className="relative mx-4 my-6 sm:mx-auto sm:my-12 w-full max-w-2xl
-                   bg-card border border-border rounded-xl shadow-athletic-lg
-                   max-h-[85vh] overflow-hidden flex flex-col"
+        className="relative z-10 flex min-h-full items-start justify-center px-4 py-6 sm:px-0 sm:py-12"
+        onClick={handleBackdropClick}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border shrink-0">
-          <div>
-            <h2 className="text-xl font-heading font-semibold text-foreground">Schedule Meal</h2>
-            <p className="text-sm text-muted-foreground mt-1">{prettyDate(formData?.date)}</p>
+        <div
+          className="w-full max-w-2xl bg-card border border-border rounded-xl shadow-athletic-lg max-h-[85vh] overflow-hidden flex flex-col"
+          onClick={stopPropagation}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 border-b border-border shrink-0">
+            <div>
+              <h2 className="text-xl font-heading font-semibold text-foreground">Schedule Meal</h2>
+              <p className="text-sm text-muted-foreground mt-1">{prettyDate(formData?.date)}</p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={onClose} iconName="X" iconSize={20} />
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} iconName="X" iconSize={20} />
-        </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-          {/* Added pb-28 so there's space above the footer */}
-          <form id="schedule-meal-form" onSubmit={handleSubmit} className="p-6 space-y-6">
-            {/* Title */}
-            <Input
-              label="Meal Title"
-              type="text"
-              placeholder="e.g., SD Post Game"
-              value={formData.title}
-              maxLength={80}
-              onChange={(e) => setFormData((prev) => ({ ...prev, title: e?.target?.value }))}
-            />
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto min-h-0">
+            {/* Added pb-28 so there's space above the footer */}
+            <form id="schedule-meal-form" onSubmit={handleSubmit} className="p-6 space-y-6">
+              {/* Title */}
+              <Input
+                label="Meal Title"
+                type="text"
+                placeholder="e.g., SD Post Game"
+                value={formData.title}
+                maxLength={80}
+                onChange={(e) => setFormData((prev) => ({ ...prev, title: e?.target?.value }))}
+              />
 
-            {/* Top grid: Meal Type | Date/Time + Fulfillment */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Meal type — compact 2×2 */}
-              <div className="space-y-2">
-                <div className="text-sm font-medium text-foreground">Meal Type</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {MEAL_TYPES.map(({ value, label }) => {
-                    const selected = formData?.mealType === value;
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setFormData((prev) => ({ ...prev, mealType: value }))}
-                        aria-pressed={selected}
-                        className={`w-full flex items-center gap-2 p-2.5 border rounded-md text-sm transition-athletic
-                          ${selected ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}
-                      >
-                        <Icon name={getMealTypeIcon(value)} size={16} />
-                        <span className="font-medium">{label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Date/Time + Fulfillment */}
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Input
-                    label="Date"
-                    type="date"
-                    value={formData?.date}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, date: e?.target?.value }))}
-                  />
-                  <Input
-                    label="Time"
-                    type="time"
-                    value={formData?.time}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, time: e?.target?.value }))}
-                  />
-                </div>
-
+              {/* Top grid: Meal Type | Date/Time + Fulfillment */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Meal type — compact 2×2 */}
                 <div className="space-y-2">
-                  <div className="text-sm font-medium text-foreground">Fulfillment</div>
+                  <div className="text-sm font-medium text-foreground">Meal Type</div>
                   <div className="grid grid-cols-2 gap-2">
-                    {SERVICE_TYPES.map(({ value, label, icon }) => {
-                      const selected = formData?.serviceType === value;
+                    {MEAL_TYPES.map(({ value, label }) => {
+                      const selected = formData?.mealType === value;
                       return (
                         <button
                           key={value}
                           type="button"
-                          onClick={() => setFormData((prev) => ({ ...prev, serviceType: value }))}
+                          onClick={() => setFormData((prev) => ({ ...prev, mealType: value }))}
                           aria-pressed={selected}
-                          className={`w-full flex items-center justify-center gap-2 p-2.5 border rounded-md text-sm transition-athletic
+                          className={`w-full flex items-center gap-2 p-2.5 border rounded-md text-sm transition-athletic
                             ${selected ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}
                         >
-                          <Icon name={icon} size={16} />
+                          <Icon name={getMealTypeIcon(value)} size={16} />
                           <span className="font-medium">{label}</span>
                         </button>
                       );
                     })}
                   </div>
                 </div>
+
+                {/* Date/Time + Fulfillment */}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Input
+                      label="Date"
+                      type="date"
+                      value={formData?.date}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, date: e?.target?.value }))}
+                    />
+                    <Input
+                      label="Time"
+                      type="time"
+                      value={formData?.time}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, time: e?.target?.value }))}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-foreground">Fulfillment</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {SERVICE_TYPES.map(({ value, label, icon }) => {
+                        const selected = formData?.serviceType === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setFormData((prev) => ({ ...prev, serviceType: value }))}
+                            aria-pressed={selected}
+                            className={`w-full flex items-center justify-center gap-2 p-2.5 border rounded-md text-sm transition-athletic
+                              ${selected ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}
+                          >
+                            <Icon name={icon} size={16} />
+                            <span className="font-medium">{label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            {/* Location */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-medium text-foreground">Location</div>
-                {onSearchNearby && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    iconName="Search"
-                    onClick={handleSearchNearby}
-                    disabled={!addressInput && !pickedPlace}
-                  >
-                    Search nearby
-                  </Button>
-                )}
-              </div>
-
-              <div className="relative" ref={wrapperRef}>
-                <Input
-                  type="text"
-                  placeholder="Enter an address or place"
-                  value={addressInput}
-                  onFocus={() => { if (sugs.length) setOpenAC(true); updateAcPosition(); }}
-                  onChange={(e) => {
-                    setAddressInput(e?.target?.value);
-                    setPickedPlace(null);
-                    setOpenAC(true);
-                    updateAcPosition();
-                  }}
-                  onKeyDown={onKeyDown}
-                  autoComplete="off"
-                  role="combobox"
-                  aria-expanded={openAC}
-                  aria-autocomplete="list"
-                  aria-controls="gmaps-address-suggestions"
-                  required
-                />
-
-                {/* Suggestions rendered in a fixed-position portal so they appear above the footer/scroll areas */}
-                {openAC && (loadingAC || sugs.length > 0) && acRect &&
-                  createPortal(
-                    <div
-                      ref={acPortalRef}
-                      style={{
-                        position: 'fixed',
-                        top: acRect.bottom + 4,
-                        left: acRect.left,
-                        width: acRect.width,
-                      }}
-                      className="z-[100000]"
+              {/* Location */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-foreground">Location</div>
+                  {onSearchNearby && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      iconName="Search"
+                      onClick={handleSearchNearby}
+                      disabled={!addressInput && !pickedPlace}
                     >
-                      <ul
-                        id="gmaps-address-suggestions"
-                        role="listbox"
-                        className="max-h-60 overflow-auto rounded-md border border-border bg-popover shadow-athletic-lg"
-                      >
-                        {loadingAC && (
-                          <li className="px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
-                            <Icon name="Loader2" size={14} className="animate-spin" />
-                            Searching…
-                          </li>
-                        )}
-                        {!loadingAC && sugs.length === 0 && (
-                          <li className="px-3 py-2 text-sm text-muted-foreground">No matches</li>
-                        )}
-                        {!loadingAC &&
-                          sugs.map((s, i) => (
-                            <li
-                              key={s.id}
-                              role="option"
-                              aria-selected={i === hi}
-                              className={`px-3 py-2 text-sm cursor-pointer ${
-                                i === hi ? 'bg-primary/10' : 'hover:bg-muted/50'
-                              }`}
-                              onMouseDown={(e) => { e.preventDefault(); selectSuggestion(s); }}
-                              onMouseEnter={() => setHi(i)}
-                            >
-                              {s.label}
-                            </li>
-                          ))}
-                        {/* Required branding for Places */}
-                        <li className="px-3 py-2 flex justify-end">
-                          <img
-                            src="https://storage.googleapis.com/geo-devrel-public-buckets/powered_by_google_on_white.png"
-                            alt="Powered by Google"
-                            className="h-4"
-                          />
-                        </li>
-                      </ul>
-                    </div>,
-                    document.body
-                  )
-                }
-              </div>
-            </div>
-          </form>
-        </div>
+                      Search nearby
+                    </Button>
+                  )}
+                </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-6 border-t border-border shrink-0 pb-4">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button
-            type="submit"
-            form="schedule-meal-form"
-            disabled={!isValid}
-            iconName="Calendar"
-            iconSize={16}
-          >
-            Schedule Meal
-          </Button>
+                <div className="relative" ref={wrapperRef}>
+                  <Input
+                    type="text"
+                    placeholder="Enter an address or place"
+                    value={addressInput}
+                    onFocus={() => { if (sugs.length) setOpenAC(true); updateAcPosition(); }}
+                    onChange={(e) => {
+                      setAddressInput(e?.target?.value);
+                      setPickedPlace(null);
+                      setOpenAC(true);
+                      updateAcPosition();
+                    }}
+                    onKeyDown={onKeyDown}
+                    autoComplete="off"
+                    role="combobox"
+                    aria-expanded={openAC}
+                    aria-autocomplete="list"
+                    aria-controls="gmaps-address-suggestions"
+                    required
+                  />
+
+                  {/* Suggestions rendered in a fixed-position portal so they appear above the footer/scroll areas */}
+                  {openAC && (loadingAC || sugs.length > 0) && acRect &&
+                    createPortal(
+                      <div
+                        ref={acPortalRef}
+                        style={{
+                          position: 'fixed',
+                          top: acRect.bottom + 4,
+                          left: acRect.left,
+                          width: acRect.width,
+                        }}
+                        className="z-[100000]"
+                      >
+                        <ul
+                          id="gmaps-address-suggestions"
+                          role="listbox"
+                          className="max-h-60 overflow-auto rounded-md border border-border bg-popover shadow-athletic-lg"
+                        >
+                          {loadingAC && (
+                            <li className="px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
+                              <Icon name="Loader2" size={14} className="animate-spin" />
+                              Searching…
+                            </li>
+                          )}
+                          {!loadingAC && sugs.length === 0 && (
+                            <li className="px-3 py-2 text-sm text-muted-foreground">No matches</li>
+                          )}
+                          {!loadingAC &&
+                            sugs.map((s, i) => (
+                              <li
+                                key={s.id}
+                                role="option"
+                                aria-selected={i === hi}
+                                className={`px-3 py-2 text-sm cursor-pointer ${
+                                  i === hi ? 'bg-primary/10' : 'hover:bg-muted/50'
+                                }`}
+                                onMouseDown={(e) => { e.preventDefault(); selectSuggestion(s); }}
+                                onMouseEnter={() => setHi(i)}
+                              >
+                                {s.label}
+                              </li>
+                            ))}
+                          {/* Required branding for Places */}
+                          <li className="px-3 py-2 flex justify-end">
+                            <img
+                              src="https://storage.googleapis.com/geo-devrel-public-buckets/powered_by_google_on_white.png"
+                              alt="Powered by Google"
+                              className="h-4"
+                            />
+                          </li>
+                        </ul>
+                      </div>,
+                      document.body
+                    )
+                  }
+                </div>
+              </div>
+          </form>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-3 p-6 border-t border-border shrink-0 pb-4">
+            {/* <Button variant="outline" onClick={onClose}>Cancel</Button> */}
+            <Button
+              type="submit"
+              form="schedule-meal-form"
+              disabled={!isValid}
+              iconName="Calendar"
+              iconSize={16}
+            >
+              Schedule Meal
+            </Button>
+          </div>
         </div>
       </div>
     </div>
