@@ -142,7 +142,7 @@ const TopPanel = ({
             onClick={() => setPage((prev) => Math.max(0, prev - 1))}
             disabled={!canPrev}
           >
-            {/* Previous {UPCOMING_BATCH_SIZE} */}
+            {/* Previous */}
           </Button>
           <span>{rangeLabel}</span>
           <Button
@@ -152,7 +152,7 @@ const TopPanel = ({
             onClick={() => setPage((prev) => (canNext ? prev + 1 : prev))}
             disabled={!canNext}
           >
-            {/* Next {UPCOMING_BATCH_SIZE} */}
+            {/* Next */}
           </Button>
         </div>
       </div>

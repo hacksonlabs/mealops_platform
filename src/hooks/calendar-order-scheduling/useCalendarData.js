@@ -40,7 +40,17 @@ function inferMealTypeFromText(title, description) {
  * @param {'twoWeeks'|'month'} viewMode
  * @param {object} currentUser  // pass user from useAuth(); used by remindCoaches filtering
  */
-export function useCalendarData(activeTeamId, currentDate, viewMode, currentUser = null) {
+export function useCalendarData(
+  activeTeamId,
+  currentDate,
+  viewMode,
+  currentUser = null,
+  options = {}
+) {
+  const {
+    futureDaysBuffer = 7,
+    pastDaysBuffer = 0,
+  } = options;
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [error, setErr] = useState('');
@@ -56,9 +66,22 @@ export function useCalendarData(activeTeamId, currentDate, viewMode, currentUser
   }, [currentDate, viewMode]);
 
   const todayMs = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); }, []);
-  const next7Ms  = useMemo(() => todayMs + 7*24*60*60*1000, [todayMs]);
-  const unionStartISO = useMemo(() => new Date(Math.min(startMs, todayMs)).toISOString(), [startMs, todayMs]);
-  const unionEndISO   = useMemo(() => new Date(Math.max(endMs,   next7Ms)).toISOString(), [endMs, next7Ms]);
+  const bufferFutureMs = useMemo(
+    () => todayMs + futureDaysBuffer * 24 * 60 * 60 * 1000,
+    [todayMs, futureDaysBuffer]
+  );
+  const bufferPastMs = useMemo(
+    () => todayMs - Math.abs(pastDaysBuffer) * 24 * 60 * 60 * 1000,
+    [todayMs, pastDaysBuffer]
+  );
+  const unionStartISO = useMemo(
+    () => new Date(Math.min(startMs, bufferPastMs)).toISOString(),
+    [startMs, bufferPastMs]
+  );
+  const unionEndISO   = useMemo(
+    () => new Date(Math.max(endMs, bufferFutureMs)).toISOString(),
+    [endMs, bufferFutureMs]
+  );
 
   // ------- TEAM MEMBERS (once per team) -------
   useEffect(() => {
@@ -171,7 +194,7 @@ export function useCalendarData(activeTeamId, currentDate, viewMode, currentUser
       }
     })();
     return () => { cancelled = true; };
-  }, [activeTeamId, unionStartISO, unionEndISO]);
+  }, [activeTeamId, unionStartISO, unionEndISO, futureDaysBuffer, pastDaysBuffer]);
 
   // ------- BIRTHDAYS (derived) -------
   useEffect(() => {
@@ -203,13 +226,13 @@ export function useCalendarData(activeTeamId, currentDate, viewMode, currentUser
   // ------- Upcoming (NOW → +7) from the same orders -------
   const upcomingNow = useMemo(() => {
     const todayISO = new Date(todayMs).toISOString();
-    const nextISO  = new Date(next7Ms).toISOString();
+    const nextISO  = new Date(bufferFutureMs).toISOString();
     return (orders || [])
       .filter(o => o.type === 'order' &&
         o.date >= todayISO && o.date <= nextISO &&
         String(o.status).toLowerCase() !== 'completed')
       .sort((a,b) => new Date(a.date) - new Date(b.date));
-  }, [orders, todayMs, next7Ms]);
+  }, [orders, bufferFutureMs]);
 
   // ------- Order-detail fetcher with in-memory cache -------
   const detailCache = useRef(new Map()); // id -> shaped detail
