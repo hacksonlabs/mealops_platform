@@ -6,7 +6,7 @@ import mealLogo from '../images/meal.png';
 import { useCartBadge } from '@/hooks/cart';
 import CartOverlays from './cart/CartOverlays';
 
-const Header = ({ notifications = 0, className = '' }) => {
+const Header = ({ className = '' }) => {
   const { user, userProfile, teams, activeTeam, loadingTeams, switchActiveTeam, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -160,11 +160,6 @@ const Header = ({ notifications = 0, className = '' }) => {
             >
               <Icon name={item?.icon} size={16} />
               <span>{item?.label}</span>
-              {item?.path === '/meal-polling-system' && notifications > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 text-xs bg-accent text-accent-foreground rounded-full">
-                  {notifications}
-                </span>
-              )}
             </button>
           ))}
         </nav>
@@ -187,16 +182,6 @@ const Header = ({ notifications = 0, className = '' }) => {
             {isInlineCartRoute && cartBadge.count > 0 && (
               <span className="absolute -top-1 -left-1 min-w-[20px] h-5 px-1 rounded-full bg-primary text-primary-foreground text-[11px] font-bold flex items-center justify-center">
                 {cartBadge.count > 99 ? '99+' : cartBadge.count}
-              </span>
-            )}
-          </button>
-
-          {/* Notifications */}
-          <button className="relative p-2 text-muted-foreground hover:text-foreground transition-athletic">
-            <Icon name="Bell" size={20} />
-            {notifications > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-accent text-accent-foreground text-xs rounded-full flex items-center justify-center">
-                {notifications > 9 ? '9+' : notifications}
               </span>
             )}
           </button>
@@ -290,11 +275,11 @@ const Header = ({ notifications = 0, className = '' }) => {
               >
                 <Icon name={item?.icon} size={18} />
                 <span>{item?.label}</span>
-                {item?.path === '/meal-polling-system' && notifications > 0 && (
+                {/* {item?.path === '/meal-polling-system' && notifications > 0 && (
                   <span className="ml-auto px-2 py-0.5 text-xs bg-accent text-accent-foreground rounded-full">
                     {notifications}
                   </span>
-                )}
+                )} */}
               </button>
             ))}
           </nav>
