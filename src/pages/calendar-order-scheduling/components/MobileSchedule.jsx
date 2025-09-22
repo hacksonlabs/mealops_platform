@@ -7,6 +7,7 @@ import {
   buildContinuousDays,
   compareEvents,
   createInitialRange,
+  extendRange,
   startOfDay,
 } from '../utils/events';
 
@@ -64,6 +65,7 @@ const describeEvent = (event) => {
 
 const MobileSchedule = ({ events = [], onSelectEvent, onSchedule, onLoadMore, loading, futureDays = 30 }) => {
   const listRef = useRef(null);
+  const sentinelRef = useRef(null);
   const dayRefs = useRef({});
   const loadGuardRef = useRef({ pending: false, prevCount: events.length });
   const today = useMemo(() => startOfDay(new Date()), []);
@@ -82,6 +84,13 @@ const MobileSchedule = ({ events = [], onSelectEvent, onSchedule, onLoadMore, lo
     }
   }, [events.length]);
 
+  useEffect(() => {
+    if (loadGuardRef.current.pending) {
+      loadGuardRef.current.pending = false;
+      loadGuardRef.current.prevCount = events.length;
+    }
+  }, [range.end, events.length]);
+
   const sortedEvents = useMemo(() => {
     const arr = [...(events || [])];
     arr.sort(compareEvents);
@@ -91,14 +100,41 @@ const MobileSchedule = ({ events = [], onSelectEvent, onSchedule, onLoadMore, lo
   const buckets = useMemo(() => bucketEventsByDay(sortedEvents), [sortedEvents]);
   const days = useMemo(() => buildContinuousDays(range.start, range.end, buckets), [range, buckets]);
 
+  const requestMore = useCallback(() => {
+    if (loadGuardRef.current.pending) return;
+    loadGuardRef.current.pending = true;
+    loadGuardRef.current.prevCount = events.length;
+    setRange((prev) => extendRange(prev, { future: futureDays }));
+    onLoadMore?.();
+  }, [events.length, onLoadMore, futureDays]);
+
   const handleScroll = useCallback((event) => {
     const el = event.currentTarget;
-    if (!loadGuardRef.current.pending && el.scrollHeight - el.scrollTop - el.clientHeight < 160) {
-      loadGuardRef.current.pending = true;
-      loadGuardRef.current.prevCount = events.length;
-      onLoadMore?.();
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) {
+      requestMore();
     }
-  }, [events.length, onLoadMore]);
+  }, [requestMore]);
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            requestMore();
+          }
+        });
+      },
+      {
+        root: listRef.current ?? null,
+        rootMargin: listRef.current ? '0px 0px 160px 0px' : '0px 0px 200px 0px',
+        threshold: listRef.current ? 0.1 : 0,
+      }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [requestMore]);
 
   const initialScrollDone = useRef(false);
   useEffect(() => {
@@ -133,59 +169,62 @@ const MobileSchedule = ({ events = [], onSelectEvent, onSchedule, onLoadMore, lo
         {loading && !events.length ? (
           <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>
         ) : days.length ? (
-          <div className="divide-y divide-border">
-            {days.map((day) => {
-              const key = day.date.toISOString().slice(0, 10);
-              return (
-                <div
-                  key={key}
-                  ref={(node) => {
-                    if (node) dayRefs.current[key] = node;
-                    else delete dayRefs.current[key];
-                  }}
-                  className="p-4 space-y-3"
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{formatDayHeading(day.date)}</p>
-                  </div>
-
-                  {day.events.length ? (
-                    day.events.map((event) => {
-                      const meta = describeEvent(event);
-                      return (
-                        <button
-                          key={event.id}
-                          type="button"
-                          className="w-full text-left p-4 border border-border rounded-md hover:bg-muted/50 transition-athletic"
-                          onClick={() => onSelectEvent?.(event)}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="font-medium text-foreground">{meta.title}</p>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {formatMobileTime(event.time)}
-                                {meta.subtitle ? ` • ${meta.subtitle}` : ''}
-                              </p>
-                            </div>
-                            {meta.badge?.variant === 'status' && meta.badge.status && getStatusBadge(meta.badge.status)}
-                            {meta.badge?.variant === 'label' && (
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${meta.badge.className}`}>
-                                {meta.badge.text}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <div className="text-xs text-muted-foreground border border-dashed border-border rounded-md p-3">
-                      No events scheduled
+          <>
+            <div className="divide-y divide-border">
+              {days.map((day) => {
+                const key = day.date.toISOString().slice(0, 10);
+                return (
+                  <div
+                    key={key}
+                    ref={(node) => {
+                      if (node) dayRefs.current[key] = node;
+                      else delete dayRefs.current[key];
+                    }}
+                    className="p-4 space-y-3"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{formatDayHeading(day.date)}</p>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+
+                    {day.events.length ? (
+                      day.events.map((event) => {
+                        const meta = describeEvent(event);
+                        return (
+                          <button
+                            key={event.id}
+                            type="button"
+                            className="w-full text-left p-4 border border-border rounded-md hover:bg-muted/50 transition-athletic"
+                            onClick={() => onSelectEvent?.(event)}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-medium text-foreground">{meta.title}</p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {formatMobileTime(event.time)}
+                                  {meta.subtitle ? ` • ${meta.subtitle}` : ''}
+                                </p>
+                              </div>
+                              {meta.badge?.variant === 'status' && meta.badge.status && getStatusBadge(meta.badge.status)}
+                              {meta.badge?.variant === 'label' && (
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${meta.badge.className}`}>
+                                  {meta.badge.text}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="text-xs text-muted-foreground border border-dashed border-border rounded-md p-3">
+                        No events scheduled
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div ref={sentinelRef} className="h-1" />
+          </>
         ) : (
           <div className="text-center py-12">
             <Icon name="Calendar" size={48} className="text-muted-foreground mx-auto mb-4" />
