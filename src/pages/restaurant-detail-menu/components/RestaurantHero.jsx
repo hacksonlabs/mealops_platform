@@ -38,8 +38,8 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService, rightCon
 
               {(restaurant?.cuisine || restaurant?.cuisine_type) && (
                 <>
-                  <span className="flex-none text-muted-foreground">•</span>
-                  <span className="flex-none text-sm md:text-base text-muted-foreground whitespace-nowrap">
+                  {/* <span className="flex-none text-muted-foreground">•</span> */}
+                  <span className="flex-none text-xs md:text-base text-muted-foreground whitespace-nowrap">
                     {restaurant?.cuisine || restaurant?.cuisine_type}
                   </span>
                 </>
@@ -47,12 +47,12 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService, rightCon
 
               {restaurant?.rating != null && (
                 <>
-                  <span className="flex-none text-muted-foreground">•</span>
-                  <div className="flex items-center gap-1 flex-none whitespace-nowrap">
+                  {/* <span className="flex-none text-muted-foreground">•</span> */}
+                  <div className="flex items-center gap-1 flex-none whitespace-nowrap text-xs md:text-sm">
                     <Icon name="Star" size={16} className="text-accent fill-current" />
-                    <span className="font-semibold">{fmt1(restaurant.rating)}</span>
+                    <span className="font-semibold text-xs md:text-sm">{fmt1(restaurant.rating)}</span>
                     {restaurant?.reviewCount != null && (
-                      <span className="text-muted-foreground">({restaurant.reviewCount})</span>
+                      <span className="text-muted-foreground text-xs md:text-sm">({restaurant.reviewCount})</span>
                     )}
                   </div>
                 </>
@@ -60,10 +60,10 @@ const RestaurantHero = ({ restaurant, onServiceToggle, selectedService, rightCon
 
               {restaurant?.distance && (
                 <>
-                  <span className="flex-none text-muted-foreground">•</span>
-                  <div className="flex items-center gap-1 flex-none whitespace-nowrap">
+                  {/* <span className="flex-none text-muted-foreground">•</span> */}
+                  <div className="flex items-center gap-1 flex-none whitespace-nowrap text-xs md:text-sm">
                     <Icon name="MapPin" size={16} className="text-muted-foreground" />
-                    <span className="text-muted-foreground">{fmt1(restaurant.distance)}</span>
+                    <span className="text-muted-foreground text-xs md:text-sm">{fmt1(restaurant.distance)}</span>
                   </div>
                 </>
               )}

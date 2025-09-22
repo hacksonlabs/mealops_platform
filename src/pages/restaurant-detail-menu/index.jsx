@@ -189,25 +189,6 @@ const RestaurantDetailMenu = () => {
       <main className="pt-16">
         <FulfillmentBar value={fulfillment} onChange={handleFulfillmentChange} />
 
-        {/* Mobile header */}
-        <div className="md:hidden p-4 border-b border-border bg-background">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={handleBackClick}>
-              <Icon name="ArrowLeft" size={20} />
-            </Button>
-            <h1 className="text-lg font-semibold text-foreground truncate">
-              {restaurant?.name}
-            </h1>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            >
-              <Icon name="Info" size={20} />
-            </Button>
-          </div>
-        </div>
-
         <div className="flex">
           <div className="flex-1">
             <RestaurantHero
@@ -229,7 +210,7 @@ const RestaurantDetailMenu = () => {
                     onCreated={(newId) => setActiveCartId?.(newId)}
                     cartTitle={initialCartTitle}
                     mealType={mealType}
-                    className="w-full justify-center md:justify-start"
+                    className="w-full justify-center md:justify-center transition-transform duration-150 hover:-translate-y-0.5 hover:shadow-athletic"
                   />
                 </div>
               }
@@ -244,7 +225,7 @@ const RestaurantDetailMenu = () => {
                     selected={localProvider}
                     onChange={setLocalProvider}
                     showIcons={false}
-                    className="w-full flex-wrap justify-between gap-2 md:w-auto md:justify-start"
+                    className="inline-flex flex-wrap gap-2"
                   />
                 </div>
               }
