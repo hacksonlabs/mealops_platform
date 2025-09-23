@@ -71,7 +71,6 @@ export default function useRestaurantFilters(rows, {
       if (rb !== ra) return rb - ra;
       return a.name.localeCompare(b.name);
     });
-
     return list;
   }, [rows, selectedCategory, appliedFilters, searchQuery, centerCoords, radiusMiles]);
 }

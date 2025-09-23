@@ -163,6 +163,13 @@ using (
   )
 );
 
+-- allow any authenticated user to view restaurants
+create policy "restaurants_read_all"
+on public.restaurants
+for select
+to authenticated
+using (true);
+
 -- ------------------------------
 -- MENU ITEMS (RLS)
 -- ------------------------------
@@ -185,6 +192,12 @@ using (
       and public.is_team_member(c.team_id)
   )
 );
+
+create policy "menu_items_read_all"
+on public.menu_items
+for select
+to authenticated
+using (true);
 
 
 CREATE POLICY "team_members_read_payment_methods"
