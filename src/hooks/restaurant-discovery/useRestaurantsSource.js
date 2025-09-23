@@ -65,7 +65,8 @@ export default function useRestaurantsSource() {
 
         if (error) throw error;
         if (cancelled) return;
-        setRows((data || []).map(normalize));
+        const mapped = (data || []).map(normalize);
+        setRows(mapped);
         setHasLoadedOnce(true);
       } catch (e) {
         if (!cancelled) {
@@ -73,7 +74,9 @@ export default function useRestaurantsSource() {
           setRows([]);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     })();
     return () => { cancelled = true; };

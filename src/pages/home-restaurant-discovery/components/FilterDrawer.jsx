@@ -34,7 +34,22 @@ function countActive(f) {
   return (f.priceRange?.length || 0) + (f.rating ? 1 : 0) + (f.cuisineTypes?.length || 0);
 }
 
-const FilterDrawer = ({ isOpen, onClose, value, onChange, onReset, anchorRef, offset }) => {
+const FilterDrawer = ({
+  isOpen,
+  onClose,
+  value,
+  onChange,
+  onReset,
+  anchorRef,
+  offset,
+  service = 'delivery',
+  pickupRadius,
+  onPickupRadiusChange,
+  defaultPickupRadius = 3,
+  deliveryRadius,
+  onDeliveryRadiusChange,
+  deliveryRadiusDefault = 6,
+}) => {
   // ---- state/derived
   const filters = value || { priceRange: [], rating: '', cuisineTypes: [] };
   const patch = (p) => onChange?.({ ...filters, ...p });
@@ -99,8 +114,73 @@ const FilterDrawer = ({ isOpen, onClose, value, onChange, onReset, anchorRef, of
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, onClose]);
 
+  const effectiveRadius = typeof pickupRadius === 'number' ? pickupRadius : defaultPickupRadius;
+  const effectiveDeliveryRadius = typeof deliveryRadius === 'number'
+    ? Math.min(Math.max(deliveryRadius, 1), deliveryRadiusDefault)
+    : deliveryRadiusDefault;
+
   const content = (
     <>
+      {service === 'pickup' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-foreground">Pickup radius</h4>
+            <span className="text-sm text-muted-foreground">{effectiveRadius} mi</span>
+          </div>
+          <input
+            type="range"
+            min={1}
+            max={25}
+            step={1}
+            value={effectiveRadius}
+            onChange={(e) => onPickupRadiusChange?.(Number(e.target.value))}
+            className="w-full"
+            aria-label="Pickup radius"
+          />
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>1 mi</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onPickupRadiusChange?.(defaultPickupRadius)}
+            >
+              Reset
+            </Button>
+            <span>25 mi</span>
+          </div>
+        </div>
+      )}
+      {service === 'delivery' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-foreground">Delivery radius (max {deliveryRadiusDefault} mi)</h4>
+            <span className="text-sm text-muted-foreground">{effectiveDeliveryRadius} mi</span>
+          </div>
+          <input
+            type="range"
+            min={1}
+            max={deliveryRadiusDefault}
+            step={1}
+            value={effectiveDeliveryRadius}
+            onChange={(e) => onDeliveryRadiusChange?.(Number(e.target.value))}
+            className="w-full"
+            aria-label="Delivery radius"
+          />
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>1 mi</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onDeliveryRadiusChange?.(deliveryRadiusDefault)}
+            >
+              Reset
+            </Button>
+            <span>{deliveryRadiusDefault} mi</span>
+          </div>
+        </div>
+      )}
       {/* Cuisine Types */}
       <div>
         <h4 className="text-sm font-semibold text-foreground mb-3">Cuisine Type</h4>

@@ -66,7 +66,7 @@ export default function useDiscoveryFulfillment() {
     window.dispatchEvent(new CustomEvent('deliveryAddressUpdate', {
       detail: { address: next.address, lat: next.coords ?? null },
     }));
-  }, [setServiceParam]);
+  }, [fulfillment.service, setServiceParam]);
 
   return { fulfillment, selectedService, setSelectedService, handleFulfillmentChange, setServiceParam };
 }
