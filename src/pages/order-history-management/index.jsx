@@ -111,6 +111,7 @@ const OrderHistoryManagement = () => {
         });
 
         const memberEntries = Array.from(memberCounts.entries());
+        const assignedMealsCount = memberEntries.reduce((acc, [, count]) => acc + count, 0);
         const teamMembersDetailed = memberEntries.map(([name, count]) =>
           count > 1 ? `${name} (x${count})` : name
         );
@@ -125,9 +126,10 @@ const OrderHistoryManagement = () => {
 
         const assignedMemberNames = Array.from(memberCounts.keys());
         const attendeeDescriptionParts = [];
+        if (assignedMealsCount > 0) attendeeDescriptionParts.push(`${assignedMealsCount} assigned`);
         if (extrasCount > 0) attendeeDescriptionParts.push(`${extrasCount} extra${extrasCount === 1 ? '' : 's'}`);
         if (unassignedCount > 0) attendeeDescriptionParts.push(`${unassignedCount} unassigned`);
-        const attendeeDescription = attendeeDescriptionParts.join(' • ');
+        const attendeeDescription = attendeeDescriptionParts.join(' + ');
 
         const attendees = Math.max(totalMeals, assignedMemberNames.length + extrasCount + unassignedCount);
 
@@ -141,6 +143,7 @@ const OrderHistoryManagement = () => {
         return {
           id: order.id,
           date: order.scheduled_date,
+          mealTitle: order.title?.trim() || order.description?.trim() || 'Meal',
           restaurant: order.restaurant?.name || 'Unknown Restaurant',
           mealType: (() => {
             if (order.meal_type) return order.meal_type;
@@ -153,6 +156,7 @@ const OrderHistoryManagement = () => {
           })(),
           location: locationStr || '—',
           attendees,
+          itemsCount: totalMeals,
           attendeeDescription,
           extrasCount,
           unassignedCount,
@@ -172,6 +176,7 @@ const OrderHistoryManagement = () => {
             unassignedCount,
             assignedMemberCount: assignedMemberNames.length,
             attendeesTotal: attendees,
+            itemsCount: totalMeals,
             team_members_tooltip: teamMembersTooltip,
           }
         };
