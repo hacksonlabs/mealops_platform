@@ -264,7 +264,7 @@ const OrderTable = ({
                   </button>
                 </th>
                 <th className="px-4 py-3 text-left">
-                  <span className="text-sm font-medium text-foreground">Meal</span>
+                  <span className="text-sm font-medium text-foreground">Item</span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <button

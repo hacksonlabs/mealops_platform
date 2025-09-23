@@ -1,6 +1,7 @@
 // /src/pages/order-history-management/components/OrderDetailModal.jsx
 import React from 'react';
 import Icon from '../../../components/AppIcon';
+import InfoTooltip from '../../../components/ui/InfoTooltip';
 import Button from '../../../components/ui/custom/Button';
 import {
   getStatusBadge,
@@ -13,6 +14,15 @@ const titleCase = (s = '') =>
   String(s)
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase());
+
+const normalizeRoleForCount = (role = '') => {
+  const value = String(role || '').trim().toLowerCase();
+  if (!value) return null;
+  if (value.includes('coach')) return 'coach';
+  if (value.includes('staff')) return 'staff';
+  if (value.includes('player') || value.includes('athlete')) return 'player';
+  return null;
+};
 
 const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
   if (!isOpen || !order) return null;
@@ -31,6 +41,39 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
       ? `${it.user_profile.first_name || ''} ${it.user_profile.last_name || ''}`.trim()
       : null);
 
+  // Sort line items for display:
+  // 1) Assigned items (alphabetically by assignee name)
+  // 2) Unassigned items
+  // 3) Extras at the bottom
+  const sortedItems = React.useMemo(() => {
+    const list = [...(items || [])];
+    const key = (s) => String(s || '').trim().toLowerCase();
+    list.sort((a, b) => {
+      const aAssignee = getAssigneeName(a);
+      const bAssignee = getAssigneeName(b);
+      const aExtra = !!a?.is_extra;
+      const bExtra = !!b?.is_extra;
+
+      const aCat = aExtra ? 2 : (aAssignee ? 0 : 1);
+      const bCat = bExtra ? 2 : (bAssignee ? 0 : 1);
+      if (aCat !== bCat) return aCat - bCat;
+
+      // Within assigned, sort by assignee name
+      if (aCat === 0) {
+        const cmpAssignee = key(aAssignee).localeCompare(key(bAssignee));
+        if (cmpAssignee !== 0) return cmpAssignee;
+      }
+
+      // Fallback: sort by item name
+      const cmpItem = key(a?.name).localeCompare(key(b?.name));
+      if (cmpItem !== 0) return cmpItem;
+
+      // Final tie-breaker: by id
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+    return list;
+  }, [items]);
+
   const getAssigneeKey = (it) =>
     it?.team_member_id ||
     it?.user_id ||
@@ -39,10 +82,12 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
     getAssigneeName(it) || null;
 
   const assignmentStats = React.useMemo(() => {
-    const memberMap = new Map(); // name -> units
+    const memberMap = new Map();
     let extrasCount = 0;
     let unassignedCount = 0;
+    let assignedUnits = 0;
     let totalUnits = 0;
+    const roleCounts = { player: 0, coach: 0, staff: 0 };
 
     (items || []).forEach((it) => {
       const qty = Math.max(1, Number(it?.quantity ?? 1));
@@ -55,7 +100,17 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
 
       const name = getAssigneeName(it);
       if (name) {
+        assignedUnits += qty;
         memberMap.set(name, (memberMap.get(name) || 0) + qty);
+
+        const roleRaw =
+          it?.team_member?.role ||
+          it?.member?.role ||
+          it?.team_member_role ||
+          it?.role ||
+          '';
+        const normalizedRole = normalizeRoleForCount(roleRaw);
+        if (normalizedRole) roleCounts[normalizedRole] += qty;
       } else {
         unassignedCount += qty;
       }
@@ -66,14 +121,27 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
       count > 1 ? `${name} (x${count})` : name
     );
 
-    const attendeeTotal = memberEntries.reduce((sum, [, count]) => sum + count, 0) + extrasCount + unassignedCount;
+    const attendeeTotal = totalUnits || (assignedUnits + extrasCount + unassignedCount);
+
+    const assignedBreakdown = [];
+    if (assignedUnits > 0) assignedBreakdown.push(`${assignedUnits} assigned`);
+    if (extrasCount > 0) assignedBreakdown.push(`${extrasCount} extra${extrasCount === 1 ? '' : 's'}`);
+    if (unassignedCount > 0) assignedBreakdown.push(`${unassignedCount} unassigned`);
+
+    const roleBreakdown = [];
+    if (roleCounts.player > 0) roleBreakdown.push(`${roleCounts.player} player${roleCounts.player === 1 ? '' : 's'}`);
+    if (roleCounts.coach > 0) roleBreakdown.push(`${roleCounts.coach} ${roleCounts.coach === 1 ? 'coach' : 'coaches'}`);
+    if (roleCounts.staff > 0) roleBreakdown.push(`${roleCounts.staff} staff`);
 
     return {
       memberNames,
-      memberCount: memberMap.size,
       extrasCount,
       unassignedCount,
-      attendeeTotal: attendeeTotal || totalUnits,
+      attendeeTotal,
+      assignedCount: assignedUnits,
+      roleCounts,
+      assignedBreakdown,
+      roleBreakdown,
     };
   }, [items]);
 
@@ -147,7 +215,7 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                 {getStatusBadge(order?.order_status)}
               </div>
               <p className="text-xs text-muted-foreground">
-                Order #{order?.api_order_id || `ORD-${String(order?.id || '').substring(0, 8)}`} • {formatDate(order?.scheduled_date)}
+                Order #{order?.api_order_id || `ORD-${String(order?.id || '').substring(0, 8)}`} | {formatDate(order?.scheduled_date)}
               </p>
             </div>
 
@@ -160,7 +228,7 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                 <div>
                   <h2 className="text-xl font-heading font-semibold text-foreground">Order Details</h2>
                   <p className="text-sm text-muted-foreground">
-                    Order #{order?.api_order_id || `ORD-${String(order?.id || '').substring(0, 8)}`} • {formatDate(order?.scheduled_date)}
+                    Order #{order?.api_order_id || `ORD-${String(order?.id || '').substring(0, 8)}`} | {formatDate(order?.scheduled_date)}
                   </p>
                 </div>
               </div>
@@ -219,34 +287,23 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                     <span className="text-[13px] sm:text-sm font-medium text-foreground">Attendees</span>
                   </div>
                   <p className="text-base sm:text-lg font-semibold text-foreground">{assignmentStats.attendeeTotal}</p>
-                  {(assignmentStats.extrasCount > 0 || assignmentStats.unassignedCount > 0) && (
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      {assignmentStats.memberCount > 0 && `${assignmentStats.memberCount} assigned`}
-                      {assignmentStats.extrasCount > 0 && (
-                        <>
-                          {assignmentStats.memberCount > 0 ? ' • ' : ''}
-                          {assignmentStats.extrasCount} extra{assignmentStats.extrasCount === 1 ? '' : 's'}
-                        </>
+                  {(assignmentStats.assignedBreakdown.length > 0 || assignmentStats.roleBreakdown.length > 0) && (
+                    <div className="mt-1 space-y-1 text-[11px] text-muted-foreground">
+                      {assignmentStats.assignedBreakdown.length > 0 && (
+                        <div>{assignmentStats.assignedBreakdown.join(' + ')}</div>
                       )}
-                      {assignmentStats.unassignedCount > 0 && (
-                        <>
-                          {(assignmentStats.memberCount > 0 || assignmentStats.extrasCount > 0) ? ' • ' : ''}
-                          {assignmentStats.unassignedCount} unassigned
-                        </>
+                      {assignmentStats.roleBreakdown.length > 0 && (
+                        <div>{assignmentStats.roleBreakdown.join(' + ')}</div>
                       )}
-                    </div>
-                  )}
-                  {assignmentStats.memberNames.length > 0 && (
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      {assignmentStats.memberNames.join(', ')}
                     </div>
                   )}
                 </div>
 
                 <div className="bg-muted rounded-lg p-3 sm:p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
+                  <div className="flex items-center gap-1 mb-1.5">
                     <Icon name="DollarSign" size={14} className="text-muted-foreground" />
                     <span className="text-[13px] sm:text-sm font-medium text-foreground">Total Cost</span>
+                    <InfoTooltip text="This includes all the taxes + fees" />
                   </div>
                   <p className="text-base sm:text-lg font-semibold text-foreground">
                     {formatCurrency(order?.total_amount)}
@@ -256,16 +313,6 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
 
               {/* Line Items (with assigned member) */}
               <div>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3 sm:mb-4">
-                  <h3 className="text-base sm:text-lg font-heading font-semibold text-foreground">
-                    Line Items
-                  </h3>
-                  {items?.length > 0 && (
-                    <span className="text-xs sm:text-sm text-muted-foreground">
-                      {items.length} line {items.length === 1 ? 'item' : 'items'}
-                    </span>
-                  )}
-                </div>
                 <div className="bg-muted rounded-lg overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full">
@@ -278,25 +325,18 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                             Item
                           </th>
                           <th className="px-3 sm:px-4 py-3 text-left text-xs sm:text-sm font-medium text-foreground">
-                            Notes
+                            Special Requests
                           </th>
                           <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-foreground">
-                            Qty
-                          </th>
-                          <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-foreground">
-                            Unit
-                          </th>
-                          <th className="px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-medium text-foreground">
-                            Line Total
+                            Price
                           </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {(items ?? []).map((it) => {
+                        {(sortedItems ?? []).map((it) => {
                           const unit = getUnitPrice(it);
-                          const qty = it?.quantity ?? 1;
-                          const line = unit * qty;
                           const assignee = getAssigneeName(it);
+                          const specialRequests = (it?.notes || '').trim();
                           return (
                             <tr key={it.id} className="hover:bg-card/50 transition-athletic">
                               <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-foreground">
@@ -304,23 +344,27 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                                   <div className="w-7 h-7 sm:w-8 sm:h-8 bg-secondary rounded-full flex items-center justify-center">
                                     <Icon name="User" size={12} className="text-secondary-foreground" />
                                   </div>
-                          <span className="truncate max-w-[120px] sm:max-w-none">
-                            {it?.is_extra ? 'Extra' : (assignee || 'Unassigned')}
-                          </span>
-                        </div>
-                      </td>
-                              <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-foreground">{it?.name}</td>
-                              <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-muted-foreground">
-                                {it?.notes || '—'}
+                                  <div className="min-w-0">
+                                    <div className="truncate font-medium">
+                                      {it?.is_extra ? 'Extra' : assignee || 'Unassigned'}
+                                    </div>
+                                    
+                                  </div>
+                                </div>
                               </td>
-                              <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm font-medium text-foreground text-right">
-                                {qty}
+                              <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-foreground">
+                                <div className="font-medium text-foreground">{it?.name}</div>
+                                {it?.description && (
+                                  <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                                    {it.description}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-muted-foreground">
+                                {specialRequests ? specialRequests : '—'}
                               </td>
                               <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm font-medium text-foreground text-right">
                                 {formatCurrency(unit)}
-                              </td>
-                              <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm font-medium text-foreground text-right">
-                                {formatCurrency(line)}
                               </td>
                             </tr>
                           );
@@ -328,7 +372,7 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                         {(!items || items.length === 0) && (
                           <tr>
                             <td
-                              colSpan={6}
+                              colSpan={4}
                               className="px-3 sm:px-4 py-6 text-xs sm:text-sm text-muted-foreground text-center"
                             >
                               No line items recorded for this order.

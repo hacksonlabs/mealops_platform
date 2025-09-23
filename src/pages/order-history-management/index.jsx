@@ -72,7 +72,7 @@ const OrderHistoryManagement = () => {
           id, name, quantity, product_marked_price_cents, notes,
           is_extra,
           team_member_id,
-          team_member:team_members ( id, full_name )
+          team_member:team_members ( id, full_name, role )
         )
       `)
       .eq('team_id', teamId)
@@ -91,6 +91,7 @@ const OrderHistoryManagement = () => {
         const items = order.meal_items || [];
 
         const memberCounts = new Map(); // name -> quantity
+        const memberRoles = new Map();  // name -> role
         let extrasCount = 0;
         let unassignedCount = 0;
         let totalMeals = 0;
@@ -103,8 +104,20 @@ const OrderHistoryManagement = () => {
             return;
           }
           const name = it?.team_member?.full_name;
+          const role = it?.team_member?.role || it?.member?.role || it?.role || null;
           if (name) {
             memberCounts.set(name, (memberCounts.get(name) || 0) + qty);
+            if (role && !memberRoles.has(name)) {
+              const prettyRole = String(role)
+                .replace(/[_-]+/g, ' ')
+                .trim();
+              if (prettyRole) {
+                memberRoles.set(
+                  name,
+                  prettyRole.replace(/\b\w/g, (c) => c.toUpperCase())
+                );
+              }
+            }
           } else {
             unassignedCount += qty;
           }
@@ -120,6 +133,7 @@ const OrderHistoryManagement = () => {
 
         const teamMembersTooltip = memberEntries.map(([name, count]) => ({
           name: count > 1 ? `${name} (x${count})` : name,
+          role: memberRoles.get(name) || undefined,
         }));
         if (extrasCount > 0) teamMembersTooltip.push({ name: `Extra (x${extrasCount})` });
         if (unassignedCount > 0) teamMembersTooltip.push({ name: `Unassigned (x${unassignedCount})` });
@@ -143,7 +157,7 @@ const OrderHistoryManagement = () => {
         return {
           id: order.id,
           date: order.scheduled_date,
-          mealTitle: order.title?.trim() || order.description?.trim() || 'Meal',
+          mealTitle: order.title?.trim() || order.description?.trim() || 'Item',
           restaurant: order.restaurant?.name || 'Unknown Restaurant',
           mealType: (() => {
             if (order.meal_type) return order.meal_type;
