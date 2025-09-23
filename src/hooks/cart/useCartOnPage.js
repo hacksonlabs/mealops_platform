@@ -259,37 +259,79 @@ export default function useCartOnPage({
       setProvider(provider);
     }
 
-    const memberIds = (customizedItem.assignedTo || []).map(a => a?.id).filter(Boolean);
-    const extraCount = (customizedItem.assignedTo || []).filter(a => a?.name === 'Extra' || a?.id === EXTRA_SENTINEL).length;
-    const displayNames = (customizedItem.assignedTo || []).map(a => a?.name).filter(Boolean);
-
     const selectedOptionsPayload = buildSelectedOptionsPayload(
       customizedItem.selectedOptions,
       customizedItem.optionsCatalog
     );
+
+    const descriptors = [];
+    (customizedItem.assignedTo || []).forEach((entry) => {
+      if (!entry) return;
+      const id = entry.id;
+      const name = entry.name || entry.full_name || '';
+      if (id === EXTRA_SENTINEL || (typeof name === 'string' && /^(extra|extras)$/i.test(name))) {
+        descriptors.push({ type: 'extra' });
+      } else if (id) {
+        descriptors.push({ type: 'member', id, name });
+      }
+    });
+
+    const qtyNumber = Math.max(1, Number(quantity || 1));
+    const existingCount = descriptors.length;
+    const remaining = Math.max(0, qtyNumber - existingCount);
+    for (let i = 0; i < remaining; i++) descriptors.push({ type: 'unassigned' });
+
+    if (descriptors.length === 0) descriptors.push({ type: 'unassigned' });
+
+    const baseOptions = { ...selectedOptionsPayload };
+    delete baseOptions.__assignment__;
+
+    if (customizedItem.cartRowId) {
+      try {
+        await cartDbService.removeItem(id, customizedItem.cartRowId);
+      } catch (err) {
+        console.error('[useCartOnPage] failed to remove original row', err);
+      }
+    }
+
     const unitPrice = typeof customizedItem.customizedPrice === 'number'
       ? customizedItem.customizedPrice
       : Number(customizedItem.price || 0);
 
-    if (customizedItem.cartRowId) {
-      const selWithAssign = {
-        ...selectedOptionsPayload,
-        __assignment__: { member_ids: memberIds, extra_count: extraCount, display_names: displayNames },
+    for (const desc of descriptors) {
+      const assignment = {
+        memberIds: [],
+        displayNames: [],
+        extraCount: 0,
+        unitsByMember: {},
       };
-      await cartDbService.updateItem(id, customizedItem.cartRowId, {
-        quantity,
-        price: unitPrice,
-        special_instructions: customizedItem.specialInstructions || '',
-        selected_options: selWithAssign,
-      });
-    } else {
+
+      if (desc.type === 'member') {
+        assignment.memberIds = [desc.id];
+        assignment.displayNames = desc.name ? [desc.name] : [];
+        assignment.unitsByMember = { [desc.id]: 1 };
+      } else if (desc.type === 'extra') {
+        assignment.extraCount = 1;
+        assignment.displayNames = ['Extra'];
+      }
+
+      const selectedForUnit = {
+        ...JSON.parse(JSON.stringify(baseOptions)),
+        __assignment__: {
+          member_ids: assignment.memberIds,
+          extra_count: assignment.extraCount,
+          display_names: assignment.displayNames,
+        },
+      };
+
       await cartDbService.addItem(id, {
         menuItem: { id: customizedItem.id, name: customizedItem.name, image: customizedItem.image },
-        quantity,
+        quantity: 1,
         unitPrice,
         specialInstructions: customizedItem.specialInstructions || '',
-        selectedOptions: selectedOptionsPayload,
-        assignment: { memberIds, extraCount, displayNames },
+        selectedOptions: selectedForUnit,
+        assignment,
+        addedByMemberId: customizedItem.addedByMemberId,
       });
     }
 

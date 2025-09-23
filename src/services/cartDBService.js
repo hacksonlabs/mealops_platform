@@ -39,40 +39,42 @@ const normalizeDbTime = (t) => {
 function computeUnits({ quantity, memberIds = [], unitsByMember = {}, extraCount = 0 }) {
   const ids = Array.from(new Set(memberIds)); // de-dupe, keep order
   const units = {};
-  let baseTotal = 0;
+  let baseTot = 0;
 
   // start with provided units or default 1 per member
   for (const id of ids) {
     const raw = Number(unitsByMember?.[id]);
     const u = Number.isFinite(raw) && raw > 0 ? raw : 1;
     units[id] = u;
-    baseTotal += u;
+    baseTot += u;
   }
 
   // extras are ONLY the explicit extras the user asked for
   let extras = Math.max(0, Number(extraCount || 0));
-  baseTotal += extras;
 
   // target quantity
   let targetQty = Number(quantity);
   if (!Number.isFinite(targetQty) || targetQty <= 0) {
     // if quantity omitted, derive from current plan or at least 1
-    targetQty = Math.max(1, baseTotal || ids.length || extras || 1);
+    targetQty = Math.max(1, baseTot || ids.length || extras || 1);
   }
 
-  let diff = targetQty - baseTotal;
+  // If no members are selected, treat everything beyond explicit extras as unassigned.
+  if (ids.length === 0) {
+    const clampedExtras = Math.min(extras, targetQty);
+    const unassigned = Math.max(0, targetQty - clampedExtras);
+    return { targetQty, units: {}, extras: clampedExtras, unassigned };
+  }
 
-  if (diff > 0) {
-    // assign remainder to the last selected member (if any), else to extras
-    if (ids.length > 0) {
-      const lastId = ids[ids.length - 1];
-      units[lastId] = (units[lastId] || 0) + diff;
-    } else {
-      extras += diff;
-    }
-  } else if (diff < 0) {
-    // shrink: extras first, then members from the end
-    let toRemove = -diff;
+  extras = Math.min(extras, Math.max(0, targetQty - ids.length));
+  const baseTotal = ids.length + extras;
+
+  let unassigned = 0;
+
+  if (targetQty > baseTotal) {
+    unassigned = targetQty - baseTotal;
+  } else if (targetQty < baseTotal) {
+    let toRemove = baseTotal - targetQty;
 
     const cut = Math.min(extras, toRemove);
     extras -= cut;
@@ -84,19 +86,18 @@ function computeUnits({ quantity, memberIds = [], unitsByMember = {}, extraCount
       units[id] -= take;
       toRemove -= take;
     }
+
+    for (const id of Object.keys(units)) {
+      if (units[id] <= 0) delete units[id];
+    }
   }
 
-  // drop any zero-unit members
-  for (const id of Object.keys(units)) {
-    if (units[id] <= 0) delete units[id];
-  }
-
-  return { targetQty, units, extras };
+  return { targetQty, units, extras, unassigned };
 }
 
 
 /** Replace all assignees with explicit unit_qty (single extras row if extras>0). */
-async function writeAssigneesWithUnits(itemId, { unitsByMember = {}, extras = 0 }) {
+async function writeAssigneesWithUnits(itemId, { unitsByMember = {}, extras = 0, unassigned = 0 }) {
   const rows = [
     ...Object.entries(unitsByMember).map(([member_id, unit_qty]) => ({
       cart_item_id: itemId,
@@ -109,6 +110,14 @@ async function writeAssigneesWithUnits(itemId, { unitsByMember = {}, extras = 0 
           cart_item_id: itemId,
           is_extra: true,
           unit_qty: Math.max(0, Number(extras || 0)),
+        }]
+      : []),
+    ...(unassigned > 0
+      ? [{
+          cart_item_id: itemId,
+          member_id: null,
+          is_extra: false,
+          unit_qty: Math.max(0, Number(unassigned || 0)),
         }]
       : []),
   ].filter(r => r.unit_qty > 0);
@@ -148,14 +157,14 @@ async function syncAssigneesToQuantity(itemId, newQty) {
   }
 
   const memberIds = Object.keys(unitsByMember);
-  const { targetQty, units, extras: ex } = computeUnits({
+  const { targetQty, units, extras: ex, unassigned } = computeUnits({
     quantity: newQty,
     memberIds,
     unitsByMember,
     extraCount: extras,
   });
 
-  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras: ex });
+  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras: ex, unassigned });
   return targetQty;
 }
 
@@ -430,7 +439,7 @@ async function addItem(
   const extraCount = Math.max(assignment?.extraCount ?? 0, inferredExtras);
 
   // compute per-assignee units and final quantity
-  const { targetQty, units, extras } = computeUnits({
+  const { targetQty, units, extras, unassigned } = computeUnits({
     quantity,
     memberIds,
     unitsByMember,
@@ -473,7 +482,7 @@ async function addItem(
   const itemId = data.id;
 
   try {
-    await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras });
+    await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras, unassigned });
   } catch (asgErr) {
     // rollback if assignments fail (triggers/RLS/etc.)
     await supabase.from('meal_cart_items').delete().eq('id', itemId).eq('cart_id', cartId);
@@ -723,7 +732,7 @@ async function updateItemFull(
   const unitsByMember = assignment.unitsByMember || {};
   const extraCount = Math.max(0, Number(assignment.extraCount || 0));
 
-  const { targetQty, units, extras } = computeUnits({
+  const { targetQty, units, extras, unassigned } = computeUnits({
     quantity,
     memberIds,
     unitsByMember,
@@ -754,7 +763,7 @@ async function updateItemFull(
     .single();
   if (error) throw error;
 
-  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras });
+  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras, unassigned });
   return data.id;
 }
 

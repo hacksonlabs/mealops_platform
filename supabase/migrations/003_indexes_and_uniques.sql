@@ -24,6 +24,7 @@ CREATE INDEX meal_orders_team_id_scheduled_date_idx ON public.meal_orders(team_i
 
 -- normalized item tables indexes
 CREATE INDEX idx_meal_order_items_order_id ON public.meal_order_items(order_id);
+CREATE INDEX idx_meal_order_items_is_extra ON public.meal_order_items(is_extra);
 CREATE INDEX idx_meal_order_item_customizations_item_id ON public.meal_order_item_customizations(order_item_id);
 CREATE INDEX idx_meal_order_item_options_customization_id ON public.meal_order_item_options(customization_id);
 

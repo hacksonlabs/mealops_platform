@@ -38,17 +38,43 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
     it?.user_profile?.id ||
     getAssigneeName(it) || null;
 
-  const { assignedPeople, peopleCount } = React.useMemo(() => {
-    const setKeys = new Set();
-    const seen = new Map(); // key -> display name
+  const assignmentStats = React.useMemo(() => {
+    const memberMap = new Map(); // name -> units
+    let extrasCount = 0;
+    let unassignedCount = 0;
+    let totalUnits = 0;
+
     (items || []).forEach((it) => {
-      const key = getAssigneeKey(it);
+      const qty = Math.max(1, Number(it?.quantity ?? 1));
+      totalUnits += qty;
+
+      if (it?.is_extra) {
+        extrasCount += qty;
+        return;
+      }
+
       const name = getAssigneeName(it);
-      if (key) setKeys.add(String(key));
-      if (key && name && !seen.has(String(key))) seen.set(String(key), name);
+      if (name) {
+        memberMap.set(name, (memberMap.get(name) || 0) + qty);
+      } else {
+        unassignedCount += qty;
+      }
     });
-    const names = Array.from(seen.values());
-    return { assignedPeople: names, peopleCount: setKeys.size };
+
+    const memberEntries = Array.from(memberMap.entries());
+    const memberNames = memberEntries.map(([name, count]) =>
+      count > 1 ? `${name} (x${count})` : name
+    );
+
+    const attendeeTotal = memberEntries.reduce((sum, [, count]) => sum + count, 0) + extrasCount + unassignedCount;
+
+    return {
+      memberNames,
+      memberCount: memberMap.size,
+      extrasCount,
+      unassignedCount,
+      attendeeTotal: attendeeTotal || totalUnits,
+    };
   }, [items]);
 
   const mealType = order?.meal_type || 'other';
@@ -192,7 +218,29 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                     <Icon name="Users" size={14} className="text-muted-foreground" />
                     <span className="text-[13px] sm:text-sm font-medium text-foreground">Attendees</span>
                   </div>
-                  <p className="text-base sm:text-lg font-semibold text-foreground">{peopleCount}</p>
+                  <p className="text-base sm:text-lg font-semibold text-foreground">{assignmentStats.attendeeTotal}</p>
+                  {(assignmentStats.extrasCount > 0 || assignmentStats.unassignedCount > 0) && (
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {assignmentStats.memberCount > 0 && `${assignmentStats.memberCount} assigned`}
+                      {assignmentStats.extrasCount > 0 && (
+                        <>
+                          {assignmentStats.memberCount > 0 ? ' • ' : ''}
+                          {assignmentStats.extrasCount} extra{assignmentStats.extrasCount === 1 ? '' : 's'}
+                        </>
+                      )}
+                      {assignmentStats.unassignedCount > 0 && (
+                        <>
+                          {(assignmentStats.memberCount > 0 || assignmentStats.extrasCount > 0) ? ' • ' : ''}
+                          {assignmentStats.unassignedCount} unassigned
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {assignmentStats.memberNames.length > 0 && (
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {assignmentStats.memberNames.join(', ')}
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-muted rounded-lg p-3 sm:p-4">
@@ -256,11 +304,11 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                                   <div className="w-7 h-7 sm:w-8 sm:h-8 bg-secondary rounded-full flex items-center justify-center">
                                     <Icon name="User" size={12} className="text-secondary-foreground" />
                                   </div>
-                                  <span className="truncate max-w-[120px] sm:max-w-none">
-                                    {assignee || 'Unassigned'}
-                                  </span>
-                                </div>
-                              </td>
+                          <span className="truncate max-w-[120px] sm:max-w-none">
+                            {it?.is_extra ? 'Extra' : (assignee || 'Unassigned')}
+                          </span>
+                        </div>
+                      </td>
                               <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-foreground">{it?.name}</td>
                               <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-muted-foreground">
                                 {it?.notes || '—'}

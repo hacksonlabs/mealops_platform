@@ -307,16 +307,24 @@ const OrderTable = ({
                       onMouseLeave={scheduleClose}
                       title={(order?.teamMembers || []).join(', ')}
                     >
-                      <div className="text-sm text-primary font-medium underline underline-offset-2 cursor-default flex items-center gap-1">
-                        <Icon name="Users" size={16} className="text-primary" />
-                        {order?.attendees} {order?.attendees === 1 ? 'person' : 'people'}
+                      <div className="cursor-default">
+                        <div className="text-sm text-primary font-semibold flex items-center gap-1">
+                          <Icon name="Users" size={16} className="text-primary" />
+                          {order?.attendees} {order?.attendees === 1 ? 'meal' : 'meals'}
+                        </div>
+                        {order?.attendeeDescription && (
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {order.attendeeDescription}
+                          </div>
+                        )}
                       </div>
 
                       <PeopleTooltip
                         open={hoverOrderId === order.id}
                         x={tooltipPos.x}
                         y={tooltipPos.y}
-                        names={order.teamMembers || []}
+                        names={order.teamMembersTooltip || order.teamMembers || []}
+                        totalCount={order.attendees}
                         onMouseEnter={cancelClose}
                         onMouseLeave={scheduleClose}
                       />
@@ -394,8 +402,14 @@ const OrderTable = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <Icon name="Users" size={16} className="text-muted-foreground" />
-                  <span>{order?.attendees} {order?.attendees === 1 ? 'person' : 'people'}</span>
+                  <span className="font-semibold">{order?.attendees} {order?.attendees === 1 ? 'meal' : 'meals'}</span>
                 </div>
+                {order?.attendeeDescription && (
+                  <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <Icon name="Info" size={14} className="text-muted-foreground mt-0.5" />
+                    <span>{order.attendeeDescription}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <Icon name="Receipt" size={16} className="text-muted-foreground" />
                   <span className="font-semibold">{formatCurrency(order?.totalCost)}</span>

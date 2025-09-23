@@ -30,13 +30,28 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
     return `${displayHour}:${minutes ?? '00'} ${ampm}`;
   };
 
-  const attendees = Array.isArray(order.team_members) ? order.team_members : [];
-  const attendeesCount = attendees.length;
-  const peopleNames = attendees.map((m, i) => m?.name || `Member ${i + 1}`);
-  const peopleForTooltip = attendees.map((m, i) => ({
-    name: m?.name || `Member ${i + 1}`,
+  const memberEntries = Array.isArray(order.team_members) ? order.team_members : [];
+  const extrasCount = Number(order.extrasCount ?? order.extras_count ?? 0) || 0;
+  const unassignedCount = Number(order.unassignedCount ?? order.unassigned_count ?? 0) || 0;
+  const attendeesCount = Number(order.attendeesTotal ?? (
+    memberEntries.reduce((sum, m) => sum + (Number(m?.count) || 1), 0) + extrasCount + unassignedCount
+  ));
+
+  const peopleEntries = memberEntries.map((m, i) => ({
+    name: m?.count && m.count > 1
+      ? `${m?.name || `Member ${i + 1}`} (x${m.count})`
+      : (m?.name || `Member ${i + 1}`),
     role: m?.role || '',
   }));
+  if (extrasCount > 0) peopleEntries.push({ name: `Extra (x${extrasCount})` });
+  if (unassignedCount > 0) peopleEntries.push({ name: `Unassigned (x${unassignedCount})` });
+
+  const peopleNames = peopleEntries.map((p) => p.name);
+  const peopleForTooltip = peopleEntries;
+  const attendeeSummaryParts = [];
+  if (extrasCount > 0) attendeeSummaryParts.push(`${extrasCount} extra${extrasCount === 1 ? '' : 's'}`);
+  if (unassignedCount > 0) attendeeSummaryParts.push(`${unassignedCount} unassigned`);
+  const attendeeSummary = attendeeSummaryParts.join(' • ');
 
   const canEdit = order?.status === 'scheduled' && new Date(order.date) > new Date();
   const canCancel = order?.status !== 'cancelled' && order?.status !== 'completed';
@@ -135,16 +150,22 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
                   onMouseEnter={openPeople}
                   onMouseLeave={closePeople}
                   className="inline-flex items-center gap-1 text-sm font-medium text-green-700 underline underline-offset-2 decoration-2 decoration-green-500 cursor-default"
-                  title={peopleForTooltip.map((p) => p.name).join(', ')}
+                  title={peopleNames.join(', ')}
                 >
                   <Icon name="Users" size={14} />
-                  {attendeesCount} {attendeesCount === 1 ? 'person' : 'people'}
+                  {attendeesCount} {attendeesCount === 1 ? 'meal' : 'meals'}
                 </span>
+                {attendeeSummary && (
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    {attendeeSummary}
+                  </div>
+                )}
                 <PeopleTooltip
                   open={peopleOpen}
                   x={peoplePos.x}
                   y={peoplePos.y}
-                  names={peopleNames} // works if your PeopleTooltip supports {name, role}
+                  names={peopleForTooltip}
+                  totalCount={attendeesCount}
                   onMouseEnter={() => setPeopleOpen(true)}
                   onMouseLeave={closePeople}
                   title="Attendees"

@@ -96,43 +96,32 @@ export function getMemberNames(it) {
 export function planUnitsByName(quantity, memberNames = [], extrasCount = 0) {
   const qty = Math.max(1, Number(quantity || 1));
   const names = Array.from(memberNames || []).map((n) => String(n || '').trim()).filter(Boolean);
-  let extras = Math.max(0, Number(extrasCount || 0));
-  extras = Math.min(extras, qty);
-
-  // No named assignments
-  if (names.length === 0) {
-    const usedExtras = Math.min(extras, qty);
-    const remaining = qty - usedExtras;
-    const units = remaining > 0 ? { Unassigned: remaining } : {};
-    return { unitsByName: units, extras: usedExtras };
-  }
-
+  const ids = Array.from(new Set(names));
   const units = {};
-  for (const nm of names) units[nm] = (units[nm] || 0) + 1;
 
-  let total = names.length + extras;
+  ids.forEach((nm) => {
+    units[nm] = (units[nm] || 0) + 1;
+  });
 
-  if (total < qty) {
-    const deficit = qty - total;
-    const last = names[names.length - 1];
-    units[last] = (units[last] || 0) + deficit;
-    total = qty;
-  } else if (total > qty) {
-    let overflow = total - qty;
-    const trimExtras = Math.min(extras, overflow);
-    extras -= trimExtras;
-    overflow -= trimExtras;
-
-    for (let i = names.length - 1; i >= 0 && overflow > 0; i--) {
-      const id = names[i];
-      const take = Math.min(units[id], overflow);
-      units[id] -= take;
-      overflow -= take;
-    }
+  let extras = Math.max(0, Number(extrasCount || 0));
+  if (ids.length === 0) {
+    const baseExtras = Math.min(extras, qty);
+    const unassigned = Math.max(0, qty - baseExtras);
+    const unitsUn = unassigned > 0 ? { Unassigned: unassigned } : {};
+    return { unitsByName: unitsUn, extras: baseExtras };
   }
 
-  for (const key of Object.keys(units)) {
-    if (units[key] <= 0) delete units[key];
+  const membersOnlyTotal = ids.length;
+  extras = Math.min(extras, Math.max(0, qty - membersOnlyTotal));
+  const baseTotal = membersOnlyTotal + extras;
+
+  if (qty <= baseTotal) {
+    return { unitsByName: units, extras };
+  }
+
+  const remaining = qty - baseTotal;
+  if (remaining > 0) {
+    units.Unassigned = (units.Unassigned || 0) + remaining;
   }
 
   return { unitsByName: units, extras };

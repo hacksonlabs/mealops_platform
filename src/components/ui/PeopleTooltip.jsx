@@ -19,8 +19,10 @@ export default function PeopleTooltip({
   onMouseLeave,
   title = 'Attendees',
   width = 320, // ~ w-80
+  totalCount,
 }) {
   if (!open) return null;
+  const effectiveCount = totalCount != null ? totalCount : names.length;
 
   return createPortal(
     <div
@@ -52,7 +54,7 @@ export default function PeopleTooltip({
       </span>
 
       <div className="text-xs font-medium text-muted-foreground px-2 py-1">
-        {title} ({names.length})
+        {title} ({effectiveCount})
       </div>
 
       <ul className="max-h-60 overflow-auto pr-1">
