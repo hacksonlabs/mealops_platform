@@ -95,41 +95,46 @@ export function getMemberNames(it) {
  */
 export function planUnitsByName(quantity, memberNames = [], extrasCount = 0) {
   const qty = Math.max(1, Number(quantity || 1));
-  const names = Array.from(memberNames);
-  const units = {};
+  const names = Array.from(memberNames || []).map((n) => String(n || '').trim()).filter(Boolean);
   let extras = Math.max(0, Number(extrasCount || 0));
+  extras = Math.min(extras, qty);
 
-  // default: 1 each
+  // No named assignments
+  if (names.length === 0) {
+    const usedExtras = Math.min(extras, qty);
+    const remaining = qty - usedExtras;
+    const units = remaining > 0 ? { Unassigned: remaining } : {};
+    return { unitsByName: units, extras: usedExtras };
+  }
+
+  const units = {};
   for (const nm of names) units[nm] = (units[nm] || 0) + 1;
 
   let total = names.length + extras;
-  let diff = qty - total;
 
-  if (diff > 0) {
-    if (names.length) {
-      const last = names[names.length - 1];
-      units[last] += diff;
-    } else {
-      extras += diff;
-    }
-  } else if (diff < 0) {
-    let toRemove = -diff;
-    const cut = Math.min(extras, toRemove);
-    extras -= cut;
-    toRemove -= cut;
-    for (let i = names.length - 1; i >= 0 && toRemove > 0; i--) {
+  if (total < qty) {
+    const deficit = qty - total;
+    const last = names[names.length - 1];
+    units[last] = (units[last] || 0) + deficit;
+    total = qty;
+  } else if (total > qty) {
+    let overflow = total - qty;
+    const trimExtras = Math.min(extras, overflow);
+    extras -= trimExtras;
+    overflow -= trimExtras;
+
+    for (let i = names.length - 1; i >= 0 && overflow > 0; i--) {
       const id = names[i];
-      const take = Math.min(units[id], toRemove);
+      const take = Math.min(units[id], overflow);
       units[id] -= take;
-      toRemove -= take;
+      overflow -= take;
     }
   }
 
-  for (const k of Object.keys(units)) if (units[k] <= 0) delete units[k];
-
-  if (!names.length && extras === 0 && qty > 0) {
-    return { unitsByName: { Unassigned: qty }, extras: 0 };
+  for (const key of Object.keys(units)) {
+    if (units[key] <= 0) delete units[key];
   }
+
   return { unitsByName: units, extras };
 }
 
@@ -158,11 +163,19 @@ export function expandItemsToUnitRows(items = []) {
     const unitPrice = computeUnitPrice(it);
 
     const meta = it?.selectedOptions?.__assignment__ || it?.selected_options?.__assignment__ || {};
-    const extrasMeta =
+    const rawExtrasMeta = Number(
       meta?.extra_count ??
       meta?.extras_count ??
       (Array.isArray(meta?.extras) ? meta.extras.length : 0) ??
-      0;
+      0
+    ) || 0;
+
+    const hasExplicitExtras =
+      (Array.isArray(meta?.display_names) && meta.display_names.some((nm) => isExtraName(nm))) ||
+      (Array.isArray(meta?.extras) && meta.extras.length > 0) ||
+      (Array.isArray(it?.assignedTo) && it.assignedTo.some((a) => a?.isExtra || isExtraName(a?.name)));
+
+    const extrasMeta = hasExplicitExtras ? rawExtrasMeta : 0;
 
     const memberNames = getMemberNames(it);
     const { unitsByName, extras } = planUnitsByName(it?.quantity, memberNames, extrasMeta);

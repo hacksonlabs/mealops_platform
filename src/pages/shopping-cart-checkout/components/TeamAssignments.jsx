@@ -3,8 +3,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
+import { expandItemsToUnitRows } from '../../../utils/cartDisplayUtils';
 
-const isExtraName = (nm) => /^(extra|extras)$/i.test(String(nm || '').trim());
 const labelize = (role) =>
   String(role || 'Unknown')
     .replace(/_/g, ' ')
@@ -79,59 +79,22 @@ const TeamAssignments = ({ items = [], teamMembers: teamMembersProp }) => {
     itemsCountByName,
     memberCount,
     extrasTotal,
+    unassignedTotal,
     roleGroups,      // { role: [{ name, count }] }
     roleCountsOrder, // [{ role, count }] sorted by role order
   } = useMemo(() => {
-    const counts = new Map(); // name -> number of ITEMS (ignores quantity)
+    const perUnitRows = expandItemsToUnitRows(items || []);
+
+    const counts = new Map(); // name -> number of units
     let extras = 0;
+    let unassigned = 0;
 
-    const addItemFor = (name) => {
-      if (!name) return;
-      counts.set(name, (counts.get(name) || 0) + 1);
-    };
-
-    for (const it of items) {
-      let handled = false;
-
-      // 1) assignedTo array: count each unique person once per item
-      if (Array.isArray(it?.assignedTo) && it.assignedTo.length) {
-        const seen = new Set();
-        for (const a of it.assignedTo) {
-          const nm = String(a?.name || '').trim();
-          if (!nm) continue;
-          if (a?.isExtra || isExtraName(nm)) { extras += 1; continue; }
-          if (seen.has(nm)) continue;
-          seen.add(nm);
-          addItemFor(nm);
-        }
-        handled = true;
-      }
-
-      // 2) normalized assignment metadata
-      if (!handled) {
-        const meta = it?.selectedOptions?.__assignment__ || it?.selected_options?.__assignment__;
-        if (meta) {
-          const seen = new Set();
-          if (Array.isArray(meta.display_names)) {
-            for (const nmRaw of meta.display_names) {
-              const nm = String(nmRaw || '').trim();
-              if (!nm || isExtraName(nm)) continue;
-              if (seen.has(nm)) continue;
-              seen.add(nm);
-              addItemFor(nm);
-            }
-          }
-          if (typeof meta.extras_count === 'number') extras += meta.extras_count;
-          if (Array.isArray(meta.extras)) extras += meta.extras.length;
-          handled = true;
-        }
-      }
-
-      // 3) single userName fallback
-      if (!handled && it?.userName) {
-        const nm = String(it.userName).trim();
-        if (nm && !isExtraName(nm)) addItemFor(nm);
-      }
+    for (const row of perUnitRows) {
+      const nm = String(row?.assignee || '').trim();
+      if (!nm) { unassigned += 1; continue; }
+      if (nm === 'Extra') { extras += 1; continue; }
+      if (nm === 'Unassigned') { unassigned += 1; continue; }
+      counts.set(nm, (counts.get(nm) || 0) + 1);
     }
 
     // Build role groups
@@ -169,6 +132,7 @@ const TeamAssignments = ({ items = [], teamMembers: teamMembersProp }) => {
       itemsCountByName: Object.fromEntries(counts),
       memberCount: names.length,
       extrasTotal: extras,
+      unassignedTotal: unassigned,
       roleGroups: roleGroupsTmp,
       roleCountsOrder,
     };
@@ -189,6 +153,7 @@ const TeamAssignments = ({ items = [], teamMembers: teamMembersProp }) => {
           <span className="ml-2 text-xs px-2 py-0.5 rounded-full border border-border bg-muted/50 tabular-nums">
             {memberCount}
             {extrasTotal > 0 && <> + {extrasTotal} extra{extrasTotal === 1 ? '' : 's'}</>}
+            {unassignedTotal > 0 && <> + {unassignedTotal} unassigned</>}
           </span>
         </div>
         <Icon name={open ? 'ChevronUp' : 'ChevronDown'} size={18} className="text-muted-foreground" />
