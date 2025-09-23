@@ -1,6 +1,8 @@
 // src/hooks/restaurant-details/useEditModal.js
 import { useEffect, useMemo, useState, useCallback } from 'react';
 
+const isExtraName = (value) => /^(extra|extras)$/i.test(String(value || '').trim());
+
 export default function useEditModal({ location, menuRaw, EXTRA_SENTINEL }) {
   const [selectedItem, setSelectedItem] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -15,18 +17,69 @@ export default function useEditModal({ location, menuRaw, EXTRA_SENTINEL }) {
 
     let assignedTo = null;
     const asg = editState.selectedOptions?.__assignment__ || null;
+    let hasExplicitExtras = false;
+    let members = [];
+    let extrasArray = [];
+    let extrasCount = 0;
     if (asg) {
-      const members = Array.isArray(asg.member_ids) ? asg.member_ids.map((id) => ({ id })) : [];
-      const extras = Array.from({ length: Number(asg.extra_count || 0) }, () => ({ id: EXTRA_SENTINEL, name: 'Extra' }));
-      assignedTo = [...members, ...extras];
+      members = Array.isArray(asg.member_ids) ? asg.member_ids.map((id) => ({ id })) : [];
+
+      extrasArray = Array.isArray(asg.extras) ? asg.extras : [];
+      extrasCount = Number(asg.extra_count ?? asg.extras_count ?? extrasArray.length ?? 0) || 0;
+      hasExplicitExtras =
+        extrasArray.length > 0 ||
+        (Array.isArray(asg.display_names) && asg.display_names.some(isExtraName));
+
+      const extras = hasExplicitExtras
+        ? Array.from({ length: Math.max(extrasCount, extrasArray.length) }, () => ({ id: EXTRA_SENTINEL, name: 'Extra' }))
+        : [];
+
+      const combined = [...members, ...extras];
+      assignedTo = combined.length ? combined : null;
     }
+
     if (!assignedTo || assignedTo.length === 0) {
       assignedTo = editState.assignedTo || (editState.userName ? [{ name: editState.userName }] : null);
     }
 
+    if (Array.isArray(assignedTo) && assignedTo.length) {
+      const onlyExtras = assignedTo.every((a) => {
+        const nm = typeof a === 'string' ? a : a?.name;
+        const id = typeof a === 'object' ? a?.id : null;
+        return id === EXTRA_SENTINEL || isExtraName(nm);
+      });
+      if (onlyExtras && !hasExplicitExtras) {
+        assignedTo = null;
+      }
+    }
+
+    const sanitizedSelectedOptions = (() => {
+      if (!editState.selectedOptions || typeof editState.selectedOptions !== 'object') return null;
+      const next = { ...editState.selectedOptions };
+      if (next.__assignment__) {
+        const assign = { ...next.__assignment__ };
+        assign.member_ids = Array.isArray(assign.member_ids) ? assign.member_ids : [];
+        if (hasExplicitExtras) {
+          assign.extra_count = extrasCount;
+          assign.extras_count = extrasCount;
+          assign.extras = extrasArray;
+        } else {
+          if (assign.extra_count) assign.extra_count = 0;
+          if (assign.extras_count) assign.extras_count = 0;
+          if (assign.extras) delete assign.extras;
+          if (Array.isArray(assign.display_names)) {
+            assign.display_names = assign.display_names.filter((nm) => !isExtraName(nm));
+            if (!assign.display_names.length) delete assign.display_names;
+          }
+        }
+        next.__assignment__ = assign;
+      }
+      return next;
+    })();
+
     return {
       quantity: Number(editState.quantity || 1),
-      selectedOptions: editState.selectedOptions ?? null,
+      selectedOptions: sanitizedSelectedOptions,
       selectedToppings: editState.selectedToppings ?? null,
       selectedSize: editState.selectedSize ?? null,
       specialInstructions: editState.specialInstructions || '',
