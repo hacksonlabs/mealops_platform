@@ -133,6 +133,12 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
     if (roleCounts.coach > 0) roleBreakdown.push(`${roleCounts.coach} ${roleCounts.coach === 1 ? 'coach' : 'coaches'}`);
     if (roleCounts.staff > 0) roleBreakdown.push(`${roleCounts.staff} staff`);
 
+    const fullBreakdown = [
+      ...roleBreakdown,
+      ...(extrasCount > 0 ? [`${extrasCount} extra${extrasCount === 1 ? '' : 's'}`] : []),
+      ...(unassignedCount > 0 ? [`${unassignedCount} unassigned`] : []),
+    ];
+
     return {
       memberNames,
       extrasCount,
@@ -142,6 +148,7 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
       roleCounts,
       assignedBreakdown,
       roleBreakdown,
+      fullBreakdown,
     };
   }, [items]);
 
@@ -287,14 +294,9 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                     <span className="text-[13px] sm:text-sm font-medium text-foreground">Attendees</span>
                   </div>
                   <p className="text-base sm:text-lg font-semibold text-foreground">{assignmentStats.attendeeTotal}</p>
-                  {(assignmentStats.assignedBreakdown.length > 0 || assignmentStats.roleBreakdown.length > 0) && (
-                    <div className="mt-1 space-y-1 text-[11px] text-muted-foreground">
-                      {assignmentStats.assignedBreakdown.length > 0 && (
-                        <div>{assignmentStats.assignedBreakdown.join(' + ')}</div>
-                      )}
-                      {assignmentStats.roleBreakdown.length > 0 && (
-                        <div>{assignmentStats.roleBreakdown.join(' + ')}</div>
-                      )}
+                  {assignmentStats.fullBreakdown.length > 0 && (
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      <div>{assignmentStats.fullBreakdown.join(' + ')}</div>
                     </div>
                   )}
                 </div>

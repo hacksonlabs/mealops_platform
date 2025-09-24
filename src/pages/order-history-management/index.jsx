@@ -95,6 +95,7 @@ const OrderHistoryManagement = () => {
         let extrasCount = 0;
         let unassignedCount = 0;
         let totalMeals = 0;
+        const roleCounts = { player: 0, coach: 0, staff: 0 };
 
         items.forEach((it) => {
           const qty = Math.max(1, Number(it?.quantity ?? 1));
@@ -118,6 +119,11 @@ const OrderHistoryManagement = () => {
                 );
               }
             }
+            // Aggregate role counts for attendee description
+            const r = String(role || '').toLowerCase();
+            if (r.includes('coach')) roleCounts.coach += qty;
+            else if (r.includes('staff')) roleCounts.staff += qty;
+            else if (r.includes('player') || r.includes('athlete')) roleCounts.player += qty;
           } else {
             unassignedCount += qty;
           }
@@ -140,7 +146,9 @@ const OrderHistoryManagement = () => {
 
         const assignedMemberNames = Array.from(memberCounts.keys());
         const attendeeDescriptionParts = [];
-        if (assignedMealsCount > 0) attendeeDescriptionParts.push(`${assignedMealsCount} assigned`);
+        if (roleCounts.player > 0) attendeeDescriptionParts.push(`${roleCounts.player} player${roleCounts.player === 1 ? '' : 's'}`);
+        if (roleCounts.coach > 0) attendeeDescriptionParts.push(`${roleCounts.coach} ${roleCounts.coach === 1 ? 'coach' : 'coaches'}`);
+        if (roleCounts.staff > 0) attendeeDescriptionParts.push(`${roleCounts.staff} staff`);
         if (extrasCount > 0) attendeeDescriptionParts.push(`${extrasCount} extra${extrasCount === 1 ? '' : 's'}`);
         if (unassignedCount > 0) attendeeDescriptionParts.push(`${unassignedCount} unassigned`);
         const attendeeDescription = attendeeDescriptionParts.join(' + ');
