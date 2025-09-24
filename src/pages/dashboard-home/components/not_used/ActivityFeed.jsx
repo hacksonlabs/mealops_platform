@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import Icon from '../../../components/AppIcon';
+import Icon from '../../../../components/AppIcon';
 
 const ActivityFeed = ({ activities }) => {
   const [expandedItems, setExpandedItems] = useState(new Set());
