@@ -303,11 +303,35 @@ async function getCartSnapshot(cartId) {
     };
   });
 
+  // derive abandoned state (draft + scheduled in the past)
+  const toMs = (d, t) => {
+    if (!d) return null;
+    const safeTime = (t && String(t).slice(0, 8)) || '12:00:00';
+    const ms = Date.parse(`${d}T${safeTime}`);
+    return Number.isNaN(ms) ? null : ms;
+  };
+  const scheduledAtMs = toMs(cart.fulfillment_date, cart.fulfillment_time);
+  const nowMs = Date.now();
+  const baseStatus = cart.status ?? 'draft';
+  const statusEffective = baseStatus === 'draft' && scheduledAtMs != null && scheduledAtMs < nowMs
+    ? 'abandoned'
+    : baseStatus;
+
+  // Persist status flip to 'abandoned' when applicable
+  if (statusEffective !== baseStatus) {
+    try {
+      await supabase.from('meal_carts').update({ status: statusEffective }).eq('id', cart.id);
+    } catch (e) {
+      // non-fatal; UI can still render derived status
+      console.warn('Failed to persist cart status update:', e?.message || e);
+    }
+  }
+
   return {
     cart: {
       id: cart.id,
       teamId: cart.team_id,
-      status: cart.status ?? 'draft',
+      status: statusEffective,
       title: cart.title ?? cart.restaurants.name ?? null,
       fulfillment_service: cart.fulfillment_service ?? null,
       fulfillment_address: cart.fulfillment_address ?? null,
@@ -547,8 +571,19 @@ function subscribeToCart(cartId, onChange) {
 async function upsertCartFulfillment(cartId, fulfillment = {}, meta = {}) {
   // fulfillment: { service, address, coords, date, time }
   // meta: { title, providerType, providerRestaurantId }
+  // Determine status based on when the cart is scheduled
+  const toMs = (d, t) => {
+    if (!d) return null;
+    const safeTime = (t && String(t).slice(0, 8)) || '12:00:00';
+    const iso = `${d}T${safeTime}`;
+    const ms = Date.parse(iso);
+    return Number.isNaN(ms) ? null : ms;
+  };
+  const normalizedTime = normalizeDbTime(fulfillment?.time) ?? null;
+  const whenMs = toMs(fulfillment?.date ?? null, normalizedTime);
+  const computedStatus = whenMs != null && whenMs < Date.now() ? 'abandoned' : 'draft';
   const payload = {
-    status: 'draft',
+    status: computedStatus,
     provider_type: meta?.providerType ?? null,
     provider_restaurant_id: meta?.providerRestaurantId ?? null,
     fulfillment_service: fulfillment?.service ?? null,
@@ -556,7 +591,7 @@ async function upsertCartFulfillment(cartId, fulfillment = {}, meta = {}) {
     fulfillment_latitude: fulfillment?.coords?.lat ?? null,
     fulfillment_longitude: fulfillment?.coords?.lng ?? null,
     fulfillment_date: fulfillment?.date ?? null,
-    fulfillment_time: fulfillment?.time ?? null,
+    fulfillment_time: normalizedTime,
   };
   const { error } = await supabase.from('meal_carts').update(payload).eq('id', cartId);
   if (error) throw error;
@@ -630,7 +665,7 @@ async function listOpenCarts(teamId) {
         (c.restaurants?.name ? `${c.restaurants.name} • ${c.provider_type || 'Cart'}` : 'Cart'),
       providerType: c.provider_type,
       providerRestaurantId: c.provider_restaurant_id,
-      status: c.status,
+      status: (c.status === 'draft' && scheduledAtMs != null && scheduledAtMs < Date.now()) ? 'abandoned' : c.status,
       itemCount,
       subtotal,
       fulfillment: {
@@ -667,6 +702,22 @@ async function listOpenCarts(teamId) {
     if (aFuture) return a._scheduledAtMs - b._scheduledAtMs;
     return b._scheduledAtMs - a._scheduledAtMs;
   });
+
+  // Persist abandoned status for any past-dated drafts in one shot
+  try {
+    const toAbandon = list
+      .filter((c) => c.status === 'draft' && c._scheduledAtMs != null && c._scheduledAtMs < Date.now())
+      .map((c) => c.id);
+    if (toAbandon.length > 0) {
+      await supabase
+        .from('meal_carts')
+        .update({ status: 'abandoned' })
+        .in('id', toAbandon)
+        .eq('status', 'draft');
+    }
+  } catch (e) {
+    console.warn('Failed to persist abandoned status for carts:', e?.message || e);
+  }
 
   return list.map(({ _scheduledAtMs, ...rest }) => rest);
 }

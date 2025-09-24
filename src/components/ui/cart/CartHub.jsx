@@ -3,6 +3,7 @@ import ReactDOM from "react-dom";
 import Button from "../custom/Button";
 import Icon from "../../AppIcon";
 import cartDbService from "../../../services/cartDBService";
+import { STATUS_META } from "../../../utils/ordersUtils";
 
 export default function CartHub({
   isOpen,
@@ -99,6 +100,7 @@ export default function CartHub({
           {hubCarts.map((c) => {
             const when = formatDateTime(c) || "No date selected";
             const itemsLabel = `${c.itemCount} item${c.itemCount === 1 ? "" : "s"}`;
+            const statusMeta = STATUS_META[c.status];
             const subtotal = `$${(c.subtotal || 0).toFixed(2)}`;
 
             return (
@@ -120,10 +122,20 @@ export default function CartHub({
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-foreground truncate">
                         {c.restaurant?.name || "Unknown Restaurant"}
+                        {c.status === 'abandoned' && statusMeta && (
+                          <span
+                            className={[
+                              'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+                              statusMeta.bg, statusMeta.text, statusMeta.ring, 'border-transparent'
+                            ].join(' ')}
+                          >
+                            {statusMeta.labelShort || statusMeta.label}
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">{c.title || "Cart"}</div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {when} · {itemsLabel} · <span className="text-foreground">{subtotal}</span>
+                      <div className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                        <span>{when} · {itemsLabel} · <span className="text-foreground">{subtotal}</span></span>
                       </div>
                     </div>
 

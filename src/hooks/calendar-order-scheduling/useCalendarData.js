@@ -462,7 +462,7 @@ export function useCalendarData(
             fulfillment_date, fulfillment_time
           `)
           .eq('team_id', activeTeamId)
-          .eq('status', 'draft')
+          .in('status', ['draft', 'abandoned'])
           .not('fulfillment_date', 'is', null)
           .gte('fulfillment_date', dStart)
           .lte('fulfillment_date', dEnd)
@@ -475,11 +475,16 @@ export function useCalendarData(
           .map((row) => {
             const iso = isoFromPgDateTime(row.fulfillment_date, row.fulfillment_time);
             if (!iso) return null; // guard
+            const isPast = new Date(iso) < new Date();
+            // Prefer DB status; fall back to deriving abandoned only for draft-in-past
+            const normalizedStatus = (row.status === 'abandoned')
+              ? 'abandoned'
+              : (row.status === 'draft' && isPast ? 'abandoned' : 'draft');
             return {
               id: `cart-${row.id}`,
               type: 'cart',
               cartId: row.id,
-              status: 'draft',
+              status: normalizedStatus,
               date: iso,
               time: iso ? fmtTime(iso) : 'TBD',
               restaurant: row.restaurant?.name || 'Draft Cart',

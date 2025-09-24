@@ -98,6 +98,7 @@ export default function CartOverlays() {
         cartId: cart.id,
         restaurant: cart.restaurant,
         fulfillment: cart.fulfillment || null,
+        provider: cart.providerType || null,
         openCartOnLoad: true,
       },
     });

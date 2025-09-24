@@ -38,6 +38,7 @@ export const STATUS_META = {
   cancelled:            { bg:'bg-red-50',    text:'text-red-700',    ring:'ring-red-200',    icon:'X',       label:'Cancelled' },
   failed:               { bg:'bg-red-50',    text:'text-red-700',    ring:'ring-red-200',    icon:'AlertTriangle', label:'Failed' },
   modified:             { bg:'bg-amber-50',  text:'text-amber-700',  ring:'ring-amber-200',  icon:'Pencil',  label:'Modified' },
+  abandoned:            { bg:'bg-zinc-50',   text:'text-zinc-700',   ring:'ring-zinc-200',   icon:'Archive', label:'Abandoned' },
 };
 
 export const getStatusBadge = (status) => {
