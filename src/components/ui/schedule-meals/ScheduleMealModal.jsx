@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import Icon from '../../AppIcon';
 import Button from '../custom/Button';
 import Input from '../custom/Input';
+import InfoTooltip from '@/components/ui/InfoTooltip';
 import { getMealTypeIcon, MEAL_TYPES, SERVICE_TYPES } from '../../../utils/ordersUtils';
 import {
   ensurePlacesLib, newSessionToken, fetchAddressSuggestions, getPlaceDetailsFromPrediction
@@ -311,7 +312,14 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
                       onChange={(e) => setFormData((prev) => ({ ...prev, date: e?.target?.value }))}
                     />
                     <Input
-                      label="Time"
+                      label={(
+                        <span className="inline-flex items-center">
+                          Time
+                          <InfoTooltip
+                            text="To ensure on-time arrival, deliveries may arrive up to 15 minutes early."
+                          />
+                        </span>
+                      )}
                       type="time"
                       value={formData?.time}
                       onChange={(e) => setFormData((prev) => ({ ...prev, time: e?.target?.value }))}

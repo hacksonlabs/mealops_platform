@@ -235,7 +235,7 @@ export const orderDbService = {
       const basePriceCents = Math.round(Number(item.price || 0) * 100);
       const baseRow = {
         order_id: orderId,
-        team_member_id: item.added_by_member_id || item.addedByMemberId || null,
+        team_member_id: null,
         product_id: item.menu_item_id || item.menuItemId || item.product_id || item.id,
         name: item.item_name || item.name,
         description: item.description || null,
@@ -246,6 +246,7 @@ export const orderDbService = {
           || null,
         quantity: baseQuantity,
         product_marked_price_cents: basePriceCents,
+        is_extra: false,
       };
 
       const groups = extractCustomizationsFromSelections(item?.selectedOptions || item?.selected_options);
@@ -261,6 +262,7 @@ export const orderDbService = {
             ...baseRow,
             team_member_id: assignment.is_extra ? null : assignment.member_id,
             quantity: qty,
+            is_extra: Boolean(assignment.is_extra),
           });
           customizationPerRow.push(groups);
         });
@@ -271,11 +273,12 @@ export const orderDbService = {
             ...baseRow,
             team_member_id: null,
             quantity: residual,
+            is_extra: false,
           });
           customizationPerRow.push(groups);
         }
       } else {
-        orderItemRows.push(baseRow);
+        orderItemRows.push({ ...baseRow, is_extra: false });
         customizationPerRow.push(groups);
       }
     });

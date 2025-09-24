@@ -90,6 +90,7 @@ const CalendarOrderScheduling = () => {
 
   // open schedule modal when navigated with state flag
   const shouldOpenScheduleModal = location.state?.openScheduleModal;
+  const openOrderIdFromNav = location.state?.openOrderId;
 
   useEffect(() => {
     if (shouldOpenScheduleModal) {
@@ -97,6 +98,13 @@ const CalendarOrderScheduling = () => {
       navigate(location.pathname, { replace: true, state: undefined });
     }
   }, [shouldOpenScheduleModal, location.pathname, navigate]);
+
+  // If navigated with an order id, open full details
+  useEffect(() => {
+    if (!openOrderIdFromNav) return;
+    handleOpenDetail(openOrderIdFromNav);
+    navigate(location.pathname, { replace: true, state: undefined });
+  }, [openOrderIdFromNav, navigate, location.pathname]);
 
   // handlers
   const handleTodayClick = () => {

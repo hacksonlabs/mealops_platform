@@ -70,7 +70,9 @@ const OrderHistoryManagement = () => {
 
         meal_items:meal_order_items (
           id, name, quantity, product_marked_price_cents, notes,
-          team_member:team_members ( id, full_name )
+          is_extra,
+          team_member_id,
+          team_member:team_members ( id, full_name, role )
         )
       `)
       .eq('team_id', teamId)
@@ -88,15 +90,69 @@ const OrderHistoryManagement = () => {
       const transformedOrders = (data || []).map(order => {
         const items = order.meal_items || [];
 
-        // unique assignees (by team member)
-        const uniqNames = new Set(
-          items.map(i => i?.team_member?.full_name).filter(Boolean)
-        );
+        const memberCounts = new Map(); // name -> quantity
+        const memberRoles = new Map();  // name -> role
+        let extrasCount = 0;
+        let unassignedCount = 0;
+        let totalMeals = 0;
+        const roleCounts = { player: 0, coach: 0, staff: 0 };
 
-        const attendees =
-          uniqNames.size > 0
-            ? uniqNames.size
-            : items.reduce((sum, it) => sum + (it?.quantity ?? 1), 0);
+        items.forEach((it) => {
+          const qty = Math.max(1, Number(it?.quantity ?? 1));
+          totalMeals += qty;
+          if (it?.is_extra) {
+            extrasCount += qty;
+            return;
+          }
+          const name = it?.team_member?.full_name;
+          const role = it?.team_member?.role || it?.member?.role || it?.role || null;
+          if (name) {
+            memberCounts.set(name, (memberCounts.get(name) || 0) + qty);
+            if (role && !memberRoles.has(name)) {
+              const prettyRole = String(role)
+                .replace(/[_-]+/g, ' ')
+                .trim();
+              if (prettyRole) {
+                memberRoles.set(
+                  name,
+                  prettyRole.replace(/\b\w/g, (c) => c.toUpperCase())
+                );
+              }
+            }
+            // Aggregate role counts for attendee description
+            const r = String(role || '').toLowerCase();
+            if (r.includes('coach')) roleCounts.coach += qty;
+            else if (r.includes('staff')) roleCounts.staff += qty;
+            else if (r.includes('player') || r.includes('athlete')) roleCounts.player += qty;
+          } else {
+            unassignedCount += qty;
+          }
+        });
+
+        const memberEntries = Array.from(memberCounts.entries());
+        const assignedMealsCount = memberEntries.reduce((acc, [, count]) => acc + count, 0);
+        const teamMembersDetailed = memberEntries.map(([name, count]) =>
+          count > 1 ? `${name} (x${count})` : name
+        );
+        if (extrasCount > 0) teamMembersDetailed.push(`Extra (x${extrasCount})`);
+        if (unassignedCount > 0) teamMembersDetailed.push(`Unassigned (x${unassignedCount})`);
+
+        const teamMembersTooltip = memberEntries.map(([name, count]) => ({
+          name: count > 1 ? `${name} (x${count})` : name,
+          role: memberRoles.get(name) || undefined,
+        }));
+        if (extrasCount > 0) teamMembersTooltip.push({ name: `Extra (x${extrasCount})` });
+        if (unassignedCount > 0) teamMembersTooltip.push({ name: `Unassigned (x${unassignedCount})` });
+
+        const assignedMemberNames = Array.from(memberCounts.keys());
+        // Table description should show: X assigned + X extra + X unassigned
+        const attendeeDescriptionParts = [];
+        if (assignedMealsCount > 0) attendeeDescriptionParts.push(`${assignedMealsCount} assigned`);
+        if (extrasCount > 0) attendeeDescriptionParts.push(`${extrasCount} extra${extrasCount === 1 ? '' : 's'}`);
+        if (unassignedCount > 0) attendeeDescriptionParts.push(`${unassignedCount} unassigned`);
+        const attendeeDescription = attendeeDescriptionParts.join(' + ');
+
+        const attendees = Math.max(totalMeals, assignedMemberNames.length + extrasCount + unassignedCount);
 
         const locationStr = [
           order?.delivery_address_line1,
@@ -108,6 +164,7 @@ const OrderHistoryManagement = () => {
         return {
           id: order.id,
           date: order.scheduled_date,
+          mealTitle: order.title?.trim() || order.description?.trim() || 'Item',
           restaurant: order.restaurant?.name || 'Unknown Restaurant',
           mealType: (() => {
             if (order.meal_type) return order.meal_type;
@@ -120,15 +177,29 @@ const OrderHistoryManagement = () => {
           })(),
           location: locationStr || '—',
           attendees,
+          itemsCount: totalMeals,
+          attendeeDescription,
+          extrasCount,
+          unassignedCount,
+          memberCount: assignedMemberNames.length,
           totalCost: Number(order.total_amount) || 0,
           status: order.order_status,
           orderNumber: order.api_order_id || `ORD-${String(order.id).substring(0, 8)}`,
-          teamMembers: Array.from(uniqNames),
+          teamMembers: teamMembersDetailed,
+          teamMembersTooltip,
           paymentMethod: order.payment_method
             ? `${order.payment_method.card_name} (**** ${order.payment_method.last_four})`
             : '—',
           fulfillmentMethod: order.fulfillment_method || '',
-          originalOrderData: order
+          originalOrderData: {
+            ...order,
+            extrasCount,
+            unassignedCount,
+            assignedMemberCount: assignedMemberNames.length,
+            attendeesTotal: attendees,
+            itemsCount: totalMeals,
+            team_members_tooltip: teamMembersTooltip,
+          }
         };
       });
 

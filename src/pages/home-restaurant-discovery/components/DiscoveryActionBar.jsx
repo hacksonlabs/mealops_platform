@@ -3,7 +3,7 @@ import Button from '@/components/ui/custom/Button';
 import Icon from '@/components/AppIcon';
 
 const DiscoveryActionBar = forwardRef(function DiscoveryActionBar(
-  { activeCount, filters, onOpenFilters, onRemoveChip, onClearAll },
+  { activeCount, filters, onOpenFilters, onRemoveChip, onClearAll, summary },
   ref
 ) {
   return (
@@ -23,6 +23,11 @@ const DiscoveryActionBar = forwardRef(function DiscoveryActionBar(
               </Button>
             </div>
           </div>
+          {summary && (
+            <div className="text-sm text-muted-foreground whitespace-nowrap">
+              {summary}
+            </div>
+          )}
         </div>
 
         {activeCount > 0 && (

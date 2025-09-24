@@ -1,148 +1,79 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts';
+import { supabase } from '../../lib/supabase';
+import cartDbService from '../../services/cartDBService';
 import Header from '../../components/ui/Header';
 import MetricsCard from './components/MetricsCard';
 import { NextMealWidget } from './components/NextMealWidget';
-import ActivityFeed from './components/ActivityFeed';
 import QuickActions from './components/QuickActions';
 import UpcomingMealsCalendar from './components/UpcomingMealsCalendar';
 
 const DashboardHome = () => {
   const navigate = useNavigate();
-  const { userProfile, loading: authLoading } = useAuth();
+  const { userProfile, activeTeam, loading: authLoading } = useAuth();
 
-  // Mock data for dashboard metrics
-  const [metrics] = useState([
-    {
-      title: "Upcoming Meals",
-      value: "3",
-      subtitle: "Next 7 days",
-      icon: "Calendar",
-      color: "primary",
-    },
-    {
-      title: "Pending Polls",
-      value: "2",
-      subtitle: "Awaiting responses",
-      icon: "Vote",
-      color: "warning",
-    },
-    {
-      title: "Team Size",
-      value: "28",
-      subtitle: "Active members",
-      icon: "Users",
-      color: "success",
-    },
-    {
-      title: "Monthly Spend",
-      value: "$2,847",
-      subtitle: "December 2025",
-      icon: "DollarSign",
-      color: "accent",
-      trend: "down",
-      trendValue: "-12% vs last month"
-    }
-  ]);
+  // Dashboard state (live)
+  const [teamSize, setTeamSize] = useState(0);
+  const [upcomingOrders, setUpcomingOrders] = useState([]); // next 7 days
+  const [openCartsCount, setOpenCartsCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
 
-  // Mock data for next scheduled meal
-  const [nextMeal] = useState({
-    id: 1,
-    date: "2025-01-10",
-    time: "18:30",
-    restaurant: "Tony's Italian Bistro",
-    location: "Downtown Sports Complex",
-    status: "confirmed",
-    attendees: 24,
-    confirmedCount: 18,
-    pendingCount: 6,
-    specialInstructions: "Vegetarian options for 3 players. Team captain has nut allergy - please ensure no cross-contamination."
-  });
+  // Derivations
+  const nextMeal = useMemo(() => {
+    if (!upcomingOrders?.length) return null;
+    const first = upcomingOrders[0];
+    const dt = new Date(first.scheduled_date);
+    const hh = String(dt.getHours()).padStart(2, '0');
+    const mm = String(dt.getMinutes()).padStart(2, '0');
+    return {
+      id: first.id,
+      date: dt.toISOString().slice(0, 10),
+      time: `${hh}:${mm}`,
+      restaurant: first.restaurant_name || 'Restaurant',
+      location: first.fulfillment_method === 'delivery'
+        ? [first.delivery_address_line1, first.delivery_city, first.delivery_state, first.delivery_zip].filter(Boolean).join(', ')
+        : (first.restaurant_address || ''),
+      status: first.order_status || 'scheduled',
+      fulfillment: first.fulfillment_method || null,
+      mealType: first.meal_type || 'other',
+    };
+  }, [upcomingOrders]);
 
-  // Mock data for recent activities
-  const [activities] = useState([
-    {
-      id: 1,
-      type: "poll_completed",
-      title: "Restaurant Poll Completed",
-      description: "Team voted for Friday dinner location",
-      timestamp: new Date(Date.now() - 300000), // 5 minutes ago
-      details: "Tony's Italian Bistro won with 18 votes (64%). Pizza Palace got 8 votes (29%), and Burger Junction got 2 votes (7%).",
-      actionRequired: false
-    },
-    {
-      id: 2,
-      type: "order_confirmed",
-      title: "Order Confirmed",
-      description: "Thursday lunch order confirmed for 22 attendees",
-      timestamp: new Date(Date.now() - 1800000), // 30 minutes ago
-      details: "Confirmed with Healthy Eats Cafe. Total cost: $284. Pickup scheduled for 12:00 PM. Contact: (555) 123-4567",
-      actionRequired: false
-    },
-    {
-      id: 3,
-      type: "team_member_added",
-      title: "New Team Member Added",
-      description: "Marcus Thompson joined as Assistant Coach",
-      timestamp: new Date(Date.now() - 3600000), // 1 hour ago
-      details: "Added with email marcus.thompson@athletics.edu. Role: Assistant Coach. Dietary restrictions: None.",
-      actionRequired: false
-    },
-    {
-      id: 4,
-      type: "poll_created",
-      title: "New Poll Created",
-      description: "Weekend meal preferences poll is live",
-      timestamp: new Date(Date.now() - 7200000), // 2 hours ago
-      details: "Poll expires on January 9th at 5:00 PM. Options include: Mediterranean Grill, Taco Fiesta, and Sandwich Station.",
-      actionRequired: true,
-      actionText: "View Poll"
-    },
-    {
-      id: 5,
-      type: "payment_processed",
-      title: "Payment Processed",
-      description: "Tuesday dinner payment completed",
-      timestamp: new Date(Date.now() - 86400000), // 1 day ago
-      details: "Payment of $312.50 processed successfully. Receipt sent to accounting@athletics.edu. Transaction ID: TXN-2025-0107-001",
-      actionRequired: false
-    }
-  ]);
+  const upcomingMeals = useMemo(() => {
+    return (upcomingOrders || []).map((o) => ({
+      id: o.id,
+      date: new Date(o.scheduled_date).toISOString().slice(0, 10),
+      time: new Date(o.scheduled_date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      restaurant: o.restaurant_name || 'Restaurant',
+      mealType: o.meal_type || 'other',
+    }));
+  }, [upcomingOrders]);
 
-  // Mock data for upcoming meals
-  const [upcomingMeals] = useState([
+  const metrics = useMemo(() => ([
     {
-      id: 1,
-      date: "2025-01-10",
-      time: "6:30 PM",
-      restaurant: "Tony's Italian Bistro"
+      title: 'Upcoming Meals',
+      value: String(upcomingOrders?.length || 0),
+      subtitle: 'Next 7 days',
+      icon: 'Calendar',
+      color: 'primary',
     },
     {
-      id: 2,
-      date: "2025-01-12",
-      time: "12:00 PM",
-      restaurant: "Healthy Eats Cafe"
+      title: 'Team Size',
+      value: String(teamSize || 0),
+      subtitle: 'Active members',
+      icon: 'Users',
+      color: 'success',
     },
     {
-      id: 3,
-      date: "2025-01-15",
-      time: "7:00 PM",
-      restaurant: "Mediterranean Grill"
+      title: 'Open Carts',
+      value: String(openCartsCount || 0),
+      subtitle: 'Not submitted',
+      icon: 'ShoppingCart',
+      color: 'accent',
     },
-    {
-      id: 4,
-      date: "2025-01-18",
-      time: "1:00 PM",
-      restaurant: "Taco Fiesta"
-    },
-    {
-      id: 5,
-      date: "2025-01-22",
-      time: "6:00 PM",
-      restaurant: "Burger Junction"
-    }
-  ]);
+  ]), [upcomingOrders?.length, teamSize, openCartsCount]);
 
   const handleMetricClick = (metric) => {
     switch (metric?.title) {
@@ -165,14 +96,80 @@ const DashboardHome = () => {
     navigate('/calendar-order-scheduling');
   };
 
-  const handleCancelOrder = () => {
-    // Mock cancel functionality
-    alert('Order cancellation functionality would be implemented here');
-  };
+  const handleCancelOrder = () => navigate('/order-history-management');
 
-  const handleDateClick = (day, month) => {
-    navigate('/calendar-order-scheduling');
-  };
+  const handleDateClick = () => navigate('/calendar-order-scheduling');
+
+  // Load dashboard data from DB
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!activeTeam?.id) { setLoading(false); return; }
+      setErr(''); setLoading(true);
+      try {
+        const teamId = activeTeam.id;
+
+        // Team size
+        const { count: memberCount, error: memErr } = await supabase
+          .from('team_members')
+          .select('id', { count: 'exact', head: true })
+          .eq('team_id', teamId);
+        if (memErr) throw memErr;
+
+        // Upcoming orders (next 7 days)
+        const today = new Date();
+        const end = new Date();
+        end.setDate(today.getDate() + 7);
+        const toISODate = (d) => d.toISOString().slice(0, 10);
+        let oq = supabase
+          .from('meal_orders')
+          .select(`
+            id, team_id, scheduled_date, order_status, fulfillment_method, meal_type,
+            delivery_address_line1, delivery_city, delivery_state, delivery_zip,
+            restaurant:restaurants ( name, address )
+          `)
+          .eq('team_id', teamId)
+          .gte('scheduled_date', toISODate(today))
+          .lte('scheduled_date', toISODate(end))
+          .in('order_status', ['scheduled','confirmed'])
+          .order('scheduled_date', { ascending: true });
+        const { data: ordersData, error: ordersErr } = await oq;
+        if (ordersErr) throw ordersErr;
+        const normalized = (ordersData || []).map((row) => ({
+          id: row.id,
+          scheduled_date: row.scheduled_date,
+          order_status: row.order_status,
+          fulfillment_method: row.fulfillment_method,
+          meal_type: row.meal_type || null,
+          delivery_address_line1: row.delivery_address_line1,
+          delivery_city: row.delivery_city,
+          delivery_state: row.delivery_state,
+          delivery_zip: row.delivery_zip,
+          restaurant_name: row.restaurant?.name || 'Restaurant',
+          restaurant_address: row.restaurant?.address || '',
+        }));
+
+        // Open carts count
+        let openCarts = 0;
+        try {
+          const list = await cartDbService.listOpenCarts(teamId);
+          openCarts = Array.isArray(list) ? list.length : 0;
+        } catch {}
+
+        if (!cancelled) {
+          setTeamSize(memberCount || 0);
+          setUpcomingOrders(normalized);
+          setOpenCartsCount(openCarts);
+        }
+      } catch (e) {
+        if (!cancelled) setErr(e?.message || 'Failed to load dashboard data');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [activeTeam?.id]);
 
   // If user profile is still loading, show a loading message
   if (authLoading) {
@@ -203,47 +200,36 @@ const DashboardHome = () => {
             </p>
           </div>
 
-          {/* Metrics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {metrics?.map((metric, index) => (
-              <MetricsCard
-                key={index}
-                {...metric}
-                onClick={() => handleMetricClick(metric)}
-              />
-            ))}
-          </div>
-
-          {/* Next Meal Widget */}
-          <div className="mb-8">
-            <NextMealWidget
-              meal={nextMeal}
-              onViewDetails={handleViewDetails}
-              onModifyOrder={handleModifyOrder}
-              onCancel={handleCancelOrder}
-            />
-          </div>
-
-          {/* Main Content Grid */}
+          {/* Top row: Metrics + Next meal + Quick actions (calendar below full-width) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-            {/* Activity Feed - Takes 2 columns on large screens */}
-            <div className="lg:col-span-2">
-              <ActivityFeed activities={activities} />
+            <div className="lg:col-span-2 space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {metrics?.map((metric, index) => (
+                  <MetricsCard
+                    key={index}
+                    {...metric}
+                    onClick={() => handleMetricClick(metric)}
+                  />
+                ))}
+              </div>
+              <NextMealWidget meal={nextMeal} />
             </div>
-
-            {/* Quick Actions - Takes 1 column on large screens */}
-            <div className="lg:col-span-1">
+            <div>
               <QuickActions />
             </div>
           </div>
 
-          {/* Calendar Widget */}
-          <div className="max-w-md mx-auto lg:max-w-none">
+          {/* Calendar full-width */}
+          <div className="mb-8">
             <UpcomingMealsCalendar
               upcomingMeals={upcomingMeals}
               onDateClick={handleDateClick}
+              onMealClick={(meal) => navigate('/calendar-order-scheduling', { state: { openOrderId: meal.id } })}
             />
           </div>
+          {err && (
+            <div className="mt-6 text-sm text-destructive">{err}</div>
+          )}
         </div>
       </main>
     </div>

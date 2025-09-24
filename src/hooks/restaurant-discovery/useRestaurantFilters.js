@@ -6,6 +6,7 @@ export default function useRestaurantFilters(rows, {
   searchQuery,
   centerCoords,
   radiusMiles,
+  selectedService = 'delivery',
 }) {
   return useMemo(() => {
     let list = [...rows];
@@ -63,15 +64,23 @@ export default function useRestaurantFilters(rows, {
 
     // sort
     list.sort((a, b) => {
-      const da = a._distanceMeters ?? Infinity;
-      const db = b._distanceMeters ?? Infinity;
-      if (da !== db) return da - db;
-      const ra = a.rating ?? 0;
-      const rb = b.rating ?? 0;
-      if (rb !== ra) return rb - ra;
+      if (selectedService === 'delivery') {
+        const ra = a.rating ?? 0;
+        const rb = b.rating ?? 0;
+        if (rb !== ra) return rb - ra;
+        const da = a._distanceMeters ?? Infinity;
+        const db = b._distanceMeters ?? Infinity;
+        if (da !== db) return da - db;
+      } else {
+        const da = a._distanceMeters ?? Infinity;
+        const db = b._distanceMeters ?? Infinity;
+        if (da !== db) return da - db;
+        const ra = a.rating ?? 0;
+        const rb = b.rating ?? 0;
+        if (rb !== ra) return rb - ra;
+      }
       return a.name.localeCompare(b.name);
     });
-
     return list;
-  }, [rows, selectedCategory, appliedFilters, searchQuery, centerCoords, radiusMiles]);
+  }, [rows, selectedCategory, appliedFilters, searchQuery, centerCoords, radiusMiles, selectedService]);
 }

@@ -14,7 +14,7 @@ export default function useDistances(centerCoords, rows, setRows) {
 
     (async () => {
       try {
-        const updated = [...rows];
+        const updated = rows.map((original) => ({ ...original }));
         for (let i = 0; i < updated.length; i++) {
           if (cancelled) return;
           const r = updated[i];
@@ -43,7 +43,10 @@ export default function useDistances(centerCoords, rows, setRows) {
           setDistanceReady(true);
         }
       } catch {
-        if (!cancelled) setDistanceReady(true);
+        if (!cancelled) {
+          console.warn('[Discovery] useDistances: distance calc failed');
+          setDistanceReady(true);
+        }
       }
     })();
 

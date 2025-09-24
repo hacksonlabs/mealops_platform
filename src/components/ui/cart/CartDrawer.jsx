@@ -48,10 +48,9 @@ export default function CartDrawer({
                 const lines = formatCustomizations(it) || []; // ← no special requests here anymore
                 const customizations = lines.length ? lines.join(", ") : null;
 
-                const assignees =
-                  Array.isArray(it?.assignedTo) && it.assignedTo.length
-                    ? it.assignedTo.map((a) => a?.name).filter(Boolean).join(", ")
-                    : it?.userName || null;
+                const assigneesList = Array.isArray(it?.assignedTo) ? it.assignedTo.map((a) => a?.name).filter(Boolean) : [];
+                let assignees = assigneesList.length ? assigneesList.join(', ') : it?.userName || null;
+                if (!assignees) assignees = '-';
 
                 const special = String(it?.specialInstructions || "").trim();
 
@@ -73,11 +72,9 @@ export default function CartDrawer({
                         {/* Assignees & customizations */}
                         {(assignees || customizations) && (
                           <div className="mt-0.5 text-[12px] text-muted-foreground">
-                            {assignees && (
-                              <>
-                                For: <span className="text-foreground/90">{assignees}</span>
-                              </>
-                            )}
+                            <>
+                              For: <span className="text-foreground/90">{assignees}</span>
+                            </>
                             {customizations && <span className="line-clamp-2">{customizations}</span>}
                           </div>
                         )}

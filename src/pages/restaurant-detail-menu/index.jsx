@@ -53,6 +53,15 @@ const RestaurantDetailMenu = () => {
 
   // Default provider for this restaurant (once hydrated)
   const [localProvider, setLocalProvider] = useState(provider);
+  // If route provided a provider (e.g., editing an existing cart), prefer it once
+  useEffect(() => {
+    const p = location.state?.provider;
+    if (p && p !== localProvider) {
+      setLocalProvider(p);
+      setProvider?.(p);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.provider]);
   useEffect(() => {
     if (!restaurant) return;
     const providers = restaurant.supported_providers?.length ? restaurant.supported_providers : ['grubhub'];

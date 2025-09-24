@@ -1,57 +1,19 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { teamService } from '../../../services/not_used_yet/teamService';
-import { useAuth } from '../../../contexts';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/custom/Button';
 
 export function QuickActions() {
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const [team, setTeam] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadTeamData = async () => {
-      // The `loading` state is now set to false regardless of whether a user exists.
-      try {
-        if (user) {
-          const { data: teamData } = await teamService?.getUserTeam();
-          if (isMounted) {
-            setTeam(teamData);
-          }
-        }
-      } catch (error) {
-        console.error('Error loading team data:', error);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadTeamData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [user]);
 
   const handleScheduleOrder = () => {
-    if (team?.id) {
-      navigate('/calendar-order-scheduling');
-    } else {
-      navigate('/team-setup');
-    }
+    navigate('/calendar-order-scheduling', { state: { openScheduleModal: true } });
   };
 
   const quickActions = [
     {
       icon: "Calendar",
-      title: "Schedule Order",
+      title: "Schedule Meal",
       description: "Schedule a new order for your team",
       variant: "default",
       onClick: handleScheduleOrder
@@ -65,19 +27,7 @@ export function QuickActions() {
     }
   ];
 
-  if (loading) {
-    return (
-      <div className="bg-white rounded-lg shadow-sm border p-6">
-        <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 rounded mb-4 w-32"></div>
-          <div className="space-y-3">
-            <div className="h-12 bg-gray-100 rounded"></div>
-            <div className="h-12 bg-gray-100 rounded"></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // No async load needed here; we navigate directly to Calendar with modal open.
 
   return (
     <div className="bg-card border border-border rounded-lg p-6 shadow-athletic">
@@ -112,7 +62,7 @@ export function QuickActions() {
           </div>
         ))}
       </div>
-      <div className="mt-6 pt-4 border-t border-border">
+      {/* <div className="mt-6 pt-4 border-t border-border">
         <div className="grid grid-cols-2 gap-3">
           <Button 
             variant="outline" 
@@ -120,7 +70,7 @@ export function QuickActions() {
             iconName="Settings" 
             iconPosition="left"
             size="sm"
-            onClick={() => { /* Add your Settings navigation here */ }}
+            onClick={() => {}}
           >
             Settings
           </Button>
@@ -130,12 +80,12 @@ export function QuickActions() {
             iconName="HelpCircle" 
             iconPosition="left"
             size="sm"
-            onClick={() => { /* Add your Help navigation here */ }}
+            onClick={() => {}}
           >
             Help
           </Button>
         </div>
-      </div>
+      </div> */}
     </div>
   );
 }

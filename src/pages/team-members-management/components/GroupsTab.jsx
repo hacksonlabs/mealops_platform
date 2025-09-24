@@ -344,6 +344,13 @@ export default function GroupsTab() {
                 const m = memberById.get(mid);
                 return m?.full_name || m?.email || `Member ${String(mid).slice(0, 6)}`;
               });
+              const peopleEntries = (g.member_ids || []).map((mid) => {
+                const m = memberById.get(mid) || {};
+                return {
+                  name: m?.full_name || m?.email || `Member ${String(mid).slice(0, 6)}`,
+                  role: m?.role || undefined,
+                };
+              });
 
               return (
                 <li key={g.id} className="grid grid-cols-12 px-4 py-3 items-center">
@@ -370,7 +377,8 @@ export default function GroupsTab() {
                         open={hoverGroupId === g.id}
                         x={tooltipPos.x}
                         y={tooltipPos.y}
-                        names={names}
+                        names={peopleEntries}
+                        totalCount={peopleEntries.length}
                         onMouseEnter={cancelClose}
                         onMouseLeave={scheduleClose}
                         title="Members"

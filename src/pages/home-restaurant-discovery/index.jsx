@@ -30,12 +30,47 @@ const HomeRestaurantDiscovery = () => {
   // view & misc
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
-  const [radiusMiles] = useState(3);
-  const [gridLoading, setGridLoading] = useState(true);
-
+  const PICKUP_RADIUS_DEFAULT = 3;
+  const DELIVERY_RADIUS_DEFAULT = 6;
+  const [pickupRadius, setPickupRadius] = useState(() => {
+    const params = new URLSearchParams(location.search);
+    const svc = params.get('service') || 'delivery';
+    const radiusParam = params.get('pickup_radius');
+    const radius = radiusParam ? Number(radiusParam) : PICKUP_RADIUS_DEFAULT;
+    return svc === 'pickup' && radius > 0 ? radius : PICKUP_RADIUS_DEFAULT;
+  });
+  const [deliveryRadius, setDeliveryRadius] = useState(() => {
+    const params = new URLSearchParams(location.search);
+    const radiusParam = params.get('delivery_radius');
+    const radius = radiusParam ? Number(radiusParam) : DELIVERY_RADIUS_DEFAULT;
+    return radius > 0 ? Math.min(Math.max(radius, 1), DELIVERY_RADIUS_DEFAULT) : DELIVERY_RADIUS_DEFAULT;
+  });
   const params = new URLSearchParams(location.search);
   const initialCartTitle = params.get('title') || '';
   const mealType = params.get('mealType') || '';
+  const [gridMeta, setGridMeta] = useState({ count: 0, label: '' });
+  const [gridLoading, setGridLoading] = useState(true);
+
+
+  const clampPickup = (val) => (val && val > 0 ? Math.max(1, Math.round(val)) : PICKUP_RADIUS_DEFAULT);
+  const clampDelivery = (val) => {
+    if (!val || val <= 0) return DELIVERY_RADIUS_DEFAULT;
+    return Math.min(Math.max(Math.round(val), 1), DELIVERY_RADIUS_DEFAULT);
+  };
+
+  const handleClearAll = () => {
+    clearAll();
+    setPickupRadius(PICKUP_RADIUS_DEFAULT);
+    setDeliveryRadius(DELIVERY_RADIUS_DEFAULT);
+  };
+
+  const handlePickupRadiusChange = (next) => {
+    setPickupRadius(clampPickup(next));
+  };
+
+  const handleDeliveryRadiusChange = (next) => {
+    setDeliveryRadius(clampDelivery(next));
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -50,7 +85,8 @@ const HomeRestaurantDiscovery = () => {
           filters={filters}
           onOpenFilters={() => setIsFilterDrawerOpen(true)}
           onRemoveChip={removeChip}
-          onClearAll={clearAll}
+          onClearAll={handleClearAll}
+          summary={`${gridMeta.count} restaurants${gridMeta.label ? ` • ${gridMeta.label}` : ''}`}
         />
 
         {gridLoading && (
@@ -67,11 +103,12 @@ const HomeRestaurantDiscovery = () => {
           appliedFilters={filters}
           searchQuery={searchQuery}
           centerCoords={fulfillment.coords}
-          radiusMiles={radiusMiles}
+          radiusMiles={selectedService === 'pickup' ? pickupRadius : deliveryRadius}
           fulfillment={fulfillment}
           onLoadingChange={setGridLoading}
           initialCartTitle={initialCartTitle}
           mealType={mealType}
+          onMetaUpdate={setGridMeta}
         />
       </main>
 
@@ -80,9 +117,16 @@ const HomeRestaurantDiscovery = () => {
         onClose={() => setIsFilterDrawerOpen(false)}
         value={filters}
         onChange={setFilters}
-        onReset={clearAll}
+        onReset={handleClearAll}
         anchorRef={filterBtnRef}
         offset={{ x: 12, y: 8 }}
+        service={selectedService}
+        pickupRadius={pickupRadius}
+        onPickupRadiusChange={handlePickupRadiusChange}
+        deliveryRadius={deliveryRadius}
+        onDeliveryRadiusChange={handleDeliveryRadiusChange}
+        deliveryRadiusDefault={DELIVERY_RADIUS_DEFAULT}
+        defaultPickupRadius={PICKUP_RADIUS_DEFAULT}
       />
     </div>
   );

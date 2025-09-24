@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
+import { getMealTypeIcon } from '../../../utils/ordersUtils';
 import Button from '../../../components/ui/custom/Button';
 
-const UpcomingMealsCalendar = ({ upcomingMeals, onDateClick }) => {
+const UpcomingMealsCalendar = ({ upcomingMeals, onDateClick, onMealClick }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const getDaysInMonth = (date) => {
@@ -86,6 +87,22 @@ const UpcomingMealsCalendar = ({ upcomingMeals, onDateClick }) => {
     return days;
   };
 
+  // Compute all upcoming meals for the currently displayed month
+  const mealsThisMonth = (Array.isArray(upcomingMeals) ? upcomingMeals : [])
+    .filter((meal) => {
+      const d = new Date(meal?.date);
+      return (
+        !Number.isNaN(d.getTime()) &&
+        d.getMonth() === currentDate.getMonth() &&
+        d.getFullYear() === currentDate.getFullYear()
+      );
+    })
+    .sort((a, b) => {
+      const ad = new Date(`${a.date} ${a.time}`);
+      const bd = new Date(`${b.date} ${b.time}`);
+      return ad - bd;
+    });
+
   return (
     <div className="bg-card border border-border rounded-lg p-6 shadow-athletic">
       <div className="flex items-center justify-between mb-4">
@@ -124,27 +141,27 @@ const UpcomingMealsCalendar = ({ upcomingMeals, onDateClick }) => {
       <div className="space-y-2">
         <div className="flex items-center text-xs text-muted-foreground">
           <div className="w-3 h-3 bg-accent rounded-full mr-2"></div>
-          <span>Scheduled meal</span>
+          <span>Scheduled meals</span>
         </div>
-        
-        {upcomingMeals?.slice(0, 3)?.map((meal) => (
-          <div key={meal?.id} className="flex items-center justify-between p-2 bg-muted rounded-md">
-            <div className="flex items-center space-x-2">
-              <Icon name="Calendar" size={14} className="text-muted-foreground" />
-              <span className="text-sm font-medium text-foreground">
-                {new Date(meal.date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </span>
-              <span className="text-sm text-muted-foreground">{meal?.restaurant}</span>
-            </div>
-            <span className="text-xs text-muted-foreground">{meal?.time}</span>
+        <div className="w-full max-w-4xl overflow-y-auto max-h-64">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {mealsThisMonth?.map((meal) => (
+              <button
+                key={meal?.id}
+                className="flex items-center gap-2 p-2 bg-muted rounded hover:bg-muted/70 text-left"
+                onClick={() => onMealClick && onMealClick(meal)}
+              >
+                <Icon name={getMealTypeIcon(meal?.mealType)} size={14} className="text-muted-foreground" />
+                <span className="text-xs font-medium text-foreground">
+                  {new Date(meal.date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+                <span className="text-xs text-muted-foreground">{meal?.time}</span>
+                <span className="text-sm text-muted-foreground truncate">{meal?.restaurant}</span>
+              </button>
+            ))}
           </div>
-        ))}
-
-        {upcomingMeals?.length > 3 && (
-          <button className="w-full text-sm text-primary hover:text-primary/80 transition-athletic py-2">
-            View {upcomingMeals?.length - 3} more meals
-          </button>
-        )}
+          {/* Show all meals in the current month; no pager */}
+        </div>
 
         {upcomingMeals?.length === 0 && (
           <div className="text-center py-4">

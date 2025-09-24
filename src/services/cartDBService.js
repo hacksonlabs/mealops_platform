@@ -39,40 +39,42 @@ const normalizeDbTime = (t) => {
 function computeUnits({ quantity, memberIds = [], unitsByMember = {}, extraCount = 0 }) {
   const ids = Array.from(new Set(memberIds)); // de-dupe, keep order
   const units = {};
-  let baseTotal = 0;
+  let baseTot = 0;
 
   // start with provided units or default 1 per member
   for (const id of ids) {
     const raw = Number(unitsByMember?.[id]);
     const u = Number.isFinite(raw) && raw > 0 ? raw : 1;
     units[id] = u;
-    baseTotal += u;
+    baseTot += u;
   }
 
   // extras are ONLY the explicit extras the user asked for
   let extras = Math.max(0, Number(extraCount || 0));
-  baseTotal += extras;
 
   // target quantity
   let targetQty = Number(quantity);
   if (!Number.isFinite(targetQty) || targetQty <= 0) {
     // if quantity omitted, derive from current plan or at least 1
-    targetQty = Math.max(1, baseTotal || ids.length || extras || 1);
+    targetQty = Math.max(1, baseTot || ids.length || extras || 1);
   }
 
-  let diff = targetQty - baseTotal;
+  // If no members are selected, treat everything beyond explicit extras as unassigned.
+  if (ids.length === 0) {
+    const clampedExtras = Math.min(extras, targetQty);
+    const unassigned = Math.max(0, targetQty - clampedExtras);
+    return { targetQty, units: {}, extras: clampedExtras, unassigned };
+  }
 
-  if (diff > 0) {
-    // assign remainder to the last selected member (if any), else to extras
-    if (ids.length > 0) {
-      const lastId = ids[ids.length - 1];
-      units[lastId] = (units[lastId] || 0) + diff;
-    } else {
-      extras += diff;
-    }
-  } else if (diff < 0) {
-    // shrink: extras first, then members from the end
-    let toRemove = -diff;
+  extras = Math.min(extras, Math.max(0, targetQty - ids.length));
+  const baseTotal = ids.length + extras;
+
+  let unassigned = 0;
+
+  if (targetQty > baseTotal) {
+    unassigned = targetQty - baseTotal;
+  } else if (targetQty < baseTotal) {
+    let toRemove = baseTotal - targetQty;
 
     const cut = Math.min(extras, toRemove);
     extras -= cut;
@@ -84,19 +86,18 @@ function computeUnits({ quantity, memberIds = [], unitsByMember = {}, extraCount
       units[id] -= take;
       toRemove -= take;
     }
+
+    for (const id of Object.keys(units)) {
+      if (units[id] <= 0) delete units[id];
+    }
   }
 
-  // drop any zero-unit members
-  for (const id of Object.keys(units)) {
-    if (units[id] <= 0) delete units[id];
-  }
-
-  return { targetQty, units, extras };
+  return { targetQty, units, extras, unassigned };
 }
 
 
 /** Replace all assignees with explicit unit_qty (single extras row if extras>0). */
-async function writeAssigneesWithUnits(itemId, { unitsByMember = {}, extras = 0 }) {
+async function writeAssigneesWithUnits(itemId, { unitsByMember = {}, extras = 0, unassigned = 0 }) {
   const rows = [
     ...Object.entries(unitsByMember).map(([member_id, unit_qty]) => ({
       cart_item_id: itemId,
@@ -109,6 +110,14 @@ async function writeAssigneesWithUnits(itemId, { unitsByMember = {}, extras = 0 
           cart_item_id: itemId,
           is_extra: true,
           unit_qty: Math.max(0, Number(extras || 0)),
+        }]
+      : []),
+    ...(unassigned > 0
+      ? [{
+          cart_item_id: itemId,
+          member_id: null,
+          is_extra: false,
+          unit_qty: Math.max(0, Number(unassigned || 0)),
         }]
       : []),
   ].filter(r => r.unit_qty > 0);
@@ -148,14 +157,14 @@ async function syncAssigneesToQuantity(itemId, newQty) {
   }
 
   const memberIds = Object.keys(unitsByMember);
-  const { targetQty, units, extras: ex } = computeUnits({
+  const { targetQty, units, extras: ex, unassigned } = computeUnits({
     quantity: newQty,
     memberIds,
     unitsByMember,
     extraCount: extras,
   });
 
-  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras: ex });
+  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras: ex, unassigned });
   return targetQty;
 }
 
@@ -294,11 +303,35 @@ async function getCartSnapshot(cartId) {
     };
   });
 
+  // derive abandoned state (draft + scheduled in the past)
+  const toMs = (d, t) => {
+    if (!d) return null;
+    const safeTime = (t && String(t).slice(0, 8)) || '12:00:00';
+    const ms = Date.parse(`${d}T${safeTime}`);
+    return Number.isNaN(ms) ? null : ms;
+  };
+  const scheduledAtMs = toMs(cart.fulfillment_date, cart.fulfillment_time);
+  const nowMs = Date.now();
+  const baseStatus = cart.status ?? 'draft';
+  const statusEffective = baseStatus === 'draft' && scheduledAtMs != null && scheduledAtMs < nowMs
+    ? 'abandoned'
+    : baseStatus;
+
+  // Persist status flip to 'abandoned' when applicable
+  if (statusEffective !== baseStatus) {
+    try {
+      await supabase.from('meal_carts').update({ status: statusEffective }).eq('id', cart.id);
+    } catch (e) {
+      // non-fatal; UI can still render derived status
+      console.warn('Failed to persist cart status update:', e?.message || e);
+    }
+  }
+
   return {
     cart: {
       id: cart.id,
       teamId: cart.team_id,
-      status: cart.status ?? 'draft',
+      status: statusEffective,
       title: cart.title ?? cart.restaurants.name ?? null,
       fulfillment_service: cart.fulfillment_service ?? null,
       fulfillment_address: cart.fulfillment_address ?? null,
@@ -430,7 +463,7 @@ async function addItem(
   const extraCount = Math.max(assignment?.extraCount ?? 0, inferredExtras);
 
   // compute per-assignee units and final quantity
-  const { targetQty, units, extras } = computeUnits({
+  const { targetQty, units, extras, unassigned } = computeUnits({
     quantity,
     memberIds,
     unitsByMember,
@@ -473,7 +506,7 @@ async function addItem(
   const itemId = data.id;
 
   try {
-    await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras });
+    await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras, unassigned });
   } catch (asgErr) {
     // rollback if assignments fail (triggers/RLS/etc.)
     await supabase.from('meal_cart_items').delete().eq('id', itemId).eq('cart_id', cartId);
@@ -538,8 +571,19 @@ function subscribeToCart(cartId, onChange) {
 async function upsertCartFulfillment(cartId, fulfillment = {}, meta = {}) {
   // fulfillment: { service, address, coords, date, time }
   // meta: { title, providerType, providerRestaurantId }
+  // Determine status based on when the cart is scheduled
+  const toMs = (d, t) => {
+    if (!d) return null;
+    const safeTime = (t && String(t).slice(0, 8)) || '12:00:00';
+    const iso = `${d}T${safeTime}`;
+    const ms = Date.parse(iso);
+    return Number.isNaN(ms) ? null : ms;
+  };
+  const normalizedTime = normalizeDbTime(fulfillment?.time) ?? null;
+  const whenMs = toMs(fulfillment?.date ?? null, normalizedTime);
+  const computedStatus = whenMs != null && whenMs < Date.now() ? 'abandoned' : 'draft';
   const payload = {
-    status: 'draft',
+    status: computedStatus,
     provider_type: meta?.providerType ?? null,
     provider_restaurant_id: meta?.providerRestaurantId ?? null,
     fulfillment_service: fulfillment?.service ?? null,
@@ -547,7 +591,7 @@ async function upsertCartFulfillment(cartId, fulfillment = {}, meta = {}) {
     fulfillment_latitude: fulfillment?.coords?.lat ?? null,
     fulfillment_longitude: fulfillment?.coords?.lng ?? null,
     fulfillment_date: fulfillment?.date ?? null,
-    fulfillment_time: fulfillment?.time ?? null,
+    fulfillment_time: normalizedTime,
   };
   const { error } = await supabase.from('meal_carts').update(payload).eq('id', cartId);
   if (error) throw error;
@@ -621,7 +665,7 @@ async function listOpenCarts(teamId) {
         (c.restaurants?.name ? `${c.restaurants.name} • ${c.provider_type || 'Cart'}` : 'Cart'),
       providerType: c.provider_type,
       providerRestaurantId: c.provider_restaurant_id,
-      status: c.status,
+      status: (c.status === 'draft' && scheduledAtMs != null && scheduledAtMs < Date.now()) ? 'abandoned' : c.status,
       itemCount,
       subtotal,
       fulfillment: {
@@ -658,6 +702,22 @@ async function listOpenCarts(teamId) {
     if (aFuture) return a._scheduledAtMs - b._scheduledAtMs;
     return b._scheduledAtMs - a._scheduledAtMs;
   });
+
+  // Persist abandoned status for any past-dated drafts in one shot
+  try {
+    const toAbandon = list
+      .filter((c) => c.status === 'draft' && c._scheduledAtMs != null && c._scheduledAtMs < Date.now())
+      .map((c) => c.id);
+    if (toAbandon.length > 0) {
+      await supabase
+        .from('meal_carts')
+        .update({ status: 'abandoned' })
+        .in('id', toAbandon)
+        .eq('status', 'draft');
+    }
+  } catch (e) {
+    console.warn('Failed to persist abandoned status for carts:', e?.message || e);
+  }
 
   return list.map(({ _scheduledAtMs, ...rest }) => rest);
 }
@@ -723,7 +783,7 @@ async function updateItemFull(
   const unitsByMember = assignment.unitsByMember || {};
   const extraCount = Math.max(0, Number(assignment.extraCount || 0));
 
-  const { targetQty, units, extras } = computeUnits({
+  const { targetQty, units, extras, unassigned } = computeUnits({
     quantity,
     memberIds,
     unitsByMember,
@@ -754,7 +814,7 @@ async function updateItemFull(
     .single();
   if (error) throw error;
 
-  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras });
+  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras, unassigned });
   return data.id;
 }
 

@@ -14,7 +14,8 @@ const RestaurantGrid = ({
   onLoadingChange,
   suppressEmptyUntilLoaded = true,
   initialCartTitle,
-  mealType
+  mealType,
+  onMetaUpdate,
 }) => {
   const { rows, setRows, loading, err, hasLoadedOnce } = useRestaurantsSource();
   const { distanceReady } = useDistances(centerCoords, rows, setRows);
@@ -31,7 +32,38 @@ const RestaurantGrid = ({
     searchQuery,
     centerCoords,
     radiusMiles,
+    selectedService,
   });
+
+  const hasDistanceData = filtered.some((r) => typeof r._distanceMeters === 'number');
+
+  useEffect(() => {
+    if (!onMetaUpdate) return;
+
+    if ((loading && rows.length === 0) || (!distanceReady && centerCoords && !hasLoadedOnce)) {
+      onMetaUpdate({ count: 0, label: '' });
+      return;
+    }
+
+    const parts = [];
+    if (radiusMiles > 0 && Number.isFinite(radiusMiles)) {
+      parts.push(
+        selectedService === 'pickup'
+          ? `within ~${radiusMiles} mi`
+          : `radius ≤ ${radiusMiles} mi`
+      );
+    }
+    parts.push(
+      selectedService === 'pickup'
+        ? hasDistanceData
+          ? 'sorted by distance'
+          : 'distance pending'
+        : hasDistanceData
+          ? 'sorted by rating'
+          : 'rating priority'
+    );
+    onMetaUpdate({ count: filtered.length, label: parts.filter(Boolean).join(' • ') });
+  }, [centerCoords, distanceReady, filtered.length, hasDistanceData, hasLoadedOnce, loading, onMetaUpdate, radiusMiles, rows.length, selectedService]);
 
   // Loading skeleton (prevents empty-state flash)
   if ((loading && rows.length === 0) || (!distanceReady && centerCoords)) {
@@ -96,15 +128,6 @@ const RestaurantGrid = ({
   return (
     <div className="relative px-4 py-6 lg:px-6">
       {fetchingOverlay}
-
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-foreground">
-          {filtered.length} restaurants
-        </h2>
-        {centerCoords && (
-          <div className="text-sm text-muted-foreground">within ~{radiusMiles} mi</div>
-        )}
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filtered.map((r) => (

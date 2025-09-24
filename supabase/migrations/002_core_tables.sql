@@ -243,7 +243,8 @@ CREATE TABLE public.meal_order_items (
   notes TEXT,
   quantity INTEGER NOT NULL DEFAULT 1,
   product_marked_price_cents INTEGER,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  is_extra BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- groups like “Add Strawberry Topping”
@@ -406,10 +407,5 @@ CREATE TABLE IF NOT EXISTS public.meal_cart_item_assignees (
   member_id     uuid REFERENCES public.team_members(id) ON DELETE SET NULL, -- NULL when is_extra = true
   is_extra      boolean NOT NULL DEFAULT false,
   unit_qty      integer NOT NULL DEFAULT 1,
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT ck_assignee_valid
-    CHECK (
-      (is_extra = true AND member_id IS NULL)
-      OR (is_extra = false AND member_id IS NOT NULL)
-    )
+  created_at    timestamptz NOT NULL DEFAULT now()
 );

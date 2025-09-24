@@ -32,4 +32,9 @@ ALTER TABLE public.meal_cart_members
   UNIQUE (cart_id, member_id);
 
 ALTER TABLE public.meal_cart_item_assignees
-  ADD CONSTRAINT ck_assignee_unit_qty_pos CHECK (unit_qty > 0);
+  ADD CONSTRAINT ck_assignee_unit_qty_pos CHECK (unit_qty > 0),
+  ADD CONSTRAINT ck_assignee_valid
+  CHECK (
+    (member_id IS NOT NULL AND is_extra = FALSE)
+    OR member_id IS NULL
+  );

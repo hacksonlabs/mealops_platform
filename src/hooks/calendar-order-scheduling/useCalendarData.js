@@ -133,6 +133,8 @@ export function useCalendarData(
             restaurant:restaurants ( id, name, address ),
             meal_items:meal_order_items (
               id, name, quantity, product_marked_price_cents, notes,
+              is_extra,
+              team_member_id,
               team_member:team_members ( id, full_name, role )
             )
           `)
@@ -143,18 +145,35 @@ export function useCalendarData(
         if (orderErr) throw orderErr;
 
         const mapped = (orderRows || []).map((row) => {
-          const uniq = new Map();
+          const memberMap = new Map();
+          let extrasCount = 0;
+          let unassignedCount = 0;
+          let totalMeals = 0;
+
           (row.meal_items || []).forEach((it, idx) => {
+            const qty = Math.max(1, Number(it?.quantity ?? 1));
+            totalMeals += qty;
+            if (it?.is_extra) {
+              extrasCount += qty;
+              return;
+            }
             const tm = it?.team_member;
-            const key = tm?.id ?? `item-${idx}`;
-            if (!uniq.has(key) && tm?.full_name) {
-              uniq.set(key, { name: tm.full_name, role: tm.role || '' });
+            if (tm?.full_name) {
+              const key = tm.id ?? `member-${idx}`;
+              const entry = memberMap.get(key) || { name: tm.full_name, role: tm.role || '', count: 0 };
+              entry.count += qty;
+              memberMap.set(key, entry);
+            } else {
+              unassignedCount += qty;
             }
           });
-          const team_members = Array.from(uniq.values());
-          const attendeeCount =
-            team_members.length ||
-            (row.meal_items || []).reduce((sum, it) => sum + (Number(it?.quantity) || 0), 0);
+
+          const team_members = Array.from(memberMap.values());
+          const attendeeCount = team_members.reduce((sum, entry) => sum + entry.count, 0) + extrasCount + unassignedCount || totalMeals;
+          const attendeeDescriptionParts = [];
+          if (extrasCount > 0) attendeeDescriptionParts.push(`${extrasCount} extra${extrasCount === 1 ? '' : 's'}`);
+          if (unassignedCount > 0) attendeeDescriptionParts.push(`${unassignedCount} unassigned`);
+          const attendeeDescription = attendeeDescriptionParts.join(' • ');
           const mealType = row.meal_type || inferMealTypeFromText(row.title, row.description);
 
           const detailPayload = {
@@ -170,6 +189,9 @@ export function useCalendarData(
             location_display: _locationDisplayFromOrder(row),
             delivery_instructions: row.delivery_instructions || '',
             team_members,
+            extrasCount,
+            unassignedCount,
+            attendeesTotal: attendeeCount,
           };
 
           return {
@@ -180,6 +202,7 @@ export function useCalendarData(
             restaurant: row.restaurant?.name || 'Unknown Restaurant',
             mealType,
             attendees: attendeeCount,
+            attendeeDescription,
             status: row.order_status,
             notes: row.description ?? '',
             originalOrderData: detailPayload,
@@ -439,7 +462,7 @@ export function useCalendarData(
             fulfillment_date, fulfillment_time
           `)
           .eq('team_id', activeTeamId)
-          .eq('status', 'draft')
+          .in('status', ['draft', 'abandoned'])
           .not('fulfillment_date', 'is', null)
           .gte('fulfillment_date', dStart)
           .lte('fulfillment_date', dEnd)
@@ -452,11 +475,16 @@ export function useCalendarData(
           .map((row) => {
             const iso = isoFromPgDateTime(row.fulfillment_date, row.fulfillment_time);
             if (!iso) return null; // guard
+            const isPast = new Date(iso) < new Date();
+            // Prefer DB status; fall back to deriving abandoned only for draft-in-past
+            const normalizedStatus = (row.status === 'abandoned')
+              ? 'abandoned'
+              : (row.status === 'draft' && isPast ? 'abandoned' : 'draft');
             return {
               id: `cart-${row.id}`,
               type: 'cart',
               cartId: row.id,
-              status: 'draft',
+              status: normalizedStatus,
               date: iso,
               time: iso ? fmtTime(iso) : 'TBD',
               restaurant: row.restaurant?.name || 'Draft Cart',

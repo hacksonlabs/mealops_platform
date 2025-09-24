@@ -21,10 +21,28 @@ const SharedItemCustomizationModal = ({
 
   // quantity (single effect to hydrate)
   const [quantity, setQuantity] = useState(1);
+  const [specialInstructions, setSpecialInstructions] = useState('');
   useEffect(() => {
     if (!isOpen) return;
     setQuantity(Math.max(1, Number(preset?.quantity ?? item?.quantity ?? 1)));
   }, [isOpen, item, preset]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const raw =
+      preset && preset.specialInstructions != null
+        ? preset.specialInstructions
+        : item?.specialInstructions ?? '';
+    setSpecialInstructions(typeof raw === 'string' ? raw : String(raw || ''));
+  }, [
+    isOpen,
+    item?.cartRowId,
+    item?.id,
+    item?.specialInstructions,
+    preset?.cartRowId,
+    preset?.id,
+    preset?.specialInstructions,
+  ]);
 
   // data
   const { members, membersLoading } = useMembers({ teamId: activeTeam?.id, isOpen });
@@ -123,7 +141,7 @@ const SharedItemCustomizationModal = ({
       selectedOptions: selections,
       selectedSize: selectedSize || null,
       selectedToppings,
-      specialInstructions: (item?.specialInstructions || '').trim(),
+      specialInstructions: specialInstructions.trim(),
       customizedPrice: unitPrice,
       assignedTo: assigned,
       optionsCatalog: groups,
@@ -246,12 +264,8 @@ const SharedItemCustomizationModal = ({
           )}
 
           {/* Option groups */}
-          {groups.length === 0 ? (
-            <div className="p-3 md:p-4 border-b border-border text-sm text-muted-foreground">
-              Loading options…
-            </div>
-          ) : (
-            <div className="p-3 md:p-4  space-y-3 md:space-y-4">
+          {groups.length > 0 && (
+            <div className="p-3 md:p-4 space-y-3 md:space-y-4">
               {groups.map((g) => {
                 const chosen = selections[g.id] || [];
                 const need = g.min ?? (g.required ? 1 : 0);
@@ -321,6 +335,18 @@ const SharedItemCustomizationModal = ({
               })}
             </div>
           )}
+
+          <div className="p-3 md:p-4">
+            <h4 className="text-base md:text-lg font-semibold text-foreground mb-2">Special Requests</h4>
+            <textarea
+              value={specialInstructions}
+              onChange={(e) => setSpecialInstructions(e.target.value)}
+              placeholder="Any special requests? (e.g., extra sauce, no onions)"
+              className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/60 focus:border-transparent resize-none"
+              rows={3}
+              maxLength={400}
+            />
+          </div>
         </div>
 
         {/* Footer */}

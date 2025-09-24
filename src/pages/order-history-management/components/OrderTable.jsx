@@ -4,10 +4,38 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/custom/Button';
 import { Checkbox } from '../../../components/ui/custom/Checkbox';
 import PeopleTooltip from '../../../components/ui/PeopleTooltip';
-import { getMealTypeIcon, getStatusBadge, formatDate, formatCurrency } from '../../../utils/ordersUtils';
+import {
+  getMealTypeIcon,
+  getStatusBadge,
+  formatDate,
+  formatCurrency,
+  SERVICE_TYPES,
+} from '../../../utils/ordersUtils';
 import { callCancelAPI } from '../../../utils/ordersApiUtils';
 
 const SCHEDULED_STATUSES = ['scheduled', 'confirmed'];
+
+const SERVICE_META_BY_VALUE = SERVICE_TYPES.reduce((acc, meta) => {
+  if (meta?.value) acc[String(meta.value).toLowerCase()] = meta;
+  return acc;
+}, {});
+
+const toTitleCase = (str = '') =>
+  String(str)
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+const getFulfillmentMeta = (method) => {
+  if (!method) return null;
+  const key = String(method).toLowerCase();
+  const known = SERVICE_META_BY_VALUE[key];
+  if (known) return known;
+  return {
+    value: method,
+    label: toTitleCase(method),
+    icon: 'Package',
+  };
+};
 
 const OrderTable = ({
   orders,
@@ -20,6 +48,7 @@ const OrderTable = ({
 }) => {
   const [sortField, setSortField] = useState('date');
   const [sortDirection, setSortDirection] = useState('desc');
+  const showStatus = activeTab === 'all';
 
   // Confirmation modal state
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -79,7 +108,7 @@ const OrderTable = ({
       switch (sortField) {
         case 'date':       return (new Date(a.date) - new Date(b.date)) * dir;
         case 'restaurant': return (a.restaurant || '').localeCompare(b.restaurant || '') * dir;
-        case 'attendees':  return ((a.attendees || 0) - (b.attendees || 0)) * dir;
+        case 'itemsCount': return ((a.itemsCount || 0) - (b.itemsCount || 0)) * dir;
         case 'totalCost':  return ((a.totalCost || 0) - (b.totalCost || 0)) * dir;
         default:           return 0;
       }
@@ -221,7 +250,7 @@ const OrderTable = ({
                     onClick={() => handleSort('date')}
                     className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
                   >
-                    <span>Date & Time</span>
+                    <span>Date &amp; Time</span>
                     <Icon name={getSortIcon('date')} size={14} />
                   </button>
                 </th>
@@ -230,20 +259,20 @@ const OrderTable = ({
                     onClick={() => handleSort('restaurant')}
                     className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
                   >
-                    <span>Restaurant</span>
+                    <span>Restaurant &amp; Fulfillment</span>
                     <Icon name={getSortIcon('restaurant')} size={14} />
                   </button>
                 </th>
                 <th className="px-4 py-3 text-left">
-                  <span className="text-sm font-medium text-foreground">Meal Type</span>
+                  <span className="text-sm font-medium text-foreground">Item</span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <button
-                    onClick={() => handleSort('attendees')}
+                    onClick={() => handleSort('itemsCount')}
                     className="flex items-center space-x-1 text-sm font-medium text-foreground hover:text-primary transition-athletic"
                   >
-                    <span>Attendees</span>
-                    <Icon name={getSortIcon('attendees')} size={14} />
+                    <span>Items</span>
+                    <Icon name={getSortIcon('itemsCount')} size={14} />
                   </button>
                 </th>
                 <th className="px-4 py-3 text-left">
@@ -255,9 +284,11 @@ const OrderTable = ({
                     <Icon name={getSortIcon('totalCost')} size={14} />
                   </button>
                 </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="text-sm font-medium text-foreground">Status</span>
-                </th>
+                {showStatus && (
+                  <th className="px-4 py-3 text-left">
+                    <span className="text-sm font-medium text-foreground">Status</span>
+                  </th>
+                )}
                 <th className="px-4 py-3 text-right">
                   <span className="text-sm font-medium text-foreground">Actions</span>
                 </th>
@@ -265,8 +296,10 @@ const OrderTable = ({
             </thead>
 
             <tbody className="divide-y divide-border">
-              {sortedOrders?.map((order) => (
-                <tr key={order?.id} className="hover:bg-muted/50 transition-athletic">
+              {sortedOrders?.map((order) => {
+                const fulfillmentMeta = getFulfillmentMeta(order?.fulfillmentMethod);
+                return (
+                  <tr key={order?.id} className="hover:bg-muted/50 transition-athletic">
                   <td className="px-4 py-4">
                     <Checkbox
                       checked={selectedOrders?.includes(order?.id)}
@@ -276,25 +309,32 @@ const OrderTable = ({
 
                   <td className="px-4 py-4">
                     <div className="text-sm text-foreground font-medium">{formatDate(order?.date)}</div>
-                    <div className="text-xs text-muted-foreground">{order?.location}</div>
                   </td>
 
                   <td className="px-4 py-4">
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center gap-3">
                       <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">
                         <Icon name="Store" size={16} className="text-muted-foreground" />
                       </div>
-                      <div>
-                        <div className="text-sm font-medium text-foreground">{order?.restaurant}</div>
-                        <div className="text-xs text-muted-foreground">Order #{order?.orderNumber}</div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-foreground truncate">{order?.restaurant}</div>
+                        {fulfillmentMeta && (
+                          <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                            <Icon name={fulfillmentMeta.icon} size={14} className="text-muted-foreground" />
+                            <span>{fulfillmentMeta.label}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
 
                   <td className="px-4 py-4">
-                    <div className="flex items-center space-x-2">
-                      <Icon name={getMealTypeIcon(order?.mealType)} size={16} className="text-muted-foreground" />
-                      <span className="text-sm text-foreground capitalize">{order?.mealType}</span>
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-foreground truncate">{order?.mealTitle}</div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Icon name={getMealTypeIcon(order?.mealType)} size={16} className="text-muted-foreground" />
+                        <span className="capitalize">{order?.mealType}</span>
+                      </div>
                     </div>
                   </td>
 
@@ -307,16 +347,27 @@ const OrderTable = ({
                       onMouseLeave={scheduleClose}
                       title={(order?.teamMembers || []).join(', ')}
                     >
-                      <div className="text-sm text-primary font-medium underline underline-offset-2 cursor-default flex items-center gap-1">
-                        <Icon name="Users" size={16} className="text-primary" />
-                        {order?.attendees} {order?.attendees === 1 ? 'person' : 'people'}
+                      <div className="cursor-default">
+                        <div className="text-sm text-primary font-semibold flex items-center gap-1">
+                          <Icon name="Users" size={16} className="text-primary" />
+                          {order?.itemsCount} {order?.itemsCount === 1 ? 'item' : 'items'}
+                        </div>
+                        {order?.attendeeDescription && (
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {order.attendeeDescription}
+                          </div>
+                        )}
                       </div>
 
                       <PeopleTooltip
                         open={hoverOrderId === order.id}
                         x={tooltipPos.x}
                         y={tooltipPos.y}
-                        names={order.teamMembers || []}
+                        names={order.teamMembersTooltip || order.teamMembers || []}
+                        totalCount={order.memberCount}
+                        title="Attendees"
+                        extrasCount={order.extrasCount}
+                        unassignedCount={order.unassignedCount}
                         onMouseEnter={cancelClose}
                         onMouseLeave={scheduleClose}
                       />
@@ -327,15 +378,18 @@ const OrderTable = ({
                     <div className="text-sm font-medium text-foreground">{formatCurrency(order?.totalCost)}</div>
                   </td>
 
-                  <td className="px-4 py-4">
-                    <div className="flex flex-col items-start gap-1">
-                      {getStatusBadge(order?.status)}
-                    </div>
-                  </td>
+                  {showStatus && (
+                    <td className="px-4 py-4">
+                      <div className="flex flex-col items-start gap-1">
+                        {getStatusBadge(order?.status)}
+                      </div>
+                    </td>
+                  )}
 
                   <td className="px-4 py-4 text-right">{getActionButtons(order)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -359,59 +413,78 @@ const OrderTable = ({
           </div>
         )}
         <div className="divide-y divide-border">
-          {sortedOrders?.map((order) => (
-            <div key={order?.id} className="p-4 space-y-4">
-              <div className="flex items-start justify-between gap-3">
+          {sortedOrders?.map((order) => {
+            const fulfillmentMeta = getFulfillmentMeta(order?.fulfillmentMethod);
+            return (
+              <div key={order?.id} className="p-4 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={selectedOrders?.includes(order?.id)}
+                      onChange={(e) => onOrderSelect(order?.id, e?.target?.checked)}
+                    />
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">{formatDate(order?.date)}</div>
+                    </div>
+                  </div>
+                  {showStatus && (
+                    <div className="shrink-0 flex flex-col items-end gap-1">
+                      {getStatusBadge(order?.status)}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex items-start gap-3">
-                  <Checkbox
-                    checked={selectedOrders?.includes(order?.id)}
-                    onChange={(e) => onOrderSelect(order?.id, e?.target?.checked)}
-                  />
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">{formatDate(order?.date)}</div>
-                    <div className="text-xs text-muted-foreground">{order?.location}</div>
+                  <div className="w-10 h-10 bg-muted rounded-full flex items-center justify-center">
+                    <Icon name="Store" size={18} className="text-muted-foreground" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium text-foreground">{order?.restaurant}</div>
+                    {fulfillmentMeta && (
+                      <div className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Icon name={fulfillmentMeta.icon} size={14} className="text-muted-foreground" />
+                        <span>{fulfillmentMeta.label}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="shrink-0 flex flex-col items-end gap-1">
-                  {getStatusBadge(order?.status)}
+
+                <div className="space-y-2 text-sm text-foreground">
+                  <div className="flex items-start gap-3">
+                    <Icon name={getMealTypeIcon(order?.mealType)} size={16} className="text-muted-foreground mt-0.5" />
+                    <div className="space-y-0.5">
+                      <div className="font-medium text-foreground">{order?.mealTitle}</div>
+                      <div className="text-xs text-muted-foreground capitalize">{order?.mealType}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Icon name="Users" size={16} className="text-muted-foreground" />
+                    <span className="font-semibold">{order?.itemsCount} {order?.itemsCount === 1 ? 'item' : 'items'}</span>
+                  </div>
+                  {order?.attendeeDescription && (
+                    <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                      <Icon name="Info" size={14} className="text-muted-foreground mt-0.5" />
+                      <span>{order.attendeeDescription}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Icon name="Receipt" size={16} className="text-muted-foreground" />
+                    <span className="font-semibold">{formatCurrency(order?.totalCost)}</span>
+                  </div>
                 </div>
+
+                {order?.teamMembers?.length > 0 && (
+                  <div className="text-xs text-muted-foreground">
+                    Assignments: {order.teamMembers.slice(0, 3).join(', ')}
+                    {order.teamMembers.length > 3 && '...'}
+                  </div>
+                )}
+
+                {renderMobileActions(order)}
               </div>
-
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 bg-muted rounded-full flex items-center justify-center">
-                  <Icon name="Store" size={18} className="text-muted-foreground" />
-                </div>
-                <div className="space-y-1">
-                  <div className="text-sm font-medium text-foreground">{order?.restaurant}</div>
-                  <div className="text-xs text-muted-foreground">Order #{order?.orderNumber}</div>
-                </div>
-              </div>
-
-              <div className="space-y-2 text-sm text-foreground">
-                <div className="flex items-center gap-2">
-                  <Icon name={getMealTypeIcon(order?.mealType)} size={16} className="text-muted-foreground" />
-                  <span className="capitalize">{order?.mealType}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Icon name="Users" size={16} className="text-muted-foreground" />
-                  <span>{order?.attendees} {order?.attendees === 1 ? 'person' : 'people'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Icon name="Receipt" size={16} className="text-muted-foreground" />
-                  <span className="font-semibold">{formatCurrency(order?.totalCost)}</span>
-                </div>
-              </div>
-
-              {order?.teamMembers?.length > 0 && (
-                <div className="text-xs text-muted-foreground">
-                  Attendees: {order.teamMembers.slice(0, 3).join(', ')}
-                  {order.teamMembers.length > 3 && '...'}
-                </div>
-              )}
-
-              {renderMobileActions(order)}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
