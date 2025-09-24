@@ -145,6 +145,17 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
     }
   };
 
+  const handleRefresh = async () => {
+    try {
+      const id = snap?.cart?.id || cartId;
+      if (!id) return;
+      const s = await cartDbService.getCartSnapshot(id);
+      if (s) setSnap(s);
+    } catch (e) {
+      console.warn('Failed to refresh cart snapshot:', e?.message || e);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-[1100] bg-black/40 p-4 sm:p-6 md:p-8 flex items-start sm:items-center justify-center"
@@ -187,6 +198,15 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
               </div>
             </div>
             <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleRefresh}
+                aria-label="Refresh cart"
+                title="Refresh cart"
+              >
+                <Icon name="RefreshCcw" size={16} />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"

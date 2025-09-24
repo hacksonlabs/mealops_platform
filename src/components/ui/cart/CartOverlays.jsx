@@ -56,6 +56,10 @@ export default function CartOverlays() {
   }, []);
 
   // Drawer handlers
+  const refreshCart = () => {
+    // Full page refresh to ensure all widgets reflect latest state
+    window.location.reload();
+  };
   const handleRemoveFromDrawer = (it) => {
     window.dispatchEvent(
       new CustomEvent("cartItemRemove", {
@@ -122,6 +126,7 @@ export default function CartOverlays() {
           cartPanel={cartPanel}
           onEditItem={handleEditFromDrawer}
           onRemoveItem={handleRemoveFromDrawer}
+          onRefresh={refreshCart}
         />
       )}
 
