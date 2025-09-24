@@ -92,6 +92,7 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
   // Use unit count so “2 of the same” shows as 2 rows
   const itemCount = unitRows.length;
   const itemsLabel = `${itemCount} item${itemCount === 1 ? '' : 's'} · $${grandSubtotal.toFixed(2)}`;
+  const itemsCountText = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
   const dateTimeLabel = `${fmtDateShort(dateStr)} • ${fmtTime(timeStr)}`;
 
   // status chip from STATUS_META
@@ -114,54 +115,61 @@ export default function CartDetailsModal({ isOpen, onClose, cartId }) {
       >
         {/* Header */}
         <div className="p-4 md:p-5 border-b border-border">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0 flex items-center gap-2 flex-1">
-              <Icon name="ShoppingCart" size={18} />
-              <span
-                className={[
-                  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide ring-1',
-                  statusMeta.bg, statusMeta.text, statusMeta.ring, 'border-transparent'
-                ].join(' ')}
-                title={statusLabel}
-              >
-                <span>{statusLabel}</span>
-              </span>
-              <h2 className="text-lg md:text-xl font-heading font-semibold text-foreground truncate">
-                {snap?.cart?.title?.trim() || snap?.restaurant?.name || 'Draft Cart'}
-              </h2>
+          {/* Header top row */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <Icon name="ShoppingCart" size={18} className="text-muted-foreground mt-0.5" />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <h2 className="text-lg md:text-xl font-heading font-semibold text-foreground truncate">
+                    {snap?.cart?.title?.trim() || snap?.restaurant?.name || 'Draft Cart'}
+                  </h2>
+                  <span
+                    className={[
+                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide ring-1',
+                      statusMeta.bg, statusMeta.text, statusMeta.ring, 'border-transparent'
+                    ].join(' ')}
+                    title={statusLabel}
+                  >
+                    <span>{statusLabel}</span>
+                  </span>
+                </div>
+                <div className="text-xs md:text-sm text-muted-foreground truncate mt-0.5">
+                  {snap?.restaurant?.name || '—'}
+                </div>
+              </div>
             </div>
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
               <Icon name="X" size={18} />
             </Button>
           </div>
 
-          <p className="mt-1 text-xs md:text-sm text-muted-foreground truncate">
-            {snap?.restaurant?.name || '—'}
-          </p>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border bg-muted/40">
+          {/* Compact meta row (no boxes) */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <span className="inline-flex items-center gap-1">
               <Icon name={isDelivery ? 'Truck' : 'Store'} size={14} className="text-muted-foreground" />
-              <span className="font-medium">{service}</span>
+              <span className="capitalize text-foreground">{service}</span>
             </span>
-            <span className="text-muted-foreground">•</span>
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border bg-muted/40 tabular-nums">
+            <span className="text-muted-foreground">|</span>
+            <span className="inline-flex items-center gap-1 tabular-nums">
               <Icon name="Package" size={14} className="text-muted-foreground" />
-              <span className="font-medium">{itemsLabel}</span>
+              <span className="text-foreground">{itemsCountText}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-foreground">${grandSubtotal.toFixed(2)}</span>
             </span>
-            <span className="text-muted-foreground">•</span>
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-border bg-muted/40">
+            <span className="text-muted-foreground">|</span>
+            <span className="inline-flex items-center gap-1">
               <Icon name="Calendar" size={14} className="text-muted-foreground" />
-              <span className="font-medium">{dateTimeLabel}</span>
+              <span className="text-foreground">{dateTimeLabel}</span>
             </span>
           </div>
 
           {isDelivery && (
-            <div className="mt-2 flex items-start gap-2 p-2.5 rounded-md border border-border bg-muted/30">
+            <div className="mt-2 flex items-start gap-2">
               <Icon name="MapPin" size={16} className="mt-0.5 text-muted-foreground" />
               <div className="min-w-0">
                 <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Delivery Address</div>
-                <div className="text-sm font-medium break-words">{address || '—'}</div>
+                <div className="text-sm break-words text-foreground">{address || '—'}</div>
               </div>
             </div>
           )}
