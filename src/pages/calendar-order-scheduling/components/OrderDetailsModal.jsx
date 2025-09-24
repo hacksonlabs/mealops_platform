@@ -23,11 +23,17 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
     });
 
   const formatTime = (time) => {
-    const [hours, minutes] = (time || '').split(':');
-    const hour = parseInt(hours || '0', 10);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const displayHour = hour % 12 || 12;
-    return `${displayHour}:${minutes ?? '00'} ${ampm}`;
+    if (!time) return '—';
+    const raw = String(time).trim();
+    const hasAmPm = /(am|pm)\b/i.test(raw);
+    // Extract hours and minutes
+    const m = raw.match(/(\d{1,2})(?::(\d{2}))?/);
+    if (!m) return raw.toUpperCase();
+    let hour = parseInt(m[1] || '0', 10);
+    const minutes = (m[2] || '00').replace(/[^\d]/g, '').padStart(2, '0');
+    const ampm = hasAmPm ? (raw.match(/(am|pm)\b/i)?.[1] || '').toUpperCase() : (hour >= 12 ? 'PM' : 'AM');
+    const displayHour = ((hour % 12) || 12);
+    return `${displayHour}:${minutes} ${ampm}`;
   };
 
   const memberEntries = Array.isArray(order.team_members) ? order.team_members : [];
@@ -48,10 +54,12 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
 
   const peopleNames = peopleEntries.map((p) => p.name);
   const peopleForTooltip = peopleEntries;
+  const assignedMealsCount = memberEntries.reduce((sum, m) => sum + (Number(m?.count) || 1), 0);
   const attendeeSummaryParts = [];
+  if (assignedMealsCount > 0) attendeeSummaryParts.push(`${assignedMealsCount} assigned`);
   if (extrasCount > 0) attendeeSummaryParts.push(`${extrasCount} extra${extrasCount === 1 ? '' : 's'}`);
   if (unassignedCount > 0) attendeeSummaryParts.push(`${unassignedCount} unassigned`);
-  const attendeeSummary = attendeeSummaryParts.join(' • ');
+  const attendeeSummary = attendeeSummaryParts.join(' + ');
 
   const canEdit = order?.status === 'scheduled' && new Date(order.date) > new Date();
   const canCancel = order?.status !== 'cancelled' && order?.status !== 'completed';
@@ -86,12 +94,17 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
       <div className="relative bg-card border border-border rounded-lg shadow-athletic-lg w-full max-w-xl max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="p-6 border-b border-border">
-          {/* Row 1: Title (left) | Meal type icon + Status + Close (right) */}
+          {/* Row 1: Title (left) | Fulfillment + Meal type icon + Status + Close (right) */}
           <div className="flex items-start justify-between gap-3">
             <h2 className="text-xl font-heading font-semibold text-foreground truncate flex-1">
               {order?.title || 'Meal'}
             </h2>
             <div className="flex items-center gap-2 shrink-0">
+              {order?.fulfillment_method && (
+                <span className="px-2 py-0.5 text-xs rounded-full bg-muted text-muted-foreground capitalize">
+                  {String(order.fulfillment_method).replace(/[_-]+/g, ' ')}
+                </span>
+              )}
               <span className="p-2 bg-primary/10 rounded-lg inline-flex items-center justify-center">
                 <Icon name={getMealTypeIcon(order?.mealType)} size={18} className="text-primary" />
               </span>
@@ -142,7 +155,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
             <div className="space-y-1 col-span-2">
               <div className="flex items-center gap-2">
                 <Icon name="Users" size={16} className="text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">Attendees</span>
+                <span className="text-sm font-medium text-foreground">Items</span>
               </div>
               <div className="pl-6">
                 <span
@@ -153,7 +166,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
                   title={peopleNames.join(', ')}
                 >
                   <Icon name="Users" size={14} />
-                  {attendeesCount} {attendeesCount === 1 ? 'meal' : 'meals'}
+                  {attendeesCount} {attendeesCount === 1 ? 'item' : 'items'}
                 </span>
                 {attendeeSummary && (
                   <div className="text-[11px] text-muted-foreground mt-1">
@@ -165,7 +178,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
                   x={peoplePos.x}
                   y={peoplePos.y}
                   names={peopleForTooltip}
-                  totalCount={attendeesCount}
+                  totalCount={memberEntries.length}
                   extrasCount={extrasCount}
                   unassignedCount={unassignedCount}
                   onMouseEnter={() => setPeopleOpen(true)}
