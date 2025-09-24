@@ -145,10 +145,9 @@ const OrderHistoryManagement = () => {
         if (unassignedCount > 0) teamMembersTooltip.push({ name: `Unassigned (x${unassignedCount})` });
 
         const assignedMemberNames = Array.from(memberCounts.keys());
+        // Table description should show: X assigned + X extra + X unassigned
         const attendeeDescriptionParts = [];
-        if (roleCounts.player > 0) attendeeDescriptionParts.push(`${roleCounts.player} player${roleCounts.player === 1 ? '' : 's'}`);
-        if (roleCounts.coach > 0) attendeeDescriptionParts.push(`${roleCounts.coach} ${roleCounts.coach === 1 ? 'coach' : 'coaches'}`);
-        if (roleCounts.staff > 0) attendeeDescriptionParts.push(`${roleCounts.staff} staff`);
+        if (assignedMealsCount > 0) attendeeDescriptionParts.push(`${assignedMealsCount} assigned`);
         if (extrasCount > 0) attendeeDescriptionParts.push(`${extrasCount} extra${extrasCount === 1 ? '' : 's'}`);
         if (unassignedCount > 0) attendeeDescriptionParts.push(`${unassignedCount} unassigned`);
         const attendeeDescription = attendeeDescriptionParts.join(' + ');

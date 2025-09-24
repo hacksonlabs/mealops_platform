@@ -166,6 +166,8 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
                   y={peoplePos.y}
                   names={peopleForTooltip}
                   totalCount={attendeesCount}
+                  extrasCount={extrasCount}
+                  unassignedCount={unassignedCount}
                   onMouseEnter={() => setPeopleOpen(true)}
                   onMouseLeave={closePeople}
                   title="Attendees"

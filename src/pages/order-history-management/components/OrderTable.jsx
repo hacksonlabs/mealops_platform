@@ -364,8 +364,10 @@ const OrderTable = ({
                         x={tooltipPos.x}
                         y={tooltipPos.y}
                         names={order.teamMembersTooltip || order.teamMembers || []}
-                        totalCount={order.itemsCount}
-                        title="Meal assignments"
+                        totalCount={order.memberCount}
+                        title="Attendees"
+                        extrasCount={order.extrasCount}
+                        unassignedCount={order.unassignedCount}
                         onMouseEnter={cancelClose}
                         onMouseLeave={scheduleClose}
                       />
