@@ -188,6 +188,20 @@ begin
           )
           + coalesce(f.tip_cents,0)
     ),
+    'split', CASE
+      WHEN split_meta.total_children > 0 AND f.is_split_child THEN
+        jsonb_strip_nulls(jsonb_build_object(
+          'kind', 'child',
+          'position', coalesce(split_meta.child_position, 1),
+          'total', split_meta.total_children
+        ))
+      WHEN split_meta.total_children > 0 THEN
+        jsonb_strip_nulls(jsonb_build_object(
+          'kind', 'parent',
+          'total', split_meta.total_children
+        ))
+      ELSE NULL::jsonb
+    END,
     'timestamps', jsonb_strip_nulls(jsonb_build_object(
       'created_at', f.created_at,
       'updated_at', f.updated_at,
@@ -200,7 +214,32 @@ begin
     ))
   )
   into result
-  from fees f;
+  from fees f
+  left join lateral (
+    select
+      (
+        select count(*)::int
+        from public.meal_order_splits s
+        where s.parent_order_id = coalesce(f.parent_order_id, f.id)
+      ) as total_children,
+      CASE
+        WHEN f.is_split_child THEN
+          coalesce(
+            ((regexp_match(f.title, 'Part\s+(\d+)'))[1])::int,
+            (
+              select ranked.rn
+              from (
+                select s.child_order_id,
+                       row_number() over (order by s.created_at, s.child_order_id) as rn
+                from public.meal_order_splits s
+                where s.parent_order_id = f.parent_order_id
+              ) ranked
+              where ranked.child_order_id = f.id
+            )
+          )
+        ELSE NULL
+      END as child_position
+  ) split_meta on true;
 
   return result;
 end;

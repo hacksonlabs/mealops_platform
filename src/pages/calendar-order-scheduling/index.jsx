@@ -14,7 +14,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts';
 import BirthdayDetailsModal from './components/BirthdayDetailsModal';
 import { getStatusBadge } from '../../utils/ordersUtils';
-import { downloadReceiptPdf } from '../../utils/receipts';
+import { downloadReceiptPdf, downloadReceiptsZip } from '../../utils/receipts';
 import { useCalendarData } from '@/hooks/calendar-order-scheduling';
 import { computeAge, toE164US, fmtTime } from '../../utils/calendarUtils';
 import CartDetailsModal from '../../components/ui/cart/CartDetailsModal';
@@ -186,9 +186,25 @@ const CalendarOrderScheduling = () => {
 
   const handleAction = async (type, order) => {
     switch (type) {
-      case 'receipt':
-        return downloadReceiptPdf(order?.id);
-      // other cases…
+      case 'receipt': {
+        if (!order) return;
+        const subordersForDownload = Array.isArray(order?.suborders)
+          ? order.suborders
+          : Array.isArray(order?.originalOrderData?.suborders)
+            ? order.originalOrderData.suborders
+            : [];
+
+        const childIds = subordersForDownload.map((so) => so?.id).filter(Boolean);
+
+        if (childIds.length > 0) {
+          await downloadReceiptsZip(childIds);
+        } else if (order?.id) {
+          await downloadReceiptPdf(order.id);
+        }
+        return;
+      }
+      default:
+        return;
     }
   };
 

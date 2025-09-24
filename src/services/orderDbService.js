@@ -104,6 +104,36 @@ function extractCustomizationsFromSelections(selectedOptions) {
 }
 
 export const orderDbService = {
+  async getSplitConfig() {
+    // Read flag + threshold from DB; fall back to defaults if missing
+    const [{ data: flagRow }, { data: settingRow }] = await Promise.all([
+      supabase.from('feature_flags').select('enabled').eq('key', 'split_large_orders').maybeSingle(),
+      supabase.from('app_settings').select('value').eq('key', 'split_threshold_cents').maybeSingle(),
+    ]);
+    const enabled = flagRow?.enabled ?? true;
+    const thresholdCents = Number(settingRow?.value?.value ?? 25000);
+    return { enabled, thresholdCents: Number.isFinite(thresholdCents) ? thresholdCents : 25000 };
+  },
+
+  async previewSplit(parentOrderId, thresholdCents = null) {
+    const { data, error } = await supabase.rpc('split_order_simple', {
+      p_parent_order_id: parentOrderId,
+      p_threshold_cents: thresholdCents,
+      p_preview: true,
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+  },
+
+  async applySplit(parentOrderId, thresholdCents = null) {
+    const { data, error } = await supabase.rpc('split_order_simple', {
+      p_parent_order_id: parentOrderId,
+      p_threshold_cents: thresholdCents,
+      p_preview: false,
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+  },
   async createDraftFromCart({
     cartSnapshot,
     orderInput,
@@ -357,6 +387,14 @@ export const orderDbService = {
     const { error } = await supabase
       .from('meal_orders')
       .update({ order_status: 'confirmed', order_placed: true, payment_status: 'completed', ...extra })
+      .eq('id', localOrderId);
+    if (error) throw error;
+  },
+
+  async markScheduled(localOrderId, extra = {}) {
+    const { error } = await supabase
+      .from('meal_orders')
+      .update({ order_status: 'scheduled', order_placed: true, ...extra })
       .eq('id', localOrderId);
     if (error) throw error;
   },

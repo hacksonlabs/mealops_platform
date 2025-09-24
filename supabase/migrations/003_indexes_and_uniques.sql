@@ -77,3 +77,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_item_assignee_member
   ON public.meal_cart_item_assignees(cart_item_id, member_id)
   WHERE member_id IS NOT NULL;
 -- CREATE INDEX IF NOT EXISTS idx_item_assignees_item ON public.meal_cart_item_assignees(cart_item_id);
+
+-- Splitting support indexes
+CREATE INDEX IF NOT EXISTS idx_meal_orders_parent_order_id ON public.meal_orders(parent_order_id);
+CREATE INDEX IF NOT EXISTS idx_meal_orders_is_split_child ON public.meal_orders(is_split_child);
+CREATE INDEX IF NOT EXISTS idx_meal_order_splits_parent ON public.meal_order_splits(parent_order_id);
+CREATE INDEX IF NOT EXISTS idx_meal_order_splits_child  ON public.meal_order_splits(child_order_id);

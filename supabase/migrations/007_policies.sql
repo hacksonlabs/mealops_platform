@@ -258,6 +258,50 @@ FOR SELECT
 TO authenticated
 USING (public.is_team_member(team_id));
 
+-- Feature flags/settings: readable by authenticated
+DO $$ BEGIN
+  CREATE POLICY feature_flags_select ON public.feature_flags FOR SELECT TO authenticated USING (TRUE);
+EXCEPTION WHEN others THEN NULL; END $$;
+
+DO $$ BEGIN
+  DROP POLICY IF EXISTS app_settings_select ON public.app_settings;
+  CREATE POLICY app_settings_select ON public.app_settings FOR SELECT TO authenticated USING (TRUE);
+EXCEPTION WHEN others THEN NULL; END $$;
+
+-- meal_order_splits access (team scoped via parent order)
+DO $$ BEGIN
+  DROP POLICY IF EXISTS meal_order_splits_read ON public.meal_order_splits;
+  CREATE POLICY meal_order_splits_read
+  ON public.meal_order_splits
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.meal_orders mo
+      WHERE mo.id = meal_order_splits.parent_order_id
+        AND public.is_team_member(mo.team_id)
+    )
+  );
+
+  DROP POLICY IF EXISTS meal_order_splits_write ON public.meal_order_splits;
+  CREATE POLICY meal_order_splits_write
+  ON public.meal_order_splits
+  FOR ALL TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.meal_orders mo
+      WHERE mo.id = meal_order_splits.parent_order_id
+        AND (public.is_team_coach(mo.team_id) OR public.is_team_admin(mo.team_id))
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.meal_orders mo
+      WHERE mo.id = meal_order_splits.parent_order_id
+        AND (public.is_team_coach(mo.team_id) OR public.is_team_admin(mo.team_id))
+    )
+  );
+EXCEPTION WHEN others THEN NULL; END $$;
+
 
 -- meal_order_items
 DROP POLICY IF EXISTS "team_members_manage_meal_order_items" ON public.meal_order_items;
@@ -670,6 +714,7 @@ CREATE POLICY cart_members_insert
            LIMIT 1
          )
     )
+    OR public.is_team_member((SELECT team_id FROM public.meal_carts c WHERE c.id = meal_cart_members.cart_id))
   );
 
 DROP POLICY IF EXISTS cart_members_delete ON public.meal_cart_members;
@@ -714,7 +759,12 @@ CREATE POLICY cart_items_insert
        WHERE c.id = meal_cart_items.cart_id
          AND c.status = 'draft'
     )
-    AND public.is_member_of_cart(meal_cart_items.cart_id)
+    AND (
+      public.is_member_of_cart(meal_cart_items.cart_id)
+      OR public.is_team_member((
+        SELECT team_id FROM public.meal_carts c WHERE c.id = meal_cart_items.cart_id
+      ))
+    )
   );
 
 -- UPDATE: cart is draft AND (you own it OR you're a coach)

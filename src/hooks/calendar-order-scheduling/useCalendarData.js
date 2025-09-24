@@ -129,6 +129,7 @@ export function useCalendarData(
           .select(`
             id, team_id, title, description, meal_type, scheduled_date,
             order_status, fulfillment_method, delivery_instructions, created_at,
+            api_order_id,
             delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
             restaurant:restaurants ( id, name, address ),
             meal_items:meal_order_items (
@@ -136,9 +137,19 @@ export function useCalendarData(
               is_extra,
               team_member_id,
               team_member:team_members ( id, full_name, role )
+            ),
+            child_splits:meal_order_splits!meal_order_splits_parent_order_id_fkey (
+              child_order:child_order_id (
+                id,
+                api_order_id,
+                scheduled_date,
+                title,
+                restaurant:restaurants ( id, name )
+              )
             )
           `)
           .eq('team_id', activeTeamId)
+          .is('parent_order_id', null)  // -- do not show suborders (only parents)
           .gte('scheduled_date', unionStartISO)
           .lte('scheduled_date', unionEndISO)
           .order('scheduled_date', { ascending: true });
@@ -176,6 +187,31 @@ export function useCalendarData(
           const attendeeDescription = attendeeDescriptionParts.join(' • ');
           const mealType = row.meal_type || inferMealTypeFromText(row.title, row.description);
 
+          const childOrdersRaw = Array.isArray(row.child_splits) ? row.child_splits : [];
+          const childOrders = childOrdersRaw
+            .map((split) => {
+              const child = split?.child_order;
+              if (!child?.id) return null;
+              const orderNumber = child.api_order_id || `ORD-${String(child.id).substring(0, 8)}`;
+              const partMatch = child.title ? child.title.match(/Part\s+(\d+)/i) : null;
+              const partIndex = partMatch ? Number(partMatch[1]) : null;
+              return {
+                id: child.id,
+                orderNumber,
+                scheduledDate: child.scheduled_date,
+                restaurant: child.restaurant?.name || row.restaurant?.name || 'Unknown Restaurant',
+                title: child.title || '',
+                partIndex,
+              };
+            })
+            .filter(Boolean)
+            .sort((a, b) => {
+              const ai = Number.isFinite(a.partIndex) ? a.partIndex : Number.MAX_SAFE_INTEGER;
+              const bi = Number.isFinite(b.partIndex) ? b.partIndex : Number.MAX_SAFE_INTEGER;
+              if (ai !== bi) return ai - bi;
+              return String(a.orderNumber).localeCompare(String(b.orderNumber));
+            });
+
           const detailPayload = {
             id: row.id,
             title: row.title || '',
@@ -192,6 +228,16 @@ export function useCalendarData(
             extrasCount,
             unassignedCount,
             attendeesTotal: attendeeCount,
+            orderNumber: row.api_order_id || `ORD-${String(row.id).substring(0, 8)}`,
+            is_split_parent: childOrders.length > 0,
+            child_order_numbers: childOrders.map((co) => co.orderNumber).filter(Boolean),
+            suborders: childOrders.map((co) => ({
+              id: co.id,
+              orderNumber: co.orderNumber,
+              date: co.scheduledDate,
+              restaurant: co.restaurant,
+              title: co.title,
+            })),
           };
 
           return {
@@ -205,6 +251,7 @@ export function useCalendarData(
             attendeeDescription,
             status: row.order_status,
             notes: row.description ?? '',
+            splitCount: childOrders.length,
             originalOrderData: detailPayload,
           };
         });
@@ -271,7 +318,7 @@ export function useCalendarData(
     const { data, error } = await supabase
       .from('meal_orders')
       .select(`
-        id, team_id, title, description, meal_type, scheduled_date, created_at,
+        id, team_id, parent_order_id, title, description, meal_type, scheduled_date, created_at,
         order_status, total_amount, api_order_id, fulfillment_method,
         delivery_instructions,
         delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
@@ -280,11 +327,20 @@ export function useCalendarData(
         payment_method:payment_methods ( id, card_name, last_four, is_default ),
         items:meal_order_items (
           id, team_member_id, product_id, name, description, image_url, notes,
-          quantity, product_marked_price_cents, created_at,
+          quantity, product_marked_price_cents, created_at, is_extra,
           team_member:team_members ( id, full_name, role ),
           customizations:meal_order_item_customizations (
             id, name,
             options:meal_order_item_options ( option_id, name, price_cents, quantity, metadata )
+          )
+        ),
+        child_splits:meal_order_splits!meal_order_splits_parent_order_id_fkey (
+          child_order:child_order_id (
+            id,
+            api_order_id,
+            title,
+            scheduled_date,
+            restaurant:restaurants ( id, name )
           )
         )
       `)
@@ -306,21 +362,89 @@ export function useCalendarData(
         ? (deliveryAddress || 'Delivery address TBD')
         : (data?.restaurant?.address || 'Restaurant address TBD');
 
+    const childOrdersRaw = Array.isArray(data?.child_splits) ? data.child_splits : [];
+    const childOrders = childOrdersRaw
+      .map((split) => {
+        const child = split?.child_order;
+        if (!child?.id) return null;
+        const orderNumber = child.api_order_id || `ORD-${String(child.id).substring(0, 8)}`;
+        const partMatch = child.title ? child.title.match(/Part\s+(\d+)/i) : null;
+        const partIndex = partMatch ? Number(partMatch[1]) : null;
+        return {
+          id: child.id,
+          orderNumber,
+          title: child.title || '',
+          scheduledDate: child.scheduled_date,
+          restaurant: child.restaurant?.name || data?.restaurant?.name || 'Unknown Restaurant',
+          partIndex,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        const ai = Number.isFinite(a.partIndex) ? a.partIndex : Number.MAX_SAFE_INTEGER;
+        const bi = Number.isFinite(b.partIndex) ? b.partIndex : Number.MAX_SAFE_INTEGER;
+        if (ai !== bi) return ai - bi;
+        return String(a.orderNumber).localeCompare(String(b.orderNumber));
+      });
+
+    const isSplitParent = childOrders.length > 0;
+    const parentOrderNumber = data?.api_order_id || `ORD-${String(data?.id || '').substring(0, 8)}`;
+
+    const normalizeExtraFlag = (value) => {
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'number') return value === 1;
+      if (typeof value === 'string') {
+        const val = value.trim().toLowerCase();
+        return val === 'true' || val === 't' || val === '1' || val === 'yes';
+      }
+      return false;
+    };
+
+    const normalizedItems = (data?.items || []).map((it, idx) => {
+      const quantity = Math.max(1, Number(it?.quantity ?? 1));
+      const member = it?.team_member
+        ? {
+            id: it.team_member.id,
+            name: it.team_member.full_name,
+            role: it.team_member.role || '',
+          }
+        : null;
+
+      return {
+        ...it,
+        quantity,
+        is_extra: normalizeExtraFlag(it?.is_extra),
+        member,
+        display_index: idx,
+      };
+    });
+
     const shaped = {
       ...data,
+      items: normalizedItems,
       restaurantName: data?.restaurant?.name ?? null,
       restaurantAddress: data?.restaurant?.address ?? null,
       fulfillment_method: data?.fulfillment_method ?? null,
       locationDisplay,
-      orderItems: (data?.items || []).map((it) => ({
+      orderNumber: parentOrderNumber,
+      is_split_parent: isSplitParent,
+      child_order_numbers: childOrders.map((co) => co.orderNumber).filter(Boolean),
+      suborders: childOrders.map((co) => ({
+        id: co.id,
+        orderNumber: co.orderNumber,
+        title: co.title,
+        date: co.scheduledDate,
+        restaurant: co.restaurant,
+      })),
+      orderItems: normalizedItems.map((it) => ({
         id: it.id,
         name: it.name,
         notes: it.notes || null,
-        quantity: it.quantity || 0,
+        quantity: it.quantity,
         unitPriceCents: it.product_marked_price_cents ?? null,
-        member: it.team_member
-          ? { id: it.team_member.id, name: it.team_member.full_name, role: it.team_member.role || '' }
-          : null,
+        is_extra: normalizeExtraFlag(it?.is_extra),
+        member: it.member,
+        team_member: it.team_member ?? null,
         customizations: (it.customizations || []).map((c) => ({
           id: c.id,
           name: c.name,

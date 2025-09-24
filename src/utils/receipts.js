@@ -123,6 +123,11 @@ function drawLabelWithLines(doc, { x, y, label, lines = [], width, afterGap = 10
  */
 function buildReceiptDoc(r) {
   const currency = r?.payment?.currency || 'USD';
+  const splitMeta = r?.split || null;
+  const childCount = typeof splitMeta?.total === 'number' ? splitMeta.total : 0;
+
+  const items = Array.isArray(r?.items) ? r.items : [];
+  const itemCount = items.length;
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' }); // 612 x 792
   doc.setFont('helvetica', 'normal');
@@ -150,6 +155,21 @@ function buildReceiptDoc(r) {
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
+  if (childCount > 0) {
+    let label = null;
+    if (splitMeta?.kind === 'child') {
+      const idx = Math.max(1, Number(splitMeta?.position) || 1);
+      label = `Order #${idx} of ${childCount} orders`;
+    } else if (splitMeta?.kind === 'parent') {
+      label = `Parent order • Split into ${childCount} orders`;
+    }
+
+    if (label) {
+      doc.setFontSize(10);
+      doc.text(label, margin + contentW, y, { align: 'right' });
+      doc.setFontSize(11);
+    }
+  }
   const orderNo = r?.order_number ?? r?.order_id ?? '—';
   doc.text(`Order # ${orderNo}`, margin + contentW, y + 12, { align: 'right' });
 
@@ -266,12 +286,13 @@ function buildReceiptDoc(r) {
 
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
-  doc.text('Items', margin, y);
+  const itemsLabel = itemCount ? `Items (${itemCount})` : 'Items';
+  doc.text(itemsLabel, margin, y);
   y += 8;
   divider(doc, { x: margin, y, width: contentW });
   y += 10;
 
-  const rows = (r?.items ?? []).map(it => {
+  const rows = items.map((it, idx) => {
     const opts = it?.options ?? [];
     const extras = Number.isFinite(it?.options_total_cents)
       ? (it.options_total_cents ?? 0)
@@ -296,6 +317,7 @@ function buildReceiptDoc(r) {
       `${fmtCurrency(Math.max(base, 0), currency)}${extras ? ` + ${fmtCurrency(extras, currency)}` : ''}`;
 
     return [
+      String(idx + 1),
       it?.name ?? '',
       customizations,
       breakdown,
@@ -305,6 +327,7 @@ function buildReceiptDoc(r) {
     ];
   });
 
+  const indexW     = 28;
   const qtyW       = 44;
   const unitW      = 72;
   const amtW       = 84;
@@ -315,7 +338,7 @@ function buildReceiptDoc(r) {
 
   autoTable(doc, {
     startY: y,
-    head: [['Item', 'Customizations', 'Unit (base + extras)', 'Qty', 'Unit Price', 'Amount']],
+    head: [['#', 'Item', 'Customizations', 'Unit (base + extras)', 'Qty', 'Unit Price', 'Amount']],
     body: rows,
     theme: 'grid',
     tableWidth: contentW,
@@ -330,10 +353,11 @@ function buildReceiptDoc(r) {
     headStyles: { fillColor: [242, 243, 245], textColor: [40, 40, 40], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [252, 252, 252] },
     columnStyles: {
-      2: { cellWidth: breakdownW },
-      3: { halign: 'right', cellWidth: qtyW },
-      4: { halign: 'right', cellWidth: unitW },
-      5: { halign: 'right', cellWidth: amtW }
+      0: { cellWidth: indexW, halign: 'right' },
+      3: { cellWidth: breakdownW },
+      4: { halign: 'right', cellWidth: qtyW },
+      5: { halign: 'right', cellWidth: unitW },
+      6: { halign: 'right', cellWidth: amtW }
     },
     didDrawPage: () => {
       const page = doc.internal.getNumberOfPages();

@@ -116,6 +116,16 @@ const OrderTable = ({
     return arr;
   }, [orders, sortField, sortDirection]);
 
+  // Expanded suborders state
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggleExpand = (id) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const handleSort = (field) => {
     if (sortField === field) setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     else { setSortField(field); setSortDirection('asc'); }
@@ -298,8 +308,11 @@ const OrderTable = ({
             <tbody className="divide-y divide-border">
               {sortedOrders?.map((order) => {
                 const fulfillmentMeta = getFulfillmentMeta(order?.fulfillmentMethod);
+                const splitCount = Array.isArray(order?.suborders) ? order.suborders.length : 0;
+                const hasSubs = splitCount > 0;
                 return (
-                  <tr key={order?.id} className="hover:bg-muted/50 transition-athletic">
+                  <React.Fragment key={order?.id}>
+                  <tr className="hover:bg-muted/50 transition-athletic">
                   <td className="px-4 py-4">
                     <Checkbox
                       checked={selectedOrders?.includes(order?.id)}
@@ -308,7 +321,28 @@ const OrderTable = ({
                   </td>
 
                   <td className="px-4 py-4">
-                    <div className="text-sm text-foreground font-medium">{formatDate(order?.date)}</div>
+                    <div className="space-y-2">
+                      <div className="text-sm text-foreground font-medium">{formatDate(order?.date)}</div>
+                      {hasSubs && (
+                        <div className="flex items-center gap-2 text-xs text-primary">
+                          <button
+                            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground"
+                            title={expanded.has(order.id) ? 'Hide suborders' : 'Show suborders'}
+                            onClick={() => toggleExpand(order.id)}
+                          >
+                            <Icon
+                              name="ChevronRight"
+                              size={14}
+                              className={`transition-transform duration-200 ${expanded.has(order.id) ? 'rotate-90' : '-rotate-90'}`}
+                            />
+                            <span>{expanded.has(order.id) ? 'Hide suborders' : `Show suborders`}</span>
+                          </button>
+                          {/* <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide">
+                            Split ({splitCount})
+                          </span> */}
+                        </div>
+                      )}
+                    </div>
                   </td>
 
                   <td className="px-4 py-4">
@@ -330,7 +364,9 @@ const OrderTable = ({
 
                   <td className="px-4 py-4">
                     <div className="space-y-1">
-                      <div className="text-sm font-medium text-foreground truncate">{order?.mealTitle}</div>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-medium text-foreground truncate">{order?.mealTitle}</span>
+                      </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Icon name={getMealTypeIcon(order?.mealType)} size={16} className="text-muted-foreground" />
                         <span className="capitalize">{order?.mealType}</span>
@@ -388,6 +424,66 @@ const OrderTable = ({
 
                   <td className="px-4 py-4 text-right">{getActionButtons(order)}</td>
                 </tr>
+                {expanded.has(order.id) && hasSubs && (
+                  <tr className="bg-muted/40">
+                    <td colSpan={showStatus ? 7 : 6} className="px-4 py-3">
+                      <div className="text-xs text-muted-foreground mb-2">Suborders ({order.suborders.length}) · Taxes + fees are applied per suborder</div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[13px]">
+                          <thead>
+                            <tr className="text-xs text-muted-foreground">
+                              <th className="text-left py-1 pr-2">Date</th>
+                              <th className="text-left py-1 pr-2">Restaurant</th>
+                              <th className="text-left py-1 pr-2">Items</th>
+                              <th className="text-left py-1 pr-2">Total</th>
+                              <th className="text-right py-1">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {order.suborders.map((so) => (
+                              <tr key={so.id}>
+                                <td className="py-1 pr-2">{formatDate(so.date)}</td>
+                                <td className="py-1 pr-2">{so.restaurant}</td>
+                                <td className="py-1 pr-2">
+                                  <div className="flex items-center gap-2">
+                                    <span>{so.itemsCount} {so.itemsCount === 1 ? 'item' : 'items'}</span>
+                                    {(so.teamMembersTooltip || so.teamMembers)?.length > 0 && (
+                                      <span
+                                        className="inline-flex items-center text-muted-foreground cursor-default"
+                                        ref={setAnchorRef(`so-${so.id}`)}
+                                        onMouseEnter={() => openOnHover(`so-${so.id}`)}
+                                        onMouseLeave={scheduleClose}
+                                        title={(so.teamMembers || []).join(', ')}
+                                      >
+                                        <Icon name="Users" size={14} />
+                                        <PeopleTooltip
+                                          open={hoverOrderId === `so-${so.id}`}
+                                          x={tooltipPos.x}
+                                          y={tooltipPos.y}
+                                          names={so.teamMembersTooltip || so.teamMembers || []}
+                                          totalCount={so.memberCount}
+                                          title="Assignments"
+                                          onMouseEnter={cancelClose}
+                                          onMouseLeave={scheduleClose}
+                                        />
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="py-1 pr-2">{formatCurrency(so.totalCost)}</td>
+                                <td className="py-1 text-right space-x-1">
+                                  <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', so)} iconName="Eye" title="View suborder" />
+                                  <Button variant="ghost" size="sm" onClick={() => onOrderAction('receipt', so)} iconName="Download" title="Download receipt" />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -415,6 +511,8 @@ const OrderTable = ({
         <div className="divide-y divide-border">
           {sortedOrders?.map((order) => {
             const fulfillmentMeta = getFulfillmentMeta(order?.fulfillmentMethod);
+            const splitCount = Array.isArray(order?.suborders) ? order.suborders.length : 0;
+            const hasSubs = splitCount > 0;
             return (
               <div key={order?.id} className="p-4 space-y-4">
                 <div className="flex items-start justify-between gap-3">
@@ -423,8 +521,26 @@ const OrderTable = ({
                       checked={selectedOrders?.includes(order?.id)}
                       onChange={(e) => onOrderSelect(order?.id, e?.target?.checked)}
                     />
-                    <div>
+                    <div className="space-y-2">
                       <div className="text-sm font-semibold text-foreground">{formatDate(order?.date)}</div>
+                      {hasSubs && (
+                        <div className="flex items-center gap-2 text-xs text-primary">
+                          <button
+                            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground"
+                            title={expanded.has(order.id) ? 'Hide suborders' : 'Show suborders'}
+                            onClick={() => toggleExpand(order.id)}
+                          >
+                            <Icon
+                              name="ChevronRight"
+                              size={14}
+                              className={`transition-transform duration-200 ${expanded.has(order.id) ? 'rotate-90' : '-rotate-90'}`}
+                            />
+                          </button>
+                          {/* <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide">
+                            Split ({splitCount})
+                          </span> */}
+                        </div>
+                      )}
                     </div>
                   </div>
                   {showStatus && (
@@ -453,7 +569,9 @@ const OrderTable = ({
                   <div className="flex items-start gap-3">
                     <Icon name={getMealTypeIcon(order?.mealType)} size={16} className="text-muted-foreground mt-0.5" />
                     <div className="space-y-0.5">
-                      <div className="font-medium text-foreground">{order?.mealTitle}</div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-foreground">{order?.mealTitle}</span>
+                      </div>
                       <div className="text-xs text-muted-foreground capitalize">{order?.mealType}</div>
                     </div>
                   </div>
@@ -478,6 +596,28 @@ const OrderTable = ({
                   <div className="text-xs text-muted-foreground">
                     Assignments: {order.teamMembers.slice(0, 3).join(', ')}
                     {order.teamMembers.length > 3 && '...'}
+                  </div>
+                )}
+
+                {hasSubs && expanded.has(order.id) && (
+                  <div className="pt-2 border-t border-border">
+                    <div className="text-xs text-muted-foreground mb-2">
+                      Suborders ({splitCount}) · Taxes + fees apply per suborder
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {order.suborders.map((so) => (
+                        <div key={so.id} className="flex items-center justify-between text-sm bg-muted rounded p-2">
+                          <div>
+                            <div className="font-medium">{so.restaurant}</div>
+                            <div className="text-xs text-muted-foreground">{formatDate(so.date)} • {so.itemsCount} {so.itemsCount === 1 ? 'item' : 'items'}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{formatCurrency(so.totalCost)}</span>
+                            <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', so)} iconName="Eye">View</Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 

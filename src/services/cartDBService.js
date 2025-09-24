@@ -454,6 +454,12 @@ async function addItem(
   cartId,
   { menuItem, quantity, unitPrice, specialInstructions, selectedOptions, assignment, addedByMemberId }
 ) {
+  try {
+    await supabase.rpc('join_cart_as_member', { p_cart_id: cartId });
+  } catch (err) {
+    console.warn('join_cart_as_member failed:', err?.message || err);
+  }
+
   // sanitize inputs
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const rawIds = assignment?.memberIds ?? [];

@@ -119,6 +119,9 @@ CREATE TABLE public.meal_orders (
     cancel_requested_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
     cancel_reason TEXT,
     canceled_at TIMESTAMPTZ,
+    parent_order_id UUID NULL REFERENCES public.meal_orders(id) ON DELETE CASCADE,
+    split_group TEXT NULL,
+    is_split_child BOOLEAN NOT NULL DEFAULT FALSE,
     -- API Integration Fields
     api_order_id TEXT, -- The ID returned by the external API for this order
     api_source public.api_source_type, -- Which API the order was placed through
@@ -264,6 +267,38 @@ CREATE TABLE public.meal_order_item_options (
   price_cents INTEGER DEFAULT 0,
   quantity INTEGER NOT NULL DEFAULT 1,
   metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Feature flags and app settings (for runtime toggles like order splitting)
+CREATE TABLE public.feature_flags (
+  key TEXT PRIMARY KEY,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  description TEXT,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE public.app_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Defaults for splitting feature
+INSERT INTO public.feature_flags (key, enabled, description)
+VALUES ('split_large_orders', TRUE, 'Enable splitting large orders by threshold')
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO public.app_settings (key, value)
+VALUES ('split_threshold_cents', '{"value":25000}')
+ON CONFLICT (key) DO NOTHING;
+
+-- Mapping table parent → child
+CREATE TABLE public.meal_order_splits (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  parent_order_id UUID NOT NULL REFERENCES public.meal_orders(id) ON DELETE CASCADE,
+  child_order_id  UUID NOT NULL UNIQUE REFERENCES public.meal_orders(id) ON DELETE CASCADE,
+  split_group TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
