@@ -12,7 +12,8 @@ export default function CartDrawer({
   cartBadge,   // { count, total, name, cartId }
   cartPanel,   // { restaurant, items, fulfillment }
   onEditItem,  // (item) => void
-  onRemoveItem // (item) => void
+  onRemoveItem, // (item) => void
+  onRefresh    // () => void
 }) {
   const navigate = useNavigate();
   if (!isOpen) return null;
@@ -32,9 +33,20 @@ export default function CartDrawer({
             <Icon name="ShoppingCart" size={18} />
             <span className="truncate">{cartBadge?.name || "Cart"}</span>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
-            <Icon name="X" size={18} />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onRefresh}
+              aria-label="Refresh cart"
+              title="Refresh"
+            >
+              <Icon name="RefreshCcw" size={18} />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+              <Icon name="X" size={18} />
+            </Button>
+          </div>
         </div>
 
         {/* Body (scrollable) */}
