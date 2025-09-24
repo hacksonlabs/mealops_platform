@@ -264,9 +264,6 @@ const EditMemberModal = ({ member, onClose, onUpdate }) => {
 
           {/* Actions */}
           <div className="flex items-center justify-end space-x-3 mt-6 pt-6 border-t border-border">
-            <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
-              Cancel
-            </Button>
             <Button
               type="submit"
               disabled={loading}

@@ -1,9 +1,10 @@
 // src/pages/team-members-management/components/MemberDetailModal.jsx
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import Button from '../../../components/ui/custom/Button';
 import Icon from '../../../components/AppIcon';
 import { normalizeBirthday, formatDateToMMDDYYYY } from '../../../utils/stringUtils';
 import { ROLE_CONFIG } from '../../../utils/addingTeamMembersUtils';
+import { supabase } from '../../../lib/supabase';
 
 const RoleBadge = ({ role }) => {
   const cfg =
@@ -21,6 +22,7 @@ const RoleBadge = ({ role }) => {
 };
 
 const MemberDetailModal = ({ member, onClose }) => {
+  const [ordersParticipated, setOrdersParticipated] = useState(0);
   // Normalize to flat team_members shape (no is_active)
   const src = useMemo(
     () => ({
@@ -56,6 +58,28 @@ const MemberDetailModal = ({ member, onClose }) => {
     if (Number.isNaN(d.getTime())) return '—';
     return d.toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
   };
+
+  // Load orders participated (scheduled, confirmed, completed)
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!src.id) { setOrdersParticipated(0); return; }
+      try {
+        const { data, error } = await supabase
+          .from('meal_orders')
+          .select('id, order_status, meal_items:meal_order_items!inner(team_member_id)')
+          .eq('meal_items.team_member_id', src.id)
+          .in('order_status', ['scheduled', 'confirmed', 'completed']);
+        if (error) throw error;
+        const unique = new Set((data || []).map((row) => row.id));
+        if (!cancelled) setOrdersParticipated(unique.size);
+      } catch (e) {
+        if (!cancelled) setOrdersParticipated(0);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [src.id]);
 
   return (
     // Overlay — close only when clicking the overlay, not the dialog
@@ -95,7 +119,6 @@ const MemberDetailModal = ({ member, onClose }) => {
             </div>
             <div>
               <h4 className="text-xl font-semibold text-foreground">{src.full_name || '—'}</h4>
-              <p className="text-muted-foreground">{src.email || '—'}</p>
               <div className="flex items-center space-x-2 mt-2">
                 <RoleBadge role={src.role} />
               </div>
@@ -181,20 +204,15 @@ const MemberDetailModal = ({ member, onClose }) => {
             <h5 className="font-medium text-foreground border-b border-border pb-2">Activity Statistics</h5>
             <div className="grid grid-cols-2 gap-4">
               <div className="text-center p-4 bg-muted rounded-lg">
-                <p className="text-lg font-semibold text-foreground">0</p>
+                <p className="text-lg font-semibold text-foreground">{ordersParticipated}</p>
                 <p className="text-xs text-muted-foreground">Orders Participated</p>
               </div>
-              <div className="text-center p-4 bg-muted rounded-lg">
+              {/* <div className="text-center p-4 bg-muted rounded-lg">
                 <p className="text-lg font-semibold text-foreground">0</p>
                 <p className="text-xs text-muted-foreground">Polls Participated</p>
-              </div>
+              </div> */}
             </div>
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end space-x-3 p-6 border-t border-border shrink-0">
-          <Button onClick={onClose}>Close</Button>
         </div>
       </div>
     </div>
