@@ -389,6 +389,7 @@ export const orderDbService = {
       .update({ order_status: 'confirmed', order_placed: true, payment_status: 'completed', ...extra })
       .eq('id', localOrderId);
     if (error) throw error;
+    await orderDbService.notifyOrderPlaced(localOrderId);
   },
 
   async markScheduled(localOrderId, extra = {}) {
@@ -397,6 +398,7 @@ export const orderDbService = {
       .update({ order_status: 'scheduled', order_placed: true, ...extra })
       .eq('id', localOrderId);
     if (error) throw error;
+    await orderDbService.notifyOrderPlaced(localOrderId);
   },
 
   async markFailed(localOrderId, message) {
@@ -413,5 +415,55 @@ export const orderDbService = {
       .update(patch)
       .eq('id', localOrderId);
     if (error) throw error;
+  },
+
+  async notifyOrderPlaced(orderId) {
+    try {
+      const { data, error } = await supabase
+        .from('meal_orders')
+        .select(`
+          id,
+          title,
+          scheduled_date,
+          user_name,
+          user_phone,
+          restaurant:restaurants!meal_orders_restaurant_id_fkey ( name )
+        `)
+        .eq('id', orderId)
+        .maybeSingle();
+
+      if (error || !data) {
+        if (error) console.error('notifyOrderPlaced lookup failed', error);
+        return;
+      }
+
+      const phone = data?.user_phone;
+      if (!phone) return;
+
+      const firstName = data?.user_name?.split(' ')?.[0] || 'there';
+      const restaurantName = data?.restaurant?.name || 'your restaurant';
+      const when = data?.scheduled_date
+        ? new Date(data.scheduled_date).toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          })
+        : null;
+
+      const text = `Hi ${firstName}, your order for ${restaurantName}${when ? ` on ${when}` : ''} has been placed.`;
+
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke('send-sms', {
+        body: { to: phone, text },
+      });
+
+      if (fnErr) {
+        console.error('send-sms failed', fnErr);
+      } else if (process.env.NODE_ENV !== 'production') {
+        // console.log('send-sms response', fnData);
+      }
+    } catch (err) {
+      console.error('notifyOrderPlaced error', err);
+    }
   },
 };
