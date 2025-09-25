@@ -339,7 +339,7 @@ const DeliveryInformation = ({
                 setSpecialInstructions(val);
                 onInstructionsChange?.(val);
               }}
-              placeholder="e.g., Meet at the loading dock behind the gym, Call when entering campus..."
+              placeholder="e.g., Meet in front of the gym, Call when entering campus, etc.."
               rows={3}
               className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
             />

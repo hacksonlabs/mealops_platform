@@ -15,6 +15,31 @@ import {
 } from '@/utils/googlePlaces';
 import { cn } from '@/utils/cn';
 
+const toTitleCase = (value = '') =>
+  value.replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+
+const formatPhoneNumber = (value = '') => {
+  const rawDigits = value.replace(/\D/g, '');
+  if (!rawDigits) return '';
+
+  const hasCountryCode = rawDigits.length > 10 && rawDigits.startsWith('1');
+  const digits = hasCountryCode ? rawDigits.slice(1, 11) : rawDigits.slice(0, 10);
+
+  if (!digits) return `+${rawDigits}`;
+
+  if (digits.length < 4) {
+    return hasCountryCode ? `+1 ${digits}` : digits;
+  }
+
+  if (digits.length < 7) {
+    const formatted = `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    return hasCountryCode ? `+1 ${formatted}` : formatted;
+  }
+
+  const formatted = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  return hasCountryCode ? `+1 ${formatted}` : formatted;
+};
+
 const addressKindOptions = [
   { value: 'main', label: 'Main Facility' },
   { value: 'practice', label: 'Practice Facility' },
@@ -231,11 +256,11 @@ const PlacesAutocompleteInput = ({ value, onValueChange, onPlaceSelected, disabl
                 <div className="px-3 py-2 text-xs text-muted-foreground">No matches found</div>
               )}
             </div>
-            <div className="border-t border-border bg-muted/40 px-3 py-1.5">
+            <div className="border-t border-border bg-muted/30 px-3 py-1.5 flex justify-end">
               <img
-                src="https://developers.google.com/static/maps/documentation/images/powered_by_google_on_white.png"
+                src="https://storage.googleapis.com/geo-devrel-public-buckets/powered_by_google_on_white.png"
                 alt="Powered by Google"
-                className="h-4 object-contain"
+                className="h-4"
               />
             </div>
           </div>
@@ -366,10 +391,10 @@ const SavesPage = () => {
     setAddressForm({
       addressKind: location.address_kind || 'main',
       addressSide: location.address_side || 'home',
-      addressName: location.address_name || '',
+      addressName: toTitleCase(location.address_name || ''),
       deliveryNotes: location.delivery_notes || '',
-      contactName: location.contact_name || '',
-      contactPhone: location.contact_phone || '',
+      contactName: toTitleCase(location.contact_name || ''),
+      contactPhone: formatPhoneNumber(location.contact_phone || ''),
       contactEmail: location.contact_email || '',
       tripId: location.trip_id || '',
       newTripName: '',
@@ -420,7 +445,10 @@ const SavesPage = () => {
     }
 
     const trimmedAddress = addressInput.trim();
-    const trimmedName = addressForm.addressName.trim();
+    const trimmedName = toTitleCase(addressForm.addressName.trim());
+    const contactName = toTitleCase(addressForm.contactName.trim());
+    const contactPhone = addressForm.contactPhone.trim();
+    const contactEmail = addressForm.contactEmail.trim();
 
     if (!trimmedAddress) {
       setError('Address is required.');
@@ -448,7 +476,7 @@ const SavesPage = () => {
         (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `loc_${Date.now()}`);
 
       let tripId = addressForm.tripId || null;
-      const newTripName = (addressForm.newTripName || '').trim();
+      const newTripName = toTitleCase((addressForm.newTripName || '').trim());
       let createdTripId = null;
 
       if (newTripName) {
@@ -479,9 +507,9 @@ const SavesPage = () => {
         address_name: trimmedName,
         formatted_address: trimmedAddress,
         delivery_notes: addressForm.deliveryNotes.trim() || null,
-        contact_name: addressForm.contactName.trim() || null,
-        contact_phone: addressForm.contactPhone.trim() || null,
-        contact_email: addressForm.contactEmail.trim() || null,
+        contact_name: contactName || null,
+        contact_phone: contactPhone || null,
+        contact_email: contactEmail || null,
         trip_id: tripId || null,
         location_id: locationId,
         google_place_id: placeDetails?.placeId || editingLocation?.google_place_id || null,
@@ -526,7 +554,7 @@ const SavesPage = () => {
   const handleEditTrip = (trip) => {
     setEditingTrip(trip);
     setTripForm({
-      tripName: trip.trip_name || '',
+      tripName: toTitleCase(trip.trip_name || ''),
     });
     setTripModalOpen(true);
   };
@@ -612,67 +640,62 @@ const SavesPage = () => {
     const trip = location.trip_id ? tripMap.get(location.trip_id) : null;
     const kindLabel = addressKindOptions.find((option) => option.value === location.address_kind)?.label || location.address_kind;
     const sideLabel = addressSideOptions.find((option) => option.value === location.address_side)?.label || location.address_side;
+    const contactSummaryParts = [];
+    if (location.contact_name) contactSummaryParts.push(toTitleCase(location.contact_name));
+    if (location.contact_phone) contactSummaryParts.push(formatPhoneNumber(location.contact_phone));
+    if (location.contact_email) contactSummaryParts.push(location.contact_email);
+    const contactSummary = contactSummaryParts.join(' | ');
 
     return (
-      <div key={location.id} className="rounded-xl border border-border bg-card p-5 shadow-athletic-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2 text-[12px] uppercase tracking-wide text-muted-foreground">
+      <div
+        key={location.id}
+        className="rounded-2xl border border-border/60 bg-gradient-to-br from-background to-muted/40 px-5 py-4 shadow-athletic-sm flex flex-col gap-3"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
               <span className="px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground">{sideLabel}</span>
               <span className="px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground">{kindLabel}</span>
               {trip && (
-                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">Trip: {trip.trip_name}</span>
+                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{toTitleCase(trip.trip_name)}</span>
               )}
             </div>
-            <div>
-              <h4 className="text-lg font-semibold text-foreground">{location.address_name}</h4>
-              <p className="text-sm text-muted-foreground flex items-start gap-2 mt-1">
-                <Icon name="MapPin" size={14} className="mt-0.5 text-muted-foreground" />
-                <span>{location.formatted_address}</span>
-              </p>
-            </div>
-            {location.delivery_notes && (
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">Delivery notes:</span> {location.delivery_notes}
-              </p>
-            )}
-            {(location.contact_name || location.contact_phone || location.contact_email) && (
-              <div className="text-sm text-muted-foreground space-y-1">
-                {location.contact_name && (
-                  <p>
-                    <span className="font-medium text-foreground">Contact:</span> {location.contact_name}
-                  </p>
-                )}
-                {location.contact_phone && (
-                  <p>
-                    <span className="font-medium text-foreground">Phone:</span> {location.contact_phone}
-                  </p>
-                )}
-                {location.contact_email && (
-                  <p>
-                    <span className="font-medium text-foreground">Email:</span> {location.contact_email}
-                  </p>
-                )}
-              </div>
-            )}
+            <h4 className="text-base font-semibold text-foreground">{toTitleCase(location.address_name)}</h4>
           </div>
-          <div className="flex items-center gap-2 sm:flex-col sm:items-end">
+          <div className="flex items-center gap-2 text-muted-foreground">
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
               iconName="Edit"
               onClick={() => handleEditLocation(location)}
-            >
-            </Button>
+              aria-label="Edit saved address"
+            />
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-error hover:text-error"
               iconName="Trash2"
-              className="text-error hover:text-error"
               onClick={() => handleDeleteLocation(location)}
-            >
-            </Button>
+              aria-label="Delete saved address"
+            />
           </div>
+        </div>
+
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <div className="flex items-start gap-2">
+            <Icon name="MapPin" size={14} className="mt-0.5 text-muted-foreground" />
+            <span>{location.formatted_address}</span>
+          </div>
+          {location.delivery_notes && (
+            <p className="text-sm leading-relaxed text-muted-foreground text-xs">
+              <span className="font-semibold text-foreground text-xs">Delivery Notes:</span> {location.delivery_notes}</p>
+          )}
+          {contactSummary && (
+            <p className="text-xs uppercase tracking-wide text-muted-foreground/90">
+              <span className="font-semibold text-foreground">POC:</span> {contactSummary}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -684,7 +707,7 @@ const SavesPage = () => {
       <div key={trip.id} className="rounded-xl border border-border bg-card p-5 shadow-athletic-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
-            <h4 className="text-lg font-semibold text-foreground">{trip.trip_name}</h4>
+            <h4 className="text-lg font-semibold text-foreground">{toTitleCase(trip.trip_name)}</h4>
             {trip.description && (
               <p className="text-sm text-muted-foreground">{trip.description}</p>
             )}
@@ -726,13 +749,6 @@ const SavesPage = () => {
               <h1 className="text-3xl font-bold text-foreground">Saves</h1>
               <p className="text-sm text-muted-foreground mt-1">Manage saved addresses and trips for quick planning.</p>
             </div>
-            {/* {activeTeam && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 border border-border rounded-md px-3 py-1.5">
-                <Icon name="Users" size={14} />
-                <span>Active team:</span>
-                <strong className="text-foreground">{activeTeam.name}</strong>
-              </div>
-            )} */}
           </div>
 
           {noTeamSelected && (
@@ -796,7 +812,7 @@ const SavesPage = () => {
                       No saved addresses yet. Add a location to reuse it later.
                     </div>
                   ) : (
-                    <div className="grid gap-4">
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                       {locations.map(renderAddressCard)}
                     </div>
                   )}
@@ -835,107 +851,141 @@ const SavesPage = () => {
         </div>
 
         {addressModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" role="dialog" aria-modal="true">
-            <div className="bg-card border border-border rounded-xl shadow-athletic w-full max-w-2xl p-6 space-y-6 overflow-y-auto max-h-[90vh]">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setAddressModalOpen(false);
+                resetAddressForm();
+              }
+            }}
+          >
+            <div
+              className="bg-card border border-border rounded-xl shadow-athletic w-full max-w-2xl p-6 space-y-6 overflow-y-auto max-h-[90vh]"
+              onClick={(event) => event.stopPropagation()}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-foreground">{editingLocation ? 'Edit address' : 'Add address'}</h3>
-                  <p className="text-sm text-muted-foreground">Store a location for quick reuse.</p>
+                  {/* <p className="text-xs text-muted-foreground">Store a location for quick reuse.</p> */}
                 </div>
                 <Button variant="ghost" size="sm" iconName="X" onClick={() => { setAddressModalOpen(false); resetAddressForm(); }} />
               </div>
 
-              <form className="space-y-5" onSubmit={handleSubmitAddress}>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Select
-                    label="Address kind"
-                    value={addressForm.addressKind}
-                    onChange={(value) => setAddressForm((prev) => ({ ...prev, addressKind: value || 'main' }))}
-                    options={addressKindOptions}
-                    selectedNoun="kinds"
-                  />
-                  <Select
-                    label="Address side"
-                    value={addressForm.addressSide}
-                    onChange={(value) => setAddressForm((prev) => ({ ...prev, addressSide: value || 'home' }))}
-                    options={addressSideOptions}
-                    selectedNoun="sides"
-                  />
-                </div>
-
-                <Input
-                  label="Address name"
-                  value={addressForm.addressName}
-                  onChange={(event) => setAddressForm((prev) => ({ ...prev, addressName: event.target.value }))}
-                  placeholder="e.g., Maples Pavilion"
-                  required
-                />
-
-                <PlacesAutocompleteInput
-                  value={addressInput}
-                  onValueChange={setAddressInput}
-                  onPlaceSelected={setPlaceDetails}
-                  disabled={savingLocation}
-                />
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <form className="space-y-6" onSubmit={handleSubmitAddress}>
+                <section className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Location details</h4>
+                    {/* <p className="text-sm text-muted-foreground">Help your team quickly recognise where this address fits in.</p> */}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Select
+                      label="Address kind"
+                      value={addressForm.addressKind}
+                      onChange={(value) => setAddressForm((prev) => ({ ...prev, addressKind: value || 'main' }))}
+                      options={addressKindOptions}
+                      selectedNoun="kinds"
+                    />
+                    <Select
+                      label="Address side"
+                      value={addressForm.addressSide}
+                      onChange={(value) => setAddressForm((prev) => ({ ...prev, addressSide: value || 'home' }))}
+                      options={addressSideOptions}
+                      selectedNoun="sides"
+                    />
+                  </div>
                   <Input
-                    label="Contact name"
-                    value={addressForm.contactName}
-                    onChange={(event) => setAddressForm((prev) => ({ ...prev, contactName: event.target.value }))}
-                    placeholder="Person to reach on-site"
+                    label="Address name"
+                    value={addressForm.addressName}
+                    onChange={(event) => setAddressForm((prev) => ({ ...prev, addressName: toTitleCase(event.target.value) }))}
+                    placeholder="e.g., Maples Pavilion"
                   />
-                  <Input
-                    label="Contact phone"
-                    type="tel"
-                    value={addressForm.contactPhone}
-                    onChange={(event) => setAddressForm((prev) => ({ ...prev, contactPhone: event.target.value }))}
-                    placeholder="(555) 123-4567"
+                  <PlacesAutocompleteInput
+                    value={addressInput}
+                    onValueChange={setAddressInput}
+                    onPlaceSelected={setPlaceDetails}
+                    disabled={savingLocation}
                   />
-                  <Input
-                    label="Contact email"
-                    type="email"
-                    value={addressForm.contactEmail}
-                    onChange={(event) => setAddressForm((prev) => ({ ...prev, contactEmail: event.target.value }))}
-                    placeholder="contact@example.com"
-                  />
-                </div>
+                </section>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Delivery notes</label>
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Point of Contact</h4>
+                    <span className="text-xs text-muted-foreground">Optional</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Input
+                      label="Name"
+                      value={addressForm.contactName}
+                      onChange={(event) => setAddressForm((prev) => ({ ...prev, contactName: toTitleCase(event.target.value) }))}
+                      placeholder="Person to reach on-site"
+                    />
+                    <Input
+                      label="Phone"
+                      type="tel"
+                      value={addressForm.contactPhone}
+                      onChange={(event) => setAddressForm((prev) => ({ ...prev, contactPhone: formatPhoneNumber(event.target.value) }))}
+                      maxLength={17}
+                      placeholder="(555) 123-4567"
+                    />
+                    <Input
+                      label="Email"
+                      type="email"
+                      value={addressForm.contactEmail}
+                      onChange={(event) => setAddressForm((prev) => ({ ...prev, contactEmail: event.target.value }))}
+                      placeholder="contact@example.com"
+                    />
+                  </div>
+                </section>
+
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Delivery Notes</h4>
+                    <span className="text-xs text-muted-foreground">Optional</span>
+                  </div>
                   <textarea
                     value={addressForm.deliveryNotes}
                     onChange={(event) => setAddressForm((prev) => ({ ...prev, deliveryNotes: event.target.value }))}
                     rows={3}
-                    placeholder="Guidance for drivers, entry instructions, etc."
+                    placeholder="e.g., Meet in front of the gym, Call when entering campus, etc.."
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   />
-                </div>
+                </section>
 
-                <Select
-                  label="Assign to trip"
-                  value={addressForm.tripId}
-                  onChange={(value) => setAddressForm((prev) => ({
-                    ...prev,
-                    tripId: value || '',
-                    newTripName: value ? '' : prev.newTripName,
-                  }))}
-                  options={[{ value: '', label: 'No trip' }, ...trips.map((trip) => ({ value: trip.id, label: trip.trip_name }))]}
-                  selectedNoun="trips"
-                  placeholder="Select trip"
-                />
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Trip association</h4>
+                    <span className="text-xs text-muted-foreground">Optional</span>
+                  </div>
+                  <div className="flex flex-col gap-4 md:flex-row">
+                    <div className="flex-1">
+                      <Select
+                        label="Assign to trip"
+                        value={addressForm.tripId}
+                        onChange={(value) => setAddressForm((prev) => ({
+                          ...prev,
+                          tripId: value || '',
+                          newTripName: value ? '' : prev.newTripName,
+                        }))}
+                        options={[{ value: '', label: 'No trip' }, ...trips.map((trip) => ({ value: trip.id, label: trip.trip_name }))]}
+                        selectedNoun="trips"
+                        placeholder="Select trip"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <Input
+                        label="Or name new trip"
+                        value={addressForm.newTripName}
+                        onChange={(event) => setAddressForm((prev) => ({ ...prev, newTripName: toTitleCase(event.target.value), tripId: '' }))}
+                        placeholder="e.g., San Diego or SDSU"
+                      />
+                    </div>
+                  </div>
+                </section>
 
-                <Input
-                  label="Or create new trip"
-                  value={addressForm.newTripName}
-                  onChange={(event) => setAddressForm((prev) => ({ ...prev, newTripName: event.target.value, tripId: '' }))}
-                  placeholder="Enter a trip name to add it automatically"
-                />
-
-                <div className="flex items-center justify-end gap-3">
-                  <Button type="button" variant="ghost" onClick={() => { setAddressModalOpen(false); resetAddressForm(); }}>
-                    Cancel
-                  </Button>
+                <div className="flex items-center justify-end">
                   <Button type="submit" loading={savingLocation} iconName={editingLocation ? 'Save' : 'Plus'} iconPosition="left">
                     {editingLocation ? 'Update address' : 'Add address'}
                   </Button>
@@ -946,8 +996,21 @@ const SavesPage = () => {
         )}
 
         {tripModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" role="dialog" aria-modal="true">
-            <div className="bg-card border border-border rounded-xl shadow-athletic w-full max-w-md p-6 space-y-6">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setTripModalOpen(false);
+                resetTripForm();
+              }
+            }}
+          >
+            <div
+              className="bg-card border border-border rounded-xl shadow-athletic w-full max-w-md p-6 space-y-6"
+              onClick={(event) => event.stopPropagation()}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-foreground">{editingTrip ? 'Edit trip' : 'Add trip'}</h3>
@@ -960,14 +1023,11 @@ const SavesPage = () => {
                 <Input
                   label="Trip name"
                   value={tripForm.tripName}
-                  onChange={(event) => setTripForm((prev) => ({ ...prev, tripName: event.target.value }))}
+                  onChange={(event) => setTripForm((prev) => ({ ...prev, tripName: toTitleCase(event.target.value) }))}
                   placeholder="e.g., San Diego Trip"
                   required
                 />
-                <div className="flex items-center justify-end gap-3">
-                  <Button type="button" variant="ghost" onClick={() => { setTripModalOpen(false); resetTripForm(); }}>
-                    Cancel
-                  </Button>
+                <div className="flex items-center justify-end">
                   <Button type="submit" loading={savingTrip} iconName={editingTrip ? 'Save' : 'Plus'} iconPosition="left">
                     {editingTrip ? 'Update trip' : 'Add trip'}
                   </Button>
