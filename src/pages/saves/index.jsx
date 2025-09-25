@@ -1,57 +1,21 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Header from '../../components/ui/Header';
 import { useAuth } from '../../contexts';
 import { supabase } from '../../lib/supabase';
 import Button from '../../components/ui/custom/Button';
 import Input from '../../components/ui/custom/Input';
 import Select from '../../components/ui/custom/Select';
-import Icon from '../../components/AppIcon';
-import {
-  ensurePlacesLib,
-  newSessionToken,
-  fetchAddressSuggestions,
-  getPlaceDetailsFromPrediction,
-  geocodeAddress,
-} from '@/utils/googlePlaces';
+import { geocodeAddress } from '@/utils/googlePlaces';
 import { cn } from '@/utils/cn';
-
-const toTitleCase = (value = '') =>
-  value.replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
-
-const formatPhoneNumber = (value = '') => {
-  const rawDigits = value.replace(/\D/g, '');
-  if (!rawDigits) return '';
-
-  const hasCountryCode = rawDigits.length > 10 && rawDigits.startsWith('1');
-  const digits = hasCountryCode ? rawDigits.slice(1, 11) : rawDigits.slice(0, 10);
-
-  if (!digits) return `+${rawDigits}`;
-
-  if (digits.length < 4) {
-    return hasCountryCode ? `+1 ${digits}` : digits;
-  }
-
-  if (digits.length < 7) {
-    const formatted = `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-    return hasCountryCode ? `+1 ${formatted}` : formatted;
-  }
-
-  const formatted = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
-  return hasCountryCode ? `+1 ${formatted}` : formatted;
-};
-
-const addressKindOptions = [
-  { value: 'main', label: 'Main Facility' },
-  { value: 'practice', label: 'Practice Facility' },
-  { value: 'hotel', label: 'Hotel' },
-  { value: 'other', label: 'Other' },
-];
-
-const addressSideOptions = [
-  { value: 'home', label: 'Home' },
-  { value: 'away', label: 'Away' },
-  { value: 'neutral', label: 'Neutral' },
-];
+import PlacesAutocompleteInput from './components/PlacesAutocompleteInput';
+import AddressCard from './components/AddressCard';
+import TripCard from './components/TripCard';
+import {
+  addressKindOptions,
+  addressSideOptions,
+  formatPhoneNumber,
+  toTitleCase,
+} from './utils';
 
 const initialAddressForm = {
   addressKind: 'main',
@@ -67,207 +31,6 @@ const initialAddressForm = {
 
 const initialTripForm = {
   tripName: '',
-};
-
-const PlacesAutocompleteInput = ({ value, onValueChange, onPlaceSelected, disabled }) => {
-  const [suggestions, setSuggestions] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [highlightIndex, setHighlightIndex] = useState(0);
-  const containerRef = useRef(null);
-  const debounceRef = useRef(null);
-  const placesReadyRef = useRef(false);
-  const sessionTokenRef = useRef(null);
-
-  const ensurePlacesSession = useCallback(async () => {
-    if (typeof window === 'undefined') return false;
-    try {
-      if (!placesReadyRef.current) {
-        await ensurePlacesLib();
-        placesReadyRef.current = true;
-      }
-      if (!sessionTokenRef.current) {
-        sessionTokenRef.current = await newSessionToken();
-      }
-      return true;
-    } catch (error) {
-      console.error('Failed to initialise Google Places', error);
-      return false;
-    }
-  }, []);
-
-  const resetSessionToken = useCallback(async () => {
-    try {
-      sessionTokenRef.current = await newSessionToken();
-    } catch (error) {
-      console.error('Failed to refresh session token', error);
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (!containerRef.current?.contains(event.target)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-  }, []);
-
-  useEffect(() => {
-    const query = value?.trim();
-    if (!open || !query || query.length < 3) {
-      setSuggestions([]);
-      setLoading(false);
-      return;
-    }
-
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true);
-      const ready = await ensurePlacesSession();
-      if (!ready || !sessionTokenRef.current) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const results = await fetchAddressSuggestions(query, sessionTokenRef.current);
-        setSuggestions(results);
-        setHighlightIndex(0);
-      } catch (error) {
-        console.error('Failed to load address suggestions', error);
-        setSuggestions([]);
-      } finally {
-        setLoading(false);
-      }
-    }, 200);
-  }, [value, open, ensurePlacesSession]);
-
-  const handleSelectSuggestion = useCallback(async (suggestion) => {
-    try {
-      const ready = await ensurePlacesSession();
-      if (!ready) return;
-
-      const details = await getPlaceDetailsFromPrediction(suggestion.raw?.placePrediction, [
-        'id',
-        'formattedAddress',
-        'location',
-      ]);
-
-      if (!details) return;
-
-      const formatted = details.formattedAddress || suggestion.label || '';
-      const coords = details.location ? { lat: details.location.lat, lng: details.location.lng } : null;
-
-      onValueChange(formatted);
-      onPlaceSelected({
-        placeId: details.id || null,
-        formattedAddress: formatted,
-        location: coords,
-      });
-
-      setSuggestions([]);
-      setOpen(false);
-    } catch (error) {
-      console.error('Failed to pick suggestion', error);
-    } finally {
-      await resetSessionToken();
-    }
-  }, [ensurePlacesSession, onPlaceSelected, onValueChange, resetSessionToken]);
-
-  const handleInputFocus = useCallback(async () => {
-    setOpen(true);
-    await ensurePlacesSession();
-  }, [ensurePlacesSession]);
-
-  const handleKeyDown = useCallback((event) => {
-    if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-      setOpen(true);
-      return;
-    }
-
-    if (!open || suggestions.length === 0) return;
-
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setHighlightIndex((prev) => Math.min(prev + 1, suggestions.length - 1));
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setHighlightIndex((prev) => Math.max(prev - 1, 0));
-    } else if (event.key === 'Enter') {
-      const current = suggestions[highlightIndex];
-      if (current) {
-        event.preventDefault();
-        handleSelectSuggestion(current);
-      }
-    } else if (event.key === 'Escape') {
-      setOpen(false);
-    }
-  }, [handleSelectSuggestion, highlightIndex, open, suggestions]);
-
-  return (
-    <div className="space-y-2" ref={containerRef}>
-      <label className="text-sm font-medium text-foreground">Address</label>
-      <div className="relative">
-        <input
-          type="text"
-          value={value}
-          onFocus={handleInputFocus}
-          onChange={(event) => {
-            onValueChange(event.target.value);
-            onPlaceSelected(null);
-            if (!open) setOpen(true);
-          }}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-          placeholder="Search for an address"
-          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-          autoComplete="off"
-        />
-        {(open && (suggestions.length > 0 || loading)) && (
-          <div className="absolute z-40 mt-1 w-full rounded-md border border-border bg-card shadow-lg">
-            <div className="max-h-56 overflow-auto py-1 text-sm">
-              {suggestions.map((suggestion, index) => (
-                <button
-                  key={suggestion.id}
-                  type="button"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    handleSelectSuggestion(suggestion);
-                  }}
-                  className={cn(
-                    'w-full px-3 py-2 text-left hover:bg-muted',
-                    index === highlightIndex && 'bg-muted'
-                  )}
-                >
-                  {suggestion.label}
-                </button>
-              ))}
-              {loading && (
-                <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
-              )}
-              {!loading && suggestions.length === 0 && (
-                <div className="px-3 py-2 text-xs text-muted-foreground">No matches found</div>
-              )}
-            </div>
-            <div className="border-t border-border bg-muted/30 px-3 py-1.5 flex justify-end">
-              <img
-                src="https://storage.googleapis.com/geo-devrel-public-buckets/powered_by_google_on_white.png"
-                alt="Powered by Google"
-                className="h-4"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
 };
 
 const SavesPage = () => {
@@ -636,106 +399,26 @@ const SavesPage = () => {
     }
   };
 
-  const renderAddressCard = (location) => {
-    const trip = location.trip_id ? tripMap.get(location.trip_id) : null;
-    const kindLabel = addressKindOptions.find((option) => option.value === location.address_kind)?.label || location.address_kind;
-    const sideLabel = addressSideOptions.find((option) => option.value === location.address_side)?.label || location.address_side;
-    const contactSummaryParts = [];
-    if (location.contact_name) contactSummaryParts.push(toTitleCase(location.contact_name));
-    if (location.contact_phone) contactSummaryParts.push(formatPhoneNumber(location.contact_phone));
-    if (location.contact_email) contactSummaryParts.push(location.contact_email);
-    const contactSummary = contactSummaryParts.join(' | ');
+  const renderAddressCard = (location) => (
+    <AddressCard
+      key={location.id}
+      location={location}
+      trip={location.trip_id ? tripMap.get(location.trip_id) : null}
+      onEdit={handleEditLocation}
+      onDelete={handleDeleteLocation}
+    />
+  );
 
-    return (
-      <div
-        key={location.id}
-        className="rounded-2xl border border-border/60 bg-gradient-to-br from-background to-muted/40 px-5 py-4 shadow-athletic-sm flex flex-col gap-3"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-              <span className="px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground">{sideLabel}</span>
-              <span className="px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground">{kindLabel}</span>
-              {trip && (
-                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{toTitleCase(trip.trip_name)}</span>
-              )}
-            </div>
-            <h4 className="text-base font-semibold text-foreground">{toTitleCase(location.address_name)}</h4>
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              iconName="Edit"
-              onClick={() => handleEditLocation(location)}
-              aria-label="Edit saved address"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-error hover:text-error"
-              iconName="Trash2"
-              onClick={() => handleDeleteLocation(location)}
-              aria-label="Delete saved address"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2 text-sm text-muted-foreground">
-          <div className="flex items-start gap-2">
-            <Icon name="MapPin" size={14} className="mt-0.5 text-muted-foreground" />
-            <span>{location.formatted_address}</span>
-          </div>
-          {location.delivery_notes && (
-            <p className="text-sm leading-relaxed text-muted-foreground text-xs">
-              <span className="font-semibold text-foreground text-xs">Delivery Notes:</span> {location.delivery_notes}</p>
-          )}
-          {contactSummary && (
-            <p className="text-xs uppercase tracking-wide text-muted-foreground/90">
-              <span className="font-semibold text-foreground">POC:</span> {contactSummary}
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderTripCard = (trip) => {
-    const linkedLocations = locations.filter((location) => location.trip_id === trip.id);
-    return (
-      <div key={trip.id} className="rounded-xl border border-border bg-card p-5 shadow-athletic-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-2">
-            <h4 className="text-lg font-semibold text-foreground">{toTitleCase(trip.trip_name)}</h4>
-            {trip.description && (
-              <p className="text-sm text-muted-foreground">{trip.description}</p>
-            )}
-            {trip.notes && (
-              <p className="text-sm text-muted-foreground"><span className="font-medium text-foreground">Notes:</span> {trip.notes}</p>
-            )}
-            <div className="text-xs text-muted-foreground">
-              {linkedLocations.length === 0
-                ? 'No addresses assigned yet.'
-                : `${linkedLocations.length} address${linkedLocations.length === 1 ? '' : 'es'} assigned.`}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 sm:flex-col sm:items-end">
-            <Button variant="outline" size="sm" iconName="Edit" onClick={() => handleEditTrip(trip)}>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              iconName="Trash2"
-              className="text-error hover:text-error"
-              onClick={() => handleDeleteTrip(trip)}
-            >
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const renderTripCard = (trip) => (
+    <TripCard
+      key={trip.id}
+      trip={trip}
+      locations={locations}
+      onEditTrip={handleEditTrip}
+      onDeleteTrip={handleDeleteTrip}
+      onEditLocation={handleEditLocation}
+    />
+  );
 
   const noTeamSelected = !activeTeam && !loadingTeams;
 
