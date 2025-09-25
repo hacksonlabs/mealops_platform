@@ -7,6 +7,7 @@ import Input from '../../../components/ui/custom/Input';
 import Select from '../../../components/ui/custom/Select';
 import Icon from '../../../components/AppIcon';
 import PeopleTooltip from '../../../components/ui/PeopleTooltip';
+import { toTitleCase } from '../../../utils/stringUtils';
 
 export default function GroupsTab() {
   const { activeTeam } = useAuth();
@@ -151,14 +152,25 @@ export default function GroupsTab() {
     return map;
   }, [members]);
 
-  const memberOptions = useMemo(
-    () =>
-      members.map((m) => ({
-        value: m.id,
-        label: m.full_name || m.email || `Member ${m.id}`,
-      })),
-    [members]
-  );
+  const memberOptions = useMemo(() => {
+    const formatRoleLabel = (role) => {
+      const cleaned = String(role || '').trim();
+      return cleaned ? toTitleCase(cleaned) : 'Other';
+    };
+
+    return (members || []).map((m) => {
+      const name = m?.full_name || '';
+      const email = m?.email || '';
+      const roleGroup = formatRoleLabel(m?.role);
+
+      return {
+        value: m?.id,
+        label: name || email || `Member ${m?.id ?? ''}`,
+        search: `${name} ${email} ${roleGroup}`.trim().toLowerCase(),
+        roleGroup,
+      };
+    });
+  }, [members]);
 
   const filteredGroups = useMemo(() => {
     let arr = groups;
@@ -285,7 +297,7 @@ export default function GroupsTab() {
     `${g.member_ids.length} member${g.member_ids.length === 1 ? '' : 's'}`;
 
   return (
-    <div className="space-y-4 text-sm">
+    <div className="space-y-4 text-sm pb-24 sm:pb-24">
       {/* Table card */}
       <div className="bg-card border border-border rounded-lg overflow-visible shadow-athletic w-full max-w-6xl mx-auto">
         {/* Toolbar */}
@@ -423,7 +435,7 @@ export default function GroupsTab() {
           }}
         >
           <div
-            className="bg-card border border-border rounded-xl shadow-athletic w-full max-w-xl p-6 text-sm"
+            className="bg-card border border-border rounded-xl shadow-athletic w-full max-w-xl p-5 sm:p-6 text-sm mx-4 sm:mx-0"
             onMouseDown={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -458,11 +470,18 @@ export default function GroupsTab() {
                 <label className="block text-xs text-muted-foreground mb-1">Members</label>
                 <Select
                   multiple
+                  searchable
                   options={memberOptions}
                   value={selectedMemberIds}
-                  onChange={(vals) => setSelectedMemberIds(vals)}
+                  onChange={(vals) => setSelectedMemberIds(Array.isArray(vals) ? vals : [])}
                   placeholder="Search and select members…"
                   selectedNoun="members"
+                  groupBy="roleGroup"
+                  groupConfig={{
+                    order: ['Players', 'Coaches', 'Staff', 'Other'],
+                    fallbackLabel: 'Other',
+                    columnMinWidth: 180,
+                  }}
                 />
               </div>
             </div>
@@ -489,7 +508,7 @@ export default function GroupsTab() {
           }}
         >
           <div
-            className="bg-card border border-border rounded-xl shadow-athletic w-full max-w-sm p-5 text-sm"
+            className="bg-card border border-border rounded-xl shadow-athletic w-full max-w-sm p-4 sm:p-5 text-sm mx-4 sm:mx-0"
             onMouseDown={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"

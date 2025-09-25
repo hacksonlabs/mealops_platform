@@ -1,3 +1,4 @@
+import { toTitleCase } from './stringUtils';
 
 
 export const slug = (s = '') =>
@@ -133,10 +134,30 @@ export function computeUnitPrice(itemPrice, groups, selections) {
 }
 
 export function optionsListFromMembers(members, EXTRA_SENTINEL) {
-  return [{ value: EXTRA_SENTINEL, label: 'Extra' }].concat(
-    (members || []).map((m) => ({
-      value: m.id,
-      label: m.full_name || m.email || 'Unnamed',
-    }))
-  );
+  const roleLabel = (role) => {
+    const cleaned = String(role || '').trim();
+    return cleaned ? toTitleCase(cleaned) : 'Other';
+  };
+
+  const extraOption = {
+    value: EXTRA_SENTINEL,
+    label: 'Extra',
+    search: 'extra unassigned',
+    roleGroup: 'Extras',
+  };
+
+  const memberOptions = (members || []).map((m) => {
+    const name = m?.full_name || '';
+    const email = m?.email || '';
+    const roleGroup = roleLabel(m?.role);
+
+    return {
+      value: m?.id,
+      label: name || email || 'Unnamed',
+      search: `${name} ${email} ${roleGroup}`.trim().toLowerCase(),
+      roleGroup,
+    };
+  });
+
+  return [extraOption, ...memberOptions];
 }
