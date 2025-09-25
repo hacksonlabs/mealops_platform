@@ -35,6 +35,7 @@ const Header = ({ className = '' }) => {
     { label: 'Calendar', path: '/calendar-order-scheduling', icon: 'Calendar', tooltip: 'Schedule and manage meal orders' },
     { label: 'Orders', path: '/order-history-management', icon: 'ClipboardList', tooltip: 'View and manage order history' },
     { label: 'Team', path: '/team-members-management', icon: 'Users', tooltip: 'Manage team members and roles' },
+    { label: 'Saves', path: '/saves', icon: 'Bookmark', tooltip: 'Manage saved locations and info' },
   ];
 
   const handleNavigation = (path) => {

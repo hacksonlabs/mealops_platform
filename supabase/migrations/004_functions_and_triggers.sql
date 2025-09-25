@@ -1140,6 +1140,26 @@ CREATE TRIGGER trg_member_groups_updated_at
 BEFORE UPDATE ON public.member_groups
 FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
+DROP TRIGGER IF EXISTS trg_saved_trips_set_creator ON public.saved_trips;
+CREATE TRIGGER trg_saved_trips_set_creator
+BEFORE INSERT ON public.saved_trips
+FOR EACH ROW EXECUTE FUNCTION public.ensure_created_by();
+
+DROP TRIGGER IF EXISTS trg_saved_trips_updated_at ON public.saved_trips;
+CREATE TRIGGER trg_saved_trips_updated_at
+BEFORE UPDATE ON public.saved_trips
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_saved_locations_set_creator ON public.saved_locations;
+CREATE TRIGGER trg_saved_locations_set_creator
+BEFORE INSERT ON public.saved_locations
+FOR EACH ROW EXECUTE FUNCTION public.ensure_created_by();
+
+DROP TRIGGER IF EXISTS trg_saved_locations_updated_at ON public.saved_locations;
+CREATE TRIGGER trg_saved_locations_updated_at
+BEFORE UPDATE ON public.saved_locations
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
 -- Auto-fill created_by on insert
 DROP TRIGGER IF EXISTS trg_order_events_set_created_by ON public.order_events;
 CREATE TRIGGER trg_order_events_set_created_by

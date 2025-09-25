@@ -37,6 +37,9 @@ CREATE UNIQUE INDEX uniq_team_member_email_per_team ON public.team_members (team
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_member_groups_team_name ON public.member_groups (team_id, lower(name));
 CREATE INDEX idx_member_groups_team_id ON public.member_groups(team_id);
 CREATE INDEX idx_member_groups_created_by ON public.member_groups(created_by);
+CREATE INDEX IF NOT EXISTS idx_saved_trips_team_id ON public.saved_trips(team_id);
+CREATE INDEX IF NOT EXISTS idx_saved_locations_team_id ON public.saved_locations(team_id);
+CREATE INDEX IF NOT EXISTS idx_saved_locations_trip_id ON public.saved_locations(trip_id);
 
 CREATE INDEX IF NOT EXISTS idx_mgm_group_id  ON public.member_group_members(group_id);
 CREATE INDEX IF NOT EXISTS idx_mgm_member_id ON public.member_group_members(member_id);
@@ -83,3 +86,5 @@ CREATE INDEX IF NOT EXISTS idx_meal_orders_parent_order_id ON public.meal_orders
 CREATE INDEX IF NOT EXISTS idx_meal_orders_is_split_child ON public.meal_orders(is_split_child);
 CREATE INDEX IF NOT EXISTS idx_meal_order_splits_parent ON public.meal_order_splits(parent_order_id);
 CREATE INDEX IF NOT EXISTS idx_meal_order_splits_child  ON public.meal_order_splits(child_order_id);
+
+-- saved locations

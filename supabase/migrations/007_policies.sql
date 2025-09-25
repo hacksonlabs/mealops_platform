@@ -140,6 +140,60 @@ USING (
   )
 );
 
+-- Saved trips policies
+DROP POLICY IF EXISTS "saved_trips_team_read" ON public.saved_trips;
+DROP POLICY IF EXISTS "saved_trips_manage_insert" ON public.saved_trips;
+DROP POLICY IF EXISTS "saved_trips_manage_update" ON public.saved_trips;
+DROP POLICY IF EXISTS "saved_trips_manage_delete" ON public.saved_trips;
+
+CREATE POLICY "saved_trips_team_read"
+ON public.saved_trips
+FOR SELECT TO authenticated
+USING (public.is_team_member(team_id));
+
+CREATE POLICY "saved_trips_manage_insert"
+ON public.saved_trips
+FOR INSERT TO authenticated
+WITH CHECK (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
+
+CREATE POLICY "saved_trips_manage_update"
+ON public.saved_trips
+FOR UPDATE TO authenticated
+USING (public.is_team_coach(team_id) OR public.is_team_admin(team_id))
+WITH CHECK (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
+
+CREATE POLICY "saved_trips_manage_delete"
+ON public.saved_trips
+FOR DELETE TO authenticated
+USING (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
+
+-- Saved locations policies
+DROP POLICY IF EXISTS "saved_locations_team_read" ON public.saved_locations;
+DROP POLICY IF EXISTS "saved_locations_manage_insert" ON public.saved_locations;
+DROP POLICY IF EXISTS "saved_locations_manage_update" ON public.saved_locations;
+DROP POLICY IF EXISTS "saved_locations_manage_delete" ON public.saved_locations;
+
+CREATE POLICY "saved_locations_team_read"
+ON public.saved_locations
+FOR SELECT TO authenticated
+USING (public.is_team_member(team_id));
+
+CREATE POLICY "saved_locations_manage_insert"
+ON public.saved_locations
+FOR INSERT TO authenticated
+WITH CHECK (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
+
+CREATE POLICY "saved_locations_manage_update"
+ON public.saved_locations
+FOR UPDATE TO authenticated
+USING (public.is_team_coach(team_id) OR public.is_team_admin(team_id))
+WITH CHECK (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
+
+CREATE POLICY "saved_locations_manage_delete"
+ON public.saved_locations
+FOR DELETE TO authenticated
+USING (public.is_team_coach(team_id) OR public.is_team_admin(team_id));
+
 -- ------------------------------
 -- RESTAURANTS (RLS)
 -- ------------------------------

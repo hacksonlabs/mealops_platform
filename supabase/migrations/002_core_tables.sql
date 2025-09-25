@@ -388,6 +388,46 @@ create table if not exists public.member_group_members (
   primary key (group_id, member_id)
 );
 
+-- Trips group locations/restaurants for recurring travel
+CREATE TABLE IF NOT EXISTS public.saved_trips (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id UUID NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+  created_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
+  trip_name TEXT NOT NULL,
+  description TEXT,
+  notes TEXT,
+  tags TEXT[] DEFAULT '{}',
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Saved locations for quickly reusing delivery/pickup addresses
+CREATE TABLE IF NOT EXISTS public.saved_locations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id UUID NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+  created_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
+  trip_id UUID REFERENCES public.saved_trips(id) ON DELETE SET NULL,
+  location_id TEXT,
+  address_side location_side NOT NULL DEFAULT 'home',
+  address_kind location_kind NOT NULL DEFAULT 'main',
+  address_name TEXT NOT NULL,
+  formatted_address TEXT NOT NULL,
+  address_description TEXT,
+  contact_name TEXT,
+  contact_phone TEXT,
+  contact_email TEXT,
+  delivery_notes TEXT,
+  organization_name TEXT,
+  google_place_id TEXT,
+  latitude DECIMAL(10, 8),
+  longitude DECIMAL(11, 8),
+  tags TEXT[] DEFAULT '{}',
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Parent cart row (one per restaurant/session)
 CREATE TABLE IF NOT EXISTS public.meal_carts (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),

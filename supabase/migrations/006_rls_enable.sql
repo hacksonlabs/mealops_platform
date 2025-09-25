@@ -25,3 +25,5 @@ ALTER TABLE public.meal_cart_item_assignees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.feature_flags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_settings  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.meal_order_splits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.saved_trips ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.saved_locations ENABLE ROW LEVEL SECURITY;
