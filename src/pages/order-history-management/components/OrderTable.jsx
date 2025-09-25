@@ -523,24 +523,6 @@ const OrderTable = ({
                     />
                     <div className="space-y-2">
                       <div className="text-sm font-semibold text-foreground">{formatDate(order?.date)}</div>
-                      {hasSubs && (
-                        <div className="flex items-center gap-2 text-xs text-primary">
-                          <button
-                            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground"
-                            title={expanded.has(order.id) ? 'Hide suborders' : 'Show suborders'}
-                            onClick={() => toggleExpand(order.id)}
-                          >
-                            <Icon
-                              name="ChevronRight"
-                              size={14}
-                              className={`transition-transform duration-200 ${expanded.has(order.id) ? 'rotate-90' : '-rotate-90'}`}
-                            />
-                          </button>
-                          {/* <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide">
-                            Split ({splitCount})
-                          </span> */}
-                        </div>
-                      )}
                     </div>
                   </div>
                   {showStatus && (
@@ -592,10 +574,23 @@ const OrderTable = ({
                   </div>
                 </div>
 
-                {order?.teamMembers?.length > 0 && (
-                  <div className="text-xs text-muted-foreground">
-                    Assignments: {order.teamMembers.slice(0, 3).join(', ')}
-                    {order.teamMembers.length > 3 && '...'}
+                {hasSubs && (
+                  <div className="flex items-center gap-2 text-xs text-primary">
+                    <button
+                      className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground"
+                      title={expanded.has(order.id) ? 'Hide suborders' : 'Show suborders'}
+                      onClick={() => toggleExpand(order.id)}
+                    >
+                      <Icon
+                        name="ChevronRight"
+                        size={14}
+                        className={`transition-transform duration-200 ${expanded.has(order.id) ? 'rotate-90' : '-rotate-90'}`}
+                      />
+                      <span>{expanded.has(order.id) ? 'Hide suborders' : `Show suborders`}</span>
+                    </button>
+                    {/* <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide">
+                      Split ({splitCount})
+                    </span> */}
                   </div>
                 )}
 
@@ -613,7 +608,7 @@ const OrderTable = ({
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="font-semibold">{formatCurrency(so.totalCost)}</span>
-                            <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', so)} iconName="Eye">View</Button>
+                            <Button variant="ghost" size="sm" onClick={() => onOrderAction('view', so)} iconName="Eye"></Button>
                           </div>
                         </div>
                       ))}
