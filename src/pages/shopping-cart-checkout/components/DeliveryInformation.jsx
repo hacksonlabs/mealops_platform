@@ -207,6 +207,11 @@ const DeliveryInformation = ({
     setNewAddress(sugg?.label || '');
   };
 
+  const resolveCoordinates = async (address) => {
+    if (!address) return null;
+    return geocodeAddress(address.trim());
+  };
+
   const handleSaveAddress = async () => {
     if (!cartId) {
       setPlacesErr('Missing cartId — cannot save.');
@@ -222,7 +227,7 @@ const DeliveryInformation = ({
         );
       } else if (newAddress?.trim()) {
         // user typed manually -> try geocoding just to get coords
-        const coords = await geocodeAddress(newAddress.trim());
+        const coords = await resolveCoordinates(newAddress.trim());
         finalDetails = {
           id: null,
           formattedAddress: newAddress.trim(),

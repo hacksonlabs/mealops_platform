@@ -17,7 +17,12 @@ const RestaurantGrid = ({
   mealType,
   onMetaUpdate,
 }) => {
-  const { rows, setRows, loading, err, hasLoadedOnce } = useRestaurantsSource();
+  const { rows, setRows, loading, err, hasLoadedOnce } = useRestaurantsSource({
+    fulfillment,
+    centerCoords,
+    searchQuery,
+    selectedService,
+  });
   const { distanceReady } = useDistances(centerCoords, rows, setRows);
 
   // Let parent know about effective loading

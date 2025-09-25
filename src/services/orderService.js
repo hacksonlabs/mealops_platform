@@ -1,6 +1,8 @@
 // src/services/orderService.js
+import { featureFlags } from '../config/runtimeConfig';
+import { mealmeApi } from './mealmeApi';
 
-const ORDERS_MOCK = (import.meta?.env?.VITE_ORDERS_MOCK ?? '1') === '1';
+const ORDERS_MOCK = featureFlags.ordersMock;
 
 /**
  * Unified shape:
@@ -15,33 +17,24 @@ const mealmeAdapter = {
   async createDraft(orderInput) {
     // Your backend should proxy to https://api.mealme.ai/order/order/v4
     // with place_order:false and include_final_quote:true
-    const res = await fetch('/api/mealme/order', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...orderInput,
-        place_order: false,
-        include_final_quote: true,
-      }),
+    const payload = await mealmeApi.createOrderDraft({
+      ...orderInput,
+      place_order: false,
+      include_final_quote: true,
     });
-    if (!res.ok) throw new Error('MealMe: failed to create order');
-    const json = await res.json();
+    const orderId = payload?.order_id || payload?.data?.order_id;
+    if (!orderId) throw new Error('MealMe: missing order_id in response');
     return {
-      orderId: json.order_id,
-      quote: json.final_quote || json.quote || null,
+      orderId,
+      quote: payload?.final_quote || payload?.quote || payload?.data?.final_quote || null,
     };
   },
 
   async finalize(orderId) {
-    // Your backend should proxy to https://api.mealme.ai/order/finalize
-    const res = await fetch('/api/mealme/finalize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId }),
-    });
-    if (!res.ok) throw new Error('MealMe: failed to finalize order');
-    const json = await res.json();
-    return { orderId: json.order_id, status: json.status || 'placed' };
+    const payload = await mealmeApi.finalizeOrder(orderId);
+    const id = payload?.order_id || payload?.data?.order_id || orderId;
+    const status = payload?.status || payload?.data?.status || 'placed';
+    return { orderId: id, status };
   },
 };
 

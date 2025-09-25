@@ -1,6 +1,8 @@
 // src/services/cartDBService.js
 import { supabase } from '../lib/supabase';
 import { toTitleCase } from '../utils/stringUtils';
+import { featureFlags } from '../config/runtimeConfig';
+import { mealmeApi } from './mealmeApi';
 /**
  * We keep a snapshot in selected_options.__assignment__ for quick UI use:
  * {
@@ -26,6 +28,161 @@ const normalizeDbTime = (t) => {
   const [hh = '00', mm = '00', ss = '00'] = parts;
   return `${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:${(ss || '00').padStart(2, '0')}`;
 };
+
+async function maybeCreateMealMeCart(cartId, {
+  teamId,
+  providerRestaurantId,
+  fulfillment,
+  title,
+} = {}) {
+  if (!featureFlags.mealMeEnabled) return null;
+  if (!providerRestaurantId) return null;
+  try {
+    const whenDate = fulfillment?.date;
+    const whenTime = fulfillment?.time ? normalizeDbTime(fulfillment.time) : null;
+    const scheduledAt = whenDate && whenTime ? `${whenDate}T${whenTime}` : null;
+    const payload = {
+      provider_restaurant_id: providerRestaurantId,
+      team_id: teamId,
+      service_type: fulfillment?.service || 'delivery',
+      scheduled_at: scheduledAt || undefined,
+      address: fulfillment?.address || undefined,
+      latitude: fulfillment?.coords?.lat,
+      longitude: fulfillment?.coords?.lng,
+      cart_name: title || undefined,
+    };
+    const response = await mealmeApi.createCart(payload);
+    const providerCartId = response?.cart_id || response?.id || response?.data?.cart_id || null;
+    await supabase
+      .from('meal_carts')
+      .update({
+        provider_cart_id: providerCartId,
+        provider_metadata: {
+          ...(response ? { mealme: response } : {}),
+        },
+      })
+      .eq('id', cartId);
+    return providerCartId;
+  } catch (error) {
+    console.warn('MealMe cart creation failed:', error?.message || error);
+    return null;
+  }
+}
+
+const toMealMeLineItem = ({ menuItem, quantity, unitPrice, specialInstructions, selectedOptions }) => {
+  const price = unitPrice != null ? Number(unitPrice) : Number(menuItem?.price ?? 0);
+  const payload = {
+    provider_item_id: menuItem?.provider_item_id || menuItem?.api_id || menuItem?.id || null,
+    name: menuItem?.name || menuItem?.item_name || 'Item',
+    quantity: Number.isFinite(Number(quantity)) ? Math.max(1, Number(quantity)) : 1,
+    price_cents: Math.round(Number.isFinite(price) ? price * 100 : 0),
+    special_instructions: specialInstructions || undefined,
+  };
+  if (selectedOptions) payload.selected_options = selectedOptions;
+  return payload;
+};
+
+async function syncMealMeCartItemAdd(cartId, cartInfo, localItemId, ctx) {
+  if (!featureFlags.mealMeEnabled) return;
+  if (cartInfo?.provider_type !== 'mealme') return;
+
+  let providerCartId = cartInfo?.provider_cart_id;
+  if (!providerCartId) {
+    providerCartId = await maybeCreateMealMeCart(cartId, {
+      teamId: cartInfo?.team_id,
+      providerRestaurantId: cartInfo?.provider_restaurant_id,
+      fulfillment: {
+        service: cartInfo?.fulfillment_service,
+        address: cartInfo?.fulfillment_address,
+        coords: cartInfo?.fulfillment_latitude != null && cartInfo?.fulfillment_longitude != null
+          ? { lat: cartInfo.fulfillment_latitude, lng: cartInfo.fulfillment_longitude }
+          : null,
+        date: cartInfo?.fulfillment_date ?? undefined,
+        time: cartInfo?.fulfillment_time ?? undefined,
+      },
+      title: ctx?.title,
+    });
+    const refreshed = await getCartProviderInfo(cartId);
+    cartInfo = { ...refreshed };
+  }
+
+  if (!cartInfo?.provider_cart_id) return;
+
+  try {
+    const payload = {
+      cart_id: cartInfo.provider_cart_id,
+      provider_restaurant_id: cartInfo.provider_restaurant_id,
+      line_item: toMealMeLineItem(ctx),
+    };
+    const response = await mealmeApi.addItemToCart(cartInfo.provider_cart_id, payload);
+    const providerLineId = response?.line_item_id || response?.id || response?.data?.line_item_id || null;
+    await supabase
+      .from('meal_cart_items')
+      .update({
+        provider_line_item_id: providerLineId,
+        provider_payload: {
+          ...(response ? { mealme: response } : {}),
+        },
+      })
+      .eq('id', localItemId);
+  } catch (error) {
+    console.warn('MealMe addItem sync failed:', error?.message || error);
+  }
+}
+
+async function syncMealMeCartItemRemove(cartId, itemInfo) {
+  if (!featureFlags.mealMeEnabled) return;
+  const cartInfo = await getCartProviderInfo(cartId);
+  if (cartInfo?.provider_type !== 'mealme') return;
+  if (!cartInfo?.provider_cart_id) return;
+  if (!itemInfo?.provider_line_item_id) return;
+  try {
+    await mealmeApi.removeItemFromCart(cartInfo.provider_cart_id, {
+      cart_id: cartInfo.provider_cart_id,
+      provider_restaurant_id: cartInfo.provider_restaurant_id,
+      line_item_id: itemInfo.provider_line_item_id,
+    });
+  } catch (error) {
+    console.warn('MealMe removeItem sync failed:', error?.message || error);
+  }
+}
+
+async function syncMealMeCartItemUpdate(cartId, itemId) {
+  if (!featureFlags.mealMeEnabled) return;
+  const cartInfo = await getCartProviderInfo(cartId);
+  if (cartInfo?.provider_type !== 'mealme') return;
+  if (!cartInfo?.provider_cart_id) return;
+
+  const { data } = await supabase
+    .from('meal_cart_items')
+    .select(`
+      id, provider_line_item_id, item_name, price, quantity, special_instructions, selected_options,
+      menu_item_id,
+      menu_items ( id, name, api_id )
+    `)
+    .eq('id', itemId)
+    .maybeSingle();
+
+  if (!data) return;
+
+  const menuItem = {
+    id: data.menu_item_id || data.menu_items?.id,
+    name: data.menu_items?.name || data.item_name,
+    provider_item_id: data.menu_items?.api_id || data.provider_line_item_id,
+  };
+
+  if (data.provider_line_item_id) {
+    await syncMealMeCartItemRemove(cartId, data);
+  }
+
+  await syncMealMeCartItemAdd(cartId, cartInfo, itemId, {
+    menuItem,
+    quantity: data.quantity,
+    unitPrice: data.price,
+    specialInstructions: data.special_instructions,
+    selectedOptions: data.selected_options,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Assignment helpers: compute + persist unit quantities per assignee/extras
@@ -205,6 +362,16 @@ async function findActiveCartForRestaurant(teamId, restaurantId, providerType = 
   return data?.id ?? null;
 }
 
+async function getCartProviderInfo(cartId) {
+  const { data, error } = await supabase
+    .from('meal_carts')
+    .select('id, provider_type, provider_restaurant_id, provider_cart_id, provider_metadata, team_id, fulfillment_service, fulfillment_address, fulfillment_latitude, fulfillment_longitude, fulfillment_date, fulfillment_time')
+    .eq('id', cartId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 async function ensureCartForRestaurant(
   teamId,
   restaurantId,
@@ -235,7 +402,18 @@ async function ensureCartForRestaurant(
     .single();
 
   if (insErr) throw insErr;
-  return created.id;
+  const cartId = created.id;
+
+  if (providerType === 'mealme') {
+    await maybeCreateMealMeCart(cartId, {
+      teamId,
+      providerRestaurantId,
+      fulfillment,
+      title: cleanTitle,
+    });
+  }
+
+  return cartId;
 }
 
 export async function updateCartTitle(cartId, title) {
@@ -256,7 +434,7 @@ async function getCartSnapshot(cartId) {
   const { data: cart, error: cartErr } = await supabase
     .from('meal_carts')
     .select(`
-      id, team_id, restaurant_id, provider_type, provider_restaurant_id, title,
+      id, team_id, restaurant_id, provider_type, provider_restaurant_id, provider_cart_id, provider_metadata, title,
       fulfillment_service, fulfillment_address, fulfillment_latitude, fulfillment_longitude,
       fulfillment_date, fulfillment_time,
       restaurants ( id, name, image_url, address, phone_number, rating ),
@@ -340,6 +518,8 @@ async function getCartSnapshot(cartId) {
       fulfillment_date: cart.fulfillment_date ?? null,
       fulfillment_time: cart.fulfillment_time ?? null,
       meal_type: cart.meal_type ?? null,
+      provider_cart_id: cart.provider_cart_id ?? null,
+      provider_metadata: cart.provider_metadata ?? null,
     },
     restaurant: cart.restaurants
       ? {
@@ -519,6 +699,17 @@ async function addItem(
     throw asgErr;
   }
 
+  if (featureFlags.mealMeEnabled) {
+    const cartInfo = await getCartProviderInfo(cartId);
+    await syncMealMeCartItemAdd(cartId, cartInfo, itemId, {
+      menuItem,
+      quantity: targetQty,
+      unitPrice,
+      specialInstructions,
+      selectedOptions: selected_options,
+    });
+  }
+
   return itemId;
 }
 
@@ -547,10 +738,28 @@ async function updateItem(cartId, itemId, patch) {
     await syncAssigneesToQuantity(itemId, payload.quantity);
   }
 
+  if (featureFlags.mealMeEnabled) {
+    await syncMealMeCartItemUpdate(cartId, itemId);
+  }
+
   return data.id;
 }
 
 async function removeItem(cartId, itemId) {
+  let snapshot = null;
+  if (featureFlags.mealMeEnabled) {
+    const { data } = await supabase
+      .from('meal_cart_items')
+      .select('id, provider_line_item_id')
+      .eq('id', itemId)
+      .maybeSingle();
+    snapshot = data || null;
+  }
+
+  if (snapshot) {
+    await syncMealMeCartItemRemove(cartId, snapshot);
+  }
+
   const { error } = await supabase
     .from('meal_cart_items')
     .delete()
@@ -601,6 +810,18 @@ async function upsertCartFulfillment(cartId, fulfillment = {}, meta = {}) {
   };
   const { error } = await supabase.from('meal_carts').update(payload).eq('id', cartId);
   if (error) throw error;
+
+  if (featureFlags.mealMeEnabled && (meta?.providerType ?? null) === 'mealme') {
+    const info = await getCartProviderInfo(cartId);
+    if (!info?.provider_cart_id) {
+      await maybeCreateMealMeCart(cartId, {
+        teamId: info?.team_id,
+        providerRestaurantId: meta?.providerRestaurantId,
+        fulfillment,
+        title: meta?.title,
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -821,6 +1042,9 @@ async function updateItemFull(
   if (error) throw error;
 
   await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras, unassigned });
+  if (featureFlags.mealMeEnabled) {
+    await syncMealMeCartItemUpdate(cartId, itemId);
+  }
   return data.id;
 }
 

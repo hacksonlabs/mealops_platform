@@ -1,10 +1,13 @@
 // src/services/menuProviderService.js
 import { supabase } from '../lib/supabase';
+import { featureFlags } from '../config/runtimeConfig';
+import { mealmeApi } from './mealmeApi';
 
-// priority: grubhub > ubereats > doordash
-export const PROVIDER_PRIORITY = ['grubhub','ubereats','doordash'];
+// priority: mealme > grubhub > ubereats > doordash
+export const PROVIDER_PRIORITY = ['mealme','grubhub','ubereats','doordash'];
 
 const MULTIPLIERS = {
+  mealme: 1.00,
   grubhub: 1.00,
   ubereats: 1.07,
   doordash: 1.09,
@@ -113,6 +116,44 @@ const providerAdapters = {
     },
   },
 };
+
+if (featureFlags.mealMeEnabled) {
+  providerAdapters.mealme = {
+    fetchMenu: async (providerRestaurantId) => {
+      if (!providerRestaurantId) return null;
+      try {
+        const response = await mealmeApi.fetchRestaurantMenu(providerRestaurantId);
+        const items = response?.items
+          || response?.menu_items
+          || response?.data?.items
+          || response?.data?.menu_items
+          || [];
+        if (!Array.isArray(items) || !items.length) return null;
+        return items.map((item) => {
+          const priceCents = item.price_cents ?? item.priceCents ?? null;
+          const basePrice = priceCents != null
+            ? Number(priceCents) / 100
+            : Number(item.price ?? item.base_price ?? 0);
+          return {
+            id: item.id || item.item_id || item.external_id,
+            name: item.name || item.title || 'Item',
+            description: item.description || item.subtitle || '',
+            category: item.category || item.section || 'Menu',
+            image: item.image_url || item.photo_url || '',
+            price: basePrice,
+            options: item.options || item.modifiers || item.selected_options || null,
+            sizes: item.sizes || [],
+            toppings: item.toppings || [],
+            api_id: item.provider_item_id || item.id || null,
+          };
+        });
+      } catch (error) {
+        console.warn('MealMe fetchMenu failed:', error?.message || error);
+        return null;
+      }
+    },
+  };
+}
 
 export async function fetchMenu({ provider, restaurant }) {
   const providers = restaurant?.supported_providers || ['grubhub'];

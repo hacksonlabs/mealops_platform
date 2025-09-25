@@ -254,6 +254,7 @@ export default function useCartOnPage({
       await cartDbService.upsertCartFulfillment(id, fulfillment, {
         providerType: provider,
         providerRestaurantId: restaurant?.provider_restaurant_ids?.[provider] || null,
+        title: (initialCartTitle && initialCartTitle.trim()) ? initialCartTitle.trim() : undefined,
       });
       setCartId(id);
       setProvider(provider);

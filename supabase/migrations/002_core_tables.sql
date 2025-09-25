@@ -407,7 +407,9 @@ CREATE TABLE IF NOT EXISTS public.meal_carts (
   fulfillment_longitude DOUBLE PRECISION,
   fulfillment_date DATE,
   fulfillment_time TIME WITHOUT TIME ZONE,
-  meal_type public.meal_type
+  meal_type public.meal_type,
+  provider_cart_id text,
+  provider_metadata jsonb
 );
 
 -- Cart membership (who can add to the cart)
@@ -432,7 +434,9 @@ CREATE TABLE IF NOT EXISTS public.meal_cart_items (
   selected_options      jsonb,            -- normalized options for UI/rehydration
   special_instructions  text,
   created_at            timestamptz NOT NULL DEFAULT now(),
-  updated_at            timestamptz NOT NULL DEFAULT now()
+  updated_at            timestamptz NOT NULL DEFAULT now(),
+  provider_line_item_id text,
+  provider_payload jsonb
 );
 
 -- Assignees for a cart item (supports multiple and “Extra”)

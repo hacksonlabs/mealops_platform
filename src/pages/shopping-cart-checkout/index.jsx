@@ -20,12 +20,14 @@ import { orderService } from '../../services/orderService';
 import { orderDbService } from '../../services/orderDbService';
 import InfoTooltip from '../../components/ui/InfoTooltip';
 import { expandItemsToUnitRows, sortAssigneeRows } from '../../utils/cartDisplayUtils';
+import { featureFlags, mealMeConfig } from '../../config/runtimeConfig';
 
 /** Toggle this to bypass real provider calls while designing the flow */
-const PAYMENTS_MOCK = (import.meta?.env?.VITE_PAYMENTS_MOCK ?? '1') === '1';
+const PAYMENTS_MOCK = featureFlags.paymentsMock;
 
-const MEALME_ENABLED = true;
+const MEALME_ENABLED = featureFlags.mealMeEnabled;
 const ACTIVE_PAYMENTS_PROVIDER = MEALME_ENABLED ? 'mealme' : 'stripe';
+const ORDER_SANDBOX = PAYMENTS_MOCK || mealMeConfig.environment !== 'production';
 
 const pad = (n) => String(n).padStart(2, '0');
 const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -385,7 +387,7 @@ const ShoppingCartCheckout = () => {
         total_with_tip_cents: computedTotalCents,
       },
       provider: MEALME_ENABLED ? 'mealme' : 'manual',
-      isSandbox: PAYMENTS_MOCK,
+      isSandbox: ORDER_SANDBOX,
       createdBy: user?.id,
       paymentMethodId: selectedPaymentMethod || null,
       deliveryInstructions: fulfillment?.instructions || '',
