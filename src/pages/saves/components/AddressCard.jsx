@@ -27,7 +27,7 @@ const AddressCard = ({ location, trip, onEdit, onDelete }) => {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-4 w-4"
             iconName="Edit"
             onClick={() => onEdit(location)}
             aria-label="Edit saved address"
@@ -35,7 +35,7 @@ const AddressCard = ({ location, trip, onEdit, onDelete }) => {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-error hover:text-error"
+            className="h-4 w-4 text-error hover:text-error"
             iconName="Trash2"
             onClick={() => onDelete(location)}
             aria-label="Delete saved address"

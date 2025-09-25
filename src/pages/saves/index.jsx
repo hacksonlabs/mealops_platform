@@ -495,7 +495,7 @@ const SavesPage = () => {
                       No saved addresses yet. Add a location to reuse it later.
                     </div>
                   ) : (
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
                       {locations.map(renderAddressCard)}
                     </div>
                   )}
