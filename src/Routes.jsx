@@ -23,6 +23,7 @@ import ShoppingCartCheckout from './pages/shopping-cart-checkout';
 import SharedCartMenu from './pages/shared-cart';
 import PayPage from './pages/payments';
 import OrderSuccess from './pages/order-success';
+import ProfilePage from './pages/profile';
 
 const Routes = () => {
   return (
@@ -52,6 +53,7 @@ const Routes = () => {
         <Route path="/shared-cart/:cartId" element={<SharedCartMenu />} />
         <Route path="/pay" element={<PayPage />} />
         <Route path="/order/success" element={<OrderSuccess />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>
