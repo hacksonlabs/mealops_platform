@@ -181,6 +181,7 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
   const childOrderLabels = childOrderNumbers.map((n) => `#${n}`).join(', ');
   const isSplitParent = Boolean(order?.is_split_parent) && childOrderNumbers.length > 0;
   const parentOrderNumber = order?.api_order_id || order?.orderNumber || `ORD-${String(order?.id || '').substring(0, 8)}`;
+  const scheduledDateTime = order?.scheduled_date ? formatDate(order?.scheduled_date) : null;
 
   // Location rule: delivery => per-order destination; else => restaurant address
   const deliveryAddress = [
@@ -237,20 +238,21 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                     <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
                       {fulfillment ? titleCase(fulfillment) : '—'}
                     </span>
+                    {getStatusBadge(order?.order_status)}
                   </div>
                 </div>
               </div>
-
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {getStatusBadge(order?.order_status)}
-              </div>
               {!isSplitParent && (
-                <p className="text-xs text-muted-foreground">
-                  Order #{parentOrderNumber} | {formatDate(order?.scheduled_date)}
-                </p>
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  {scheduledDateTime && <p>{scheduledDateTime}</p>}
+                  <p>Order #{parentOrderNumber}</p>
+                </div>
               )}
-              {isSplitParent && childOrderLabels && (
-                <p className="text-xs text-muted-foreground">Orders: {childOrderLabels}</p>
+              {isSplitParent && (
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  {scheduledDateTime && <p>{scheduledDateTime}</p>}
+                  {childOrderLabels && <p>Orders: {childOrderLabels}</p>}
+                </div>
               )}
             </div>
 
@@ -261,15 +263,21 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                   <Icon name="ClipboardList" size={24} className="text-primary-foreground" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-heading font-semibold text-foreground">Order Details</h2>
-                  <div className="text-sm text-muted-foreground">
+                  <h2 className="text-xl font-heading font-semibold text-foreground pb-0.5">Order Details</h2>
+                  <div className="text-sm text-muted-foreground space-y-0.5">
                     {!isSplitParent && (
-                      <p>
-                        Order #{parentOrderNumber} | {formatDate(order?.scheduled_date)}
-                      </p>
+                      <>
+                        {scheduledDateTime && <p>{scheduledDateTime}</p>}
+                        <p>Order #{parentOrderNumber}</p>
+                        
+                      </>
                     )}
-                    {isSplitParent && childOrderLabels && (
-                      <p>Orders: {childOrderLabels}</p>
+                    {isSplitParent && (
+                      <>
+                        {scheduledDateTime && <p>{scheduledDateTime}</p>}
+                        {childOrderLabels && <p>Orders: {childOrderLabels}</p>}
+                       
+                      </>
                     )}
                   </div>
                 </div>
