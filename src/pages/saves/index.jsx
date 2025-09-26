@@ -417,6 +417,7 @@ const SavesPage = () => {
       onEditTrip={handleEditTrip}
       onDeleteTrip={handleDeleteTrip}
       onEditLocation={handleEditLocation}
+      onDeleteLocation={handleDeleteLocation}
     />
   );
 

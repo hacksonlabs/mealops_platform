@@ -1,19 +1,39 @@
 // /src/components/ui/schedule-meals/ScheduleMealModal.jsx
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../../AppIcon';
 import Button from '../custom/Button';
 import Input from '../custom/Input';
 import InfoTooltip from '@/components/ui/InfoTooltip';
+import { cn } from '@/utils/cn';
 import { getMealTypeIcon, MEAL_TYPES, SERVICE_TYPES } from '../../../utils/ordersUtils';
 import {
   ensurePlacesLib, newSessionToken, fetchAddressSuggestions, getPlaceDetailsFromPrediction
 } from '../../../utils/googlePlaces';
 import { toTitleCase } from '@/utils/stringUtils';
+import { useAuth } from '@/contexts';
+import { supabase } from '@/lib/supabase';
 
 const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearchNearby }) => {
+  const { activeTeam } = useAuth();
   // --- date helpers ---
   const pad = (n) => String(n).padStart(2, '0');
+  const formatPhoneNumber = (value = '') => {
+    const rawDigits = value.replace(/\D/g, '');
+    if (!rawDigits) return '';
+
+    const hasCountryCode = rawDigits.length > 10 && rawDigits.startsWith('1');
+    const digits = hasCountryCode ? rawDigits.slice(1, 11) : rawDigits.slice(0, 10);
+
+    if (!digits) return `+${rawDigits}`;
+    if (digits.length < 4) return hasCountryCode ? `+1 ${digits}` : digits;
+    if (digits.length < 7) {
+      const formatted = `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+      return hasCountryCode ? `+1 ${formatted}` : formatted;
+    }
+    const formatted = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    return hasCountryCode ? `+1 ${formatted}` : formatted;
+  };
   const formatDateInputValue = (d) =>
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const dateFromInput = (s) => new Date(`${s}T00:00:00`);
@@ -38,6 +58,78 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
   // address/autocomplete state
   const [addressInput, setAddressInput] = useState('');
   const [pickedPlace, setPickedPlace] = useState(null); // { formattedAddress, location, id }
+  const [locationMode, setLocationMode] = useState('custom'); // 'saved' | 'custom'
+  const [savedLocations, setSavedLocations] = useState([]);
+  const [loadingSavedLocations, setLoadingSavedLocations] = useState(false);
+  const [savedLocationsError, setSavedLocationsError] = useState('');
+  const [savedLocationQuery, setSavedLocationQuery] = useState('');
+  const [selectedSavedLocationId, setSelectedSavedLocationId] = useState('');
+  const [savedSuggestionsOpen, setSavedSuggestionsOpen] = useState(false);
+  const [savedHighlightIndex, setSavedHighlightIndex] = useState(0);
+  const savedInputWrapperRef = useRef(null);
+  const savedSuggestionsPortalRef = useRef(null);
+  const savedRectRef = useRef(null);
+  const [savedRect, setSavedRect] = useState(null);
+
+  const updateSavedRect = useCallback(() => {
+    if (!savedInputWrapperRef.current) return;
+    const rect = savedInputWrapperRef.current.getBoundingClientRect();
+    savedRectRef.current = rect;
+    setSavedRect({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+  }, []);
+
+  const filteredSavedLocations = useMemo(() => {
+    const query = savedLocationQuery.trim().toLowerCase();
+    if (!query) return savedLocations;
+    return savedLocations.filter((location) => {
+      const haystack = [
+        location.address_name,
+        location.formatted_address,
+        location.address_kind,
+        location.address_side,
+        location.contact_name,
+        location.contact_email,
+        location.contact_phone,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [savedLocations, savedLocationQuery]);
+
+  const savedSuggestions = useMemo(() => {
+    if (locationMode !== 'saved') return [];
+    const query = savedLocationQuery.trim();
+    if (!query) return [];
+    return filteredSavedLocations.slice(0, 8);
+  }, [locationMode, filteredSavedLocations, savedLocationQuery]);
+
+  const handleSelectSavedLocation = useCallback((location) => {
+    if (!location) return;
+    setSelectedSavedLocationId(location.id);
+    setSavedLocationQuery(location.address_name || '');
+    const formatted = location.formatted_address || '';
+    const lat = location.latitude != null ? Number(location.latitude) : null;
+    const lng = location.longitude != null ? Number(location.longitude) : null;
+
+    setAddressInput(formatted);
+    setPickedPlace({
+      id: location.id,
+      formattedAddress: formatted,
+      location: lat != null && lng != null ? { lat, lng } : null,
+    });
+    setOpenAC(false);
+    setSugs([]);
+    setSavedSuggestionsOpen(false);
+    const inputEl = savedInputWrapperRef.current?.querySelector('input');
+    inputEl?.blur();
+  }, []);
+
+  const selectedSavedLocation = useMemo(
+    () => savedLocations.find((loc) => loc.id === selectedSavedLocationId) || null,
+    [savedLocations, selectedSavedLocationId]
+  );
 
   // validation: address required for ALL methods
   const addressTyped = Boolean((pickedPlace?.formattedAddress || addressInput)?.trim());
@@ -57,6 +149,113 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
       setFormData((prev) => ({ ...prev, date: formatDateInputValue(selectedDate) }));
     }
   }, [selectedDate]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setLocationMode(savedLocations.length > 0 ? 'saved' : 'custom');
+  }, [isOpen, savedLocations.length]);
+
+  useEffect(() => {
+    setSavedHighlightIndex(0);
+  }, [savedSuggestions.length]);
+
+  useEffect(() => {
+    if (!savedSuggestionsOpen) {
+      setSavedHighlightIndex(0);
+    }
+  }, [savedSuggestionsOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!savedInputWrapperRef.current) return;
+      if (!savedInputWrapperRef.current.contains(event.target)) {
+        setSavedSuggestionsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (locationMode !== 'saved') {
+      setSavedSuggestionsOpen(false);
+      return;
+    }
+
+    if (!savedLocationQuery.trim()) {
+      setSavedSuggestionsOpen(false);
+      return;
+    }
+
+    if (savedSuggestions.length === 0) {
+      // keep panel open to show "No matches" message if user is typing
+      return;
+    }
+
+    const inputEl = savedInputWrapperRef.current?.querySelector('input');
+    if (document.activeElement === inputEl) {
+      setSavedSuggestionsOpen(true);
+    }
+  }, [locationMode, savedLocationQuery, savedSuggestions.length]);
+
+  useEffect(() => {
+    if (!savedSuggestionsOpen) return;
+    updateSavedRect();
+    const handle = () => updateSavedRect();
+    window.addEventListener('resize', handle);
+    window.addEventListener('scroll', handle, true);
+    return () => {
+      window.removeEventListener('resize', handle);
+      window.removeEventListener('scroll', handle, true);
+    };
+  }, [savedSuggestionsOpen, updateSavedRect]);
+
+  useEffect(() => {
+    if (locationMode === 'saved' && savedLocations.length === 0) {
+      setLocationMode('custom');
+    }
+  }, [locationMode, savedLocations.length]);
+
+  // Load saved locations for the active team when modal opens
+  useEffect(() => {
+    const loadSavedLocations = async () => {
+      if (!isOpen || !activeTeam?.id) {
+        setSavedLocations([]);
+        return;
+      }
+
+      setLoadingSavedLocations(true);
+      setSavedLocationsError('');
+      try {
+        const { data, error } = await supabase
+          .from('saved_locations')
+          .select(
+            'id, address_name, formatted_address, address_kind, address_side, contact_name, contact_phone, contact_email, latitude, longitude, delivery_notes, trip_id'
+          )
+          .eq('team_id', activeTeam.id)
+          .order('address_name', { ascending: true });
+
+        if (error) throw error;
+
+        const normalized = (data || []).map((item) => ({
+          ...item,
+          latitude: item?.latitude != null ? Number(item.latitude) : null,
+          longitude: item?.longitude != null ? Number(item.longitude) : null,
+        }));
+
+        setSavedLocations(normalized);
+      } catch (savedError) {
+        console.error('Failed to load saved locations', savedError);
+        setSavedLocationsError(savedError.message || 'Failed to load saved addresses');
+        setSavedLocations([]);
+      } finally {
+        setLoadingSavedLocations(false);
+      }
+    };
+
+    loadSavedLocations();
+  }, [isOpen, activeTeam?.id]);
 
   // --- Places lib + session token refs ---
   const placesReadyRef = useRef(false);
@@ -119,7 +318,13 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
 
   // Fetch predictions (debounced)
   useEffect(() => {
-    if (!isOpen || !placesReadyRef.current) return;
+    if (!isOpen || !placesReadyRef.current || locationMode !== 'custom') {
+      if (locationMode !== 'custom') {
+        setLoadingAC(false);
+        setSugs([]);
+      }
+      return;
+    }
     const q = addressInput?.trim();
     if (!q || q.length < 3) {
       setSugs([]);
@@ -143,7 +348,7 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
     }, 200);
 
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [addressInput, isOpen]);
+  }, [addressInput, isOpen, locationMode]);
 
   const resetSessionToken = async () => {
     sessionTokenRef.current = await newSessionToken();
@@ -169,6 +374,7 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
   };
 
   const onKeyDown = (e) => {
+    if (locationMode !== 'custom') return;
     if (!openAC && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { setOpenAC(true); updateAcPosition(); return; }
     if (!openAC || sugs.length === 0) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setHi((h) => Math.min(h + 1, sugs.length - 1)); }
@@ -178,6 +384,34 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
       if (s) { e.preventDefault(); selectSuggestion(s); }
     } else if (e.key === 'Escape') { setOpenAC(false); }
   };
+
+  const handleSavedKeyDown = useCallback((event) => {
+    if (locationMode !== 'saved') return;
+    if (!savedSuggestionsOpen && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      if (savedSuggestions.length === 0) return;
+      event.preventDefault();
+      setSavedSuggestionsOpen(true);
+      return;
+    }
+
+    if (!savedSuggestionsOpen || savedSuggestions.length === 0) return;
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setSavedHighlightIndex((prev) => Math.min(prev + 1, savedSuggestions.length - 1));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setSavedHighlightIndex((prev) => Math.max(prev - 1, 0));
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const selection = savedSuggestions[savedHighlightIndex];
+      if (selection) {
+        handleSelectSavedLocation(selection);
+      }
+    } else if (event.key === 'Escape') {
+      setSavedSuggestionsOpen(false);
+    }
+  }, [locationMode, savedSuggestionsOpen, savedSuggestions, savedHighlightIndex, handleSelectSavedLocation]);
 
   // Submit
   const handleSubmit = (e) => {
@@ -215,6 +449,36 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
     });
   };
 
+  const handleLocationModeChange = useCallback((mode) => {
+    if (mode === 'saved' && savedLocations.length === 0) return;
+    setLocationMode(mode);
+    if (mode === 'saved') {
+      const existing = savedLocations.find((loc) => loc.id === selectedSavedLocationId);
+      if (existing) {
+        handleSelectSavedLocation(existing);
+      } else {
+        setSelectedSavedLocationId('');
+        setSavedLocationQuery('');
+        setAddressInput('');
+        setPickedPlace(null);
+      }
+      setSavedSuggestionsOpen(false);
+    } else {
+      setSelectedSavedLocationId('');
+      setSavedLocationQuery('');
+      setSavedSuggestionsOpen(false);
+      setAddressInput('');
+      setPickedPlace(null);
+    }
+  }, [savedLocations, selectedSavedLocationId, handleSelectSavedLocation]);
+
+  useEffect(() => {
+    if (locationMode !== 'custom') {
+      setOpenAC(false);
+      setSugs([]);
+    }
+  }, [locationMode]);
+
   const resetForm = () => {
     setFormData({
       mealType: 'lunch',
@@ -226,7 +490,17 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
     setPickedPlace(null);
     setSugs([]);
     setOpenAC(false);
+    setSelectedSavedLocationId('');
+    setSavedLocationQuery('');
+    setSavedSuggestionsOpen(false);
+    setLocationMode(savedLocations.length > 0 ? 'saved' : 'custom');
   };
+
+  useEffect(() => {
+    if (!selectedSavedLocationId) return;
+    if (savedLocations.some((loc) => loc.id === selectedSavedLocationId)) return;
+    setSelectedSavedLocationId('');
+  }, [selectedSavedLocationId, savedLocations]);
 
   const handleBackdropClick = useCallback((event) => {
     if (event.target === event.currentTarget) {
@@ -351,9 +625,39 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
               </div>
 
               {/* Location */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium text-foreground">Location</div>
+              <div className="space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-sm font-medium text-foreground">Location</span>
+                    <div className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 p-1 text-xs font-medium">
+                      <button
+                        type="button"
+                        onClick={() => handleLocationModeChange('saved')}
+                        disabled={!savedLocations.length}
+                        className={cn(
+                          'rounded-full px-3 py-1 transition-colors',
+                          locationMode === 'saved'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground',
+                          !savedLocations.length && 'opacity-50 cursor-not-allowed'
+                        )}
+                      >
+                        Saved
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleLocationModeChange('custom')}
+                        className={cn(
+                          'rounded-full px-3 py-1 transition-colors',
+                          locationMode === 'custom'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        )}
+                      >
+                        Enter new
+                      </button>
+                    </div>
+                  </div>
                   {onSearchNearby && (
                     <Button
                       type="button"
@@ -368,83 +672,212 @@ const ScheduleMealModal = ({ isOpen, onClose, selectedDate, onSchedule, onSearch
                   )}
                 </div>
 
-                <div className="relative" ref={wrapperRef}>
-                  <Input
-                    type="text"
-                    placeholder="Enter an address or place"
-                    value={addressInput}
-                    onFocus={() => { if (sugs.length) setOpenAC(true); updateAcPosition(); }}
-                    onChange={(e) => {
-                      setAddressInput(e?.target?.value);
-                      setPickedPlace(null);
-                      setOpenAC(true);
-                      updateAcPosition();
-                    }}
-                    onKeyDown={onKeyDown}
-                    autoComplete="off"
-                    role="combobox"
-                    aria-expanded={openAC}
-                    aria-autocomplete="list"
-                    aria-controls="gmaps-address-suggestions"
-                    required
-                  />
+                {locationMode === 'saved' ? (
+                  <div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-4">
+                    {savedLocationsError && (
+                      <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                        {savedLocationsError}
+                      </div>
+                    )}
 
-                  {/* Suggestions rendered in a fixed-position portal so they appear above the footer/scroll areas */}
-                  {openAC && (loadingAC || sugs.length > 0) && acRect &&
-                    createPortal(
-                      <div
-                        ref={acPortalRef}
-                        style={{
-                          position: 'fixed',
-                          top: acRect.bottom + 4,
-                          left: acRect.left,
-                          width: acRect.width,
-                        }}
-                        className="z-[100000]"
-                      >
-                        <ul
-                          id="gmaps-address-suggestions"
-                          role="listbox"
-                          className="max-h-60 overflow-auto rounded-md border border-border bg-popover shadow-athletic-lg"
-                        >
-                          {loadingAC && (
-                            <li className="px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
-                              <Icon name="Loader2" size={14} className="animate-spin" />
-                              Searching…
-                            </li>
-                          )}
-                          {!loadingAC && sugs.length === 0 && (
-                            <li className="px-3 py-2 text-sm text-muted-foreground">No matches</li>
-                          )}
-                          {!loadingAC &&
-                            sugs.map((s, i) => (
-                              <li
-                                key={s.id}
-                                role="option"
-                                aria-selected={i === hi}
-                                className={`px-3 py-2 text-sm cursor-pointer ${
-                                  i === hi ? 'bg-primary/10' : 'hover:bg-muted/50'
-                                }`}
-                                onMouseDown={(e) => { e.preventDefault(); selectSuggestion(s); }}
-                                onMouseEnter={() => setHi(i)}
+                    {loadingSavedLocations ? (
+                      <div className="text-sm text-muted-foreground">Loading saved locations…</div>
+                    ) : savedLocations.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-border bg-background/60 px-3 py-6 text-center text-sm text-muted-foreground">
+                        No saved addresses yet. Add one from the Saves tab to reuse it here.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="relative" ref={savedInputWrapperRef}>
+                          <Input
+                            type="search"
+                            placeholder="Start typing to search saved locations"
+                            value={savedLocationQuery}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setSavedLocationQuery(value);
+                              const shouldOpen = Boolean(value.trim());
+                              setSavedSuggestionsOpen(shouldOpen);
+                              setSavedHighlightIndex(0);
+                            }}
+                            onFocus={() => {
+                              if (savedLocationQuery.trim() && savedSuggestions.length > 0) {
+                                setSavedSuggestionsOpen(true);
+                              }
+                            }}
+                            onKeyDown={handleSavedKeyDown}
+                          />
+
+                          {savedSuggestionsOpen && savedRect &&
+                            createPortal(
+                              <div
+                                ref={savedSuggestionsPortalRef}
+                                style={{
+                                  position: 'fixed',
+                                  top: savedRect.top,
+                                  left: savedRect.left,
+                                  width: savedRect.width,
+                                  zIndex: 100000,
+                                }}
+                                className="max-h-60 overflow-auto rounded-xl border border-border bg-popover shadow-athletic-lg"
                               >
-                                {s.label}
+                                {savedSuggestions.length === 0 ? (
+                                  <div className="px-3 py-2 text-sm text-muted-foreground">No matches found</div>
+                                ) : (
+                                  savedSuggestions.map((location, index) => {
+                                    const isActive = index === savedHighlightIndex;
+                                    const contactSummaryParts = [
+                                      location.contact_name ? toTitleCase(location.contact_name) : null,
+                                      location.contact_phone ? formatPhoneNumber(location.contact_phone) : null,
+                                      location.contact_email || null,
+                                    ].filter(Boolean);
+
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={location.id}
+                                        className={cn(
+                                          'w-full text-left px-3 py-2 text-sm transition-colors',
+                                          isActive ? 'bg-primary/10 text-primary' : 'hover:bg-muted/40'
+                                        )}
+                                        onMouseDown={(event) => {
+                                          event.preventDefault();
+                                          handleSelectSavedLocation(location);
+                                        }}
+                                      >
+                                        <div className="font-medium text-foreground">{toTitleCase(location.address_name)}</div>
+                                        <div className="text-xs text-muted-foreground">{location.formatted_address}</div>
+                                        {contactSummaryParts.length > 0 && (
+                                          <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+                                            POC: {contactSummaryParts.join(' | ')}
+                                          </div>
+                                        )}
+                                      </button>
+                                    );
+                                  })
+                                )}
+                              </div>,
+                              document.body
+                            )}
+                        </div>
+
+                        {/* {!savedLocationQuery.trim() && (
+                          <div className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                            Start typing above to find a saved location.
+                          </div>
+                        )} */}
+
+                        {selectedSavedLocation && (
+                          <div className="rounded-xl border border-border/60 bg-background/70 px-4 py-4 space-y-2 text-sm text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+                              <span className="rounded-full bg-muted/60 px-2 py-0.5">{toTitleCase(selectedSavedLocation.address_side || '')}</span>
+                              <span className="rounded-full bg-muted/60 px-2 py-0.5">{toTitleCase(selectedSavedLocation.address_kind || '')}</span>
+                            </div>
+                            <p className="text-base font-semibold text-foreground">{toTitleCase(selectedSavedLocation.address_name)}</p>
+                            <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                              <Icon name="MapPin" size={14} className="mt-0.5 text-muted-foreground" />
+                              <span>{selectedSavedLocation.formatted_address}</span>
+                            </div>
+                            {selectedSavedLocation.delivery_notes && (
+                              <p className="text-sm text-muted-foreground">
+                                <span className="font-medium text-foreground">Notes:</span> {selectedSavedLocation.delivery_notes}
+                              </p>
+                            )}
+                            {(() => {
+                              const contactSummaryParts = [
+                                selectedSavedLocation.contact_name ? toTitleCase(selectedSavedLocation.contact_name) : null,
+                                selectedSavedLocation.contact_phone ? formatPhoneNumber(selectedSavedLocation.contact_phone) : null,
+                                selectedSavedLocation.contact_email || null,
+                              ].filter(Boolean);
+                              if (!contactSummaryParts.length) return null;
+                              return (
+                                <p className="text-xs uppercase tracking-wide text-muted-foreground/80">
+                                  <span className="font-semibold text-foreground">POC:</span> {contactSummaryParts.join(' | ')}
+                                </p>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="relative" ref={wrapperRef}>
+                    <Input
+                      type="text"
+                      placeholder="Enter an address or place"
+                      value={addressInput}
+                      onFocus={() => { if (sugs.length) setOpenAC(true); updateAcPosition(); }}
+                      onChange={(e) => {
+                        setAddressInput(e?.target?.value);
+                        setPickedPlace(null);
+                        setOpenAC(true);
+                        updateAcPosition();
+                      }}
+                      onKeyDown={onKeyDown}
+                      autoComplete="off"
+                      role="combobox"
+                      aria-expanded={openAC}
+                      aria-autocomplete="list"
+                      aria-controls="gmaps-address-suggestions"
+                      required
+                    />
+
+                    {openAC && (loadingAC || sugs.length > 0) && acRect &&
+                      createPortal(
+                        <div
+                          ref={acPortalRef}
+                          style={{
+                            position: 'fixed',
+                            top: acRect.bottom + 4,
+                            left: acRect.left,
+                            width: acRect.width,
+                          }}
+                          className="z-[100000]"
+                        >
+                          <ul
+                            id="gmaps-address-suggestions"
+                            role="listbox"
+                            className="max-h-60 overflow-auto rounded-md border border-border bg-popover shadow-athletic-lg"
+                          >
+                            {loadingAC && (
+                              <li className="px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
+                                <Icon name="Loader2" size={14} className="animate-spin" />
+                                Searching…
                               </li>
-                            ))}
-                          {/* Required branding for Places */}
-                          <li className="px-3 py-2 flex justify-end">
-                            <img
-                              src="https://storage.googleapis.com/geo-devrel-public-buckets/powered_by_google_on_white.png"
-                              alt="Powered by Google"
-                              className="h-4"
-                            />
-                          </li>
-                        </ul>
-                      </div>,
-                      document.body
-                    )
-                  }
-                </div>
+                            )}
+                            {!loadingAC && sugs.length === 0 && (
+                              <li className="px-3 py-2 text-sm text-muted-foreground">No matches</li>
+                            )}
+                            {!loadingAC &&
+                              sugs.map((s, i) => (
+                                <li
+                                  key={s.id}
+                                  role="option"
+                                  aria-selected={i === hi}
+                                  className={`px-3 py-2 text-sm cursor-pointer ${
+                                    i === hi ? 'bg-primary/10' : 'hover:bg-muted/50'
+                                  }`}
+                                  onMouseDown={(e) => { e.preventDefault(); selectSuggestion(s); }}
+                                  onMouseEnter={() => setHi(i)}
+                                >
+                                  {s.label}
+                                </li>
+                              ))}
+                            <li className="px-3 py-2 flex justify-end">
+                              <img
+                                src="https://storage.googleapis.com/geo-devrel-public-buckets/powered_by_google_on_white.png"
+                                alt="Powered by Google"
+                                className="h-4"
+                              />
+                            </li>
+                          </ul>
+                        </div>,
+                        document.body
+                      )
+                    }
+                  </div>
+                )}
               </div>
           </form>
           </div>
