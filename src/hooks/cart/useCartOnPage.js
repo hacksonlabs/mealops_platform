@@ -144,6 +144,7 @@ export default function useCartOnPage({
           restaurant: snap.restaurant,
           items: snap.items,
           fulfillment: location.state?.fulfillment || fulfillment,
+          ownerMemberId: snap.cart?.createdByMemberId ?? null,
         },
       }));
       if (openCartOnLoad) window.dispatchEvent(new Event('openCartDrawer'));
@@ -182,6 +183,7 @@ export default function useCartOnPage({
           restaurant: snap.restaurant,
           items: snap.items,
           fulfillment,
+          ownerMemberId: snap.cart?.createdByMemberId ?? null,
         },
       }));
     })();
@@ -203,6 +205,7 @@ export default function useCartOnPage({
           cartId: snap.cart.id,
           restaurant: snap.restaurant,
           items: snap.items,
+          ownerMemberId: snap.cart?.createdByMemberId ?? null,
         },
       }));
     });
@@ -226,6 +229,7 @@ export default function useCartOnPage({
           cartId: snap.cart.id,
           restaurant: snap.restaurant,
           items: snap.items,
+          ownerMemberId: snap.cart?.createdByMemberId ?? null,
         },
       }));
     };
@@ -347,6 +351,7 @@ export default function useCartOnPage({
           cartId: id,
           restaurant: snap.restaurant,
           items: snap.items,
+          ownerMemberId: snap.cart?.createdByMemberId ?? null,
         },
       }));
     }

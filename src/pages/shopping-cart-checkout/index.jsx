@@ -228,6 +228,7 @@ const ShoppingCartCheckout = () => {
         cartId: snap.cart.id,
         restaurant: snap.restaurant,
         items: snap.items,
+        ownerMemberId: snap.cart?.createdByMemberId ?? null,
       },
     }));
   };

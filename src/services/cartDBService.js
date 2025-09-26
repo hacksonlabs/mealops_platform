@@ -435,6 +435,7 @@ async function getCartSnapshot(cartId) {
     .from('meal_carts')
     .select(`
       id, team_id, restaurant_id, provider_type, provider_restaurant_id, provider_cart_id, provider_metadata, title,
+      created_by_member_id,
       fulfillment_service, fulfillment_address, fulfillment_latitude, fulfillment_longitude,
       fulfillment_date, fulfillment_time,
       restaurants ( id, name, image_url, address, phone_number, rating ),
@@ -461,6 +462,10 @@ async function getCartSnapshot(cartId) {
     const sel = it.selected_options || {};
     const assignment = sel.__assignment__ || {};
     const displayNames = assignment.display_names || null;
+    const memberIds = Array.isArray(assignment.member_ids) ? assignment.member_ids.filter(Boolean) : [];
+    const extraCount = Number.isFinite(Number(assignment.extra_count))
+      ? Number(assignment.extra_count)
+      : 0;
 
     return {
       id: it.id, // unique row id (used as React key and for Edit/Remove)
@@ -475,6 +480,8 @@ async function getCartSnapshot(cartId) {
       assignedTo: Array.isArray(displayNames)
         ? displayNames.map((n) => ({ name: n }))
         : [],
+      assignmentMemberIds: memberIds,
+      assignmentExtras: extraCount,
 
       // extra fields you might use
       addedByMemberId: it.added_by_member_id || null,
@@ -509,6 +516,7 @@ async function getCartSnapshot(cartId) {
     cart: {
       id: cart.id,
       teamId: cart.team_id,
+      createdByMemberId: cart.created_by_member_id ?? null,
       status: statusEffective,
       title: cart.title ?? cart.restaurants.name ?? null,
       fulfillment_service: cart.fulfillment_service ?? null,
@@ -534,7 +542,109 @@ async function getCartSnapshot(cartId) {
         }
       : null,
     items: mapped,
+    assignmentMemberIdsSnapshot: Array.from(
+      new Set(
+        mapped.flatMap((item) =>
+          Array.isArray(item.assignmentMemberIds) ? item.assignmentMemberIds.filter(Boolean) : []
+        )
+      )
+    ),
   };
+}
+
+async function getCartMembers(cartId) {
+  if (!cartId) return [];
+  const { data, error } = await supabase
+    .from('meal_cart_members')
+    .select('member_id')
+    .eq('cart_id', cartId);
+  if (error) throw error;
+  return (data || []).map((row) => row.member_id);
+}
+
+async function setCartMembers(cartId, memberIds = []) {
+  if (!cartId) throw new Error('Missing cartId');
+  const unique = Array.from(new Set((memberIds || []).filter(Boolean)));
+
+  try {
+    await supabase.rpc('join_cart_as_member', { p_cart_id: cartId });
+  } catch (err) {
+    console.warn('join_cart_as_member failed before syncing members:', err?.message || err);
+  }
+
+  if (unique.length === 0) {
+    const { error } = await supabase
+      .from('meal_cart_members')
+      .delete()
+      .eq('cart_id', cartId);
+    if (error) throw error;
+    return;
+  }
+
+  const { data: existingRows, error: existingErr } = await supabase
+    .from('meal_cart_members')
+    .select('member_id')
+    .eq('cart_id', cartId);
+  if (existingErr) throw existingErr;
+
+  const existingSet = new Set((existingRows || []).map((row) => row.member_id));
+  const uniqueSet = new Set(unique);
+  const toDelete = Array.from(existingSet).filter((id) => !uniqueSet.has(id));
+
+  if (toDelete.length) {
+    const { error: deleteErr } = await supabase
+      .from('meal_cart_members')
+      .delete()
+      .eq('cart_id', cartId)
+      .in('member_id', toDelete);
+    if (deleteErr) throw deleteErr;
+  }
+
+  const { data: memberRows, error: memberErr } = await supabase
+    .from('team_members')
+    .select('id, user_id')
+    .in('id', unique);
+  if (memberErr) throw memberErr;
+
+  const userMap = new Map((memberRows || []).map((row) => [row.id, row.user_id]));
+
+  const toInsert = unique.filter((memberId) => !existingSet.has(memberId));
+  if (!toInsert.length) return;
+
+  const rows = toInsert.map((memberId) => ({
+    cart_id: cartId,
+    member_id: memberId,
+    user_id: userMap.get(memberId) || null,
+  }));
+
+  const { error: insertErr } = await supabase
+    .from('meal_cart_members')
+    .insert(rows);
+  if (insertErr) throw insertErr;
+}
+
+async function listCartMembersDetailed(cartId) {
+  if (!cartId) return [];
+
+  const ids = await getCartMembers(cartId);
+  if (!ids.length) return [];
+
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('id, full_name, email, role')
+    .in('id', ids);
+  if (error) throw error;
+
+  const map = new Map((data || []).map((row) => [row.id, row]));
+  return ids.map((id) => {
+    const row = map.get(id) || {};
+    return {
+      id,
+      fullName: row.full_name || null,
+      email: row.email || null,
+      role: row.role || null,
+    };
+  });
 }
 
 export async function getSharedCartMeta(cartId) {
@@ -1061,6 +1171,9 @@ export default {
   deleteCart,
   markSubmitted,
   updateCartTitle,
+  getCartMembers,
+  setCartMembers,
+  listCartMembersDetailed,
   getSharedCartMeta,
   joinCartWithEmail,
   updateItemFull,

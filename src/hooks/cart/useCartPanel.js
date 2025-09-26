@@ -3,7 +3,7 @@ import cartDbService from '@/services/cartDBService';
 
 export default function useCartPanel(cartId) {
   const [badge, setBadge] = useState({ count: 0, total: 0, name: '', cartId });
-  const [panel, setPanel] = useState({ restaurant: null, items: [], fulfillment: null });
+  const [panel, setPanel] = useState({ restaurant: null, items: [], fulfillment: null, ownerMemberId: null });
 
   const refreshCart = useCallback(async () => {
     if (!cartId) return;
@@ -32,6 +32,7 @@ export default function useCartPanel(cartId) {
         date: snap.cart?.fulfillment_date ?? null,
         time: snap.cart?.fulfillment_time ?? null,
       },
+      ownerMemberId: snap.cart?.createdByMemberId ?? null,
     });
   }, [cartId]);
 
