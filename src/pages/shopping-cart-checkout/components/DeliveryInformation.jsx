@@ -1,10 +1,12 @@
 // src/pages/checkout/components/DeliveryInformation.jsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/custom/Button';
 import Input from '../../../components/ui/custom/Input';
 import cartDbService from '../../../services/cartDBService';
+import { useAuth } from '@/contexts';
+import { supabase } from '@/lib/supabase';
 
 import {
   newSessionToken,
@@ -102,6 +104,7 @@ const DeliveryInformation = ({
   instructions,
   onInstructionsChange, 
 }) => {
+  const { activeTeam } = useAuth();
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
 
   // Initialize input from DB fulfillment.address, falling back to prop
@@ -113,6 +116,33 @@ const DeliveryInformation = ({
   useEffect(() => {
     setSpecialInstructions(instructions ?? '');
   }, [instructions]);
+
+  const [savedLocations, setSavedLocations] = useState([]);
+
+  const currentAddress = useMemo(
+    () => (fulfillment?.address || deliveryAddress || '').trim().toLowerCase(),
+    [fulfillment?.address, deliveryAddress]
+  );
+
+  const matchedSavedLocation = useMemo(() => {
+    if (!currentAddress) return null;
+    return savedLocations.find((location) =>
+      (location.formatted_address || '').trim().toLowerCase() === currentAddress ||
+      (location.address_name || '').trim().toLowerCase() === currentAddress
+    ) || null;
+  }, [currentAddress, savedLocations]);
+
+  useEffect(() => {
+    if (!matchedSavedLocation?.delivery_notes) return;
+    const notes = matchedSavedLocation.delivery_notes.trim();
+    if (!notes) return;
+
+    const currentInstructions = (specialInstructions || '').trim();
+    if (currentInstructions.length > 0) return;
+
+    setSpecialInstructions(notes);
+    onInstructionsChange?.(notes);
+  }, [matchedSavedLocation, specialInstructions, onInstructionsChange]);
 
   // Google Places state
   const [sessionToken, setSessionToken] = useState(null);
@@ -129,6 +159,30 @@ const DeliveryInformation = ({
     setPlacesErr('');          // clear any Places error
     selectedPredictionRef.current = null;
   };
+
+  useEffect(() => {
+    const loadSavedLocations = async () => {
+      if (!activeTeam?.id) {
+        setSavedLocations([]);
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from('saved_locations')
+          .select('id, address_name, formatted_address, delivery_notes')
+          .eq('team_id', activeTeam.id);
+
+        if (error) throw error;
+
+        setSavedLocations(data || []);
+      } catch (error) {
+        console.error('Failed to load saved locations', error);
+        setSavedLocations([]);
+      }
+    };
+
+    loadSavedLocations();
+  }, [activeTeam?.id]);
 
   const handleBackdropClick = (e) => {
     // Only close if the click is directly on the backdrop, not inside the panel
