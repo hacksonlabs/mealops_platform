@@ -466,6 +466,8 @@ CREATE TABLE IF NOT EXISTS public.meal_cart_members (
 CREATE TABLE IF NOT EXISTS public.meal_cart_items (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   cart_id               uuid NOT NULL REFERENCES public.meal_carts(id) ON DELETE CASCADE,
+  member_id             uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  is_extra              boolean NOT NULL DEFAULT false,
   added_by_member_id    uuid NOT NULL REFERENCES public.team_members(id) ON DELETE SET NULL,
   menu_item_id          uuid REFERENCES public.menu_items(id) ON DELETE SET NULL,
   item_name             text NOT NULL,   -- fallback display name
@@ -476,15 +478,6 @@ CREATE TABLE IF NOT EXISTS public.meal_cart_items (
   created_at            timestamptz NOT NULL DEFAULT now(),
   updated_at            timestamptz NOT NULL DEFAULT now(),
   provider_line_item_id text,
-  provider_payload jsonb
-);
-
--- Assignees for a cart item (supports multiple and “Extra”)
-CREATE TABLE IF NOT EXISTS public.meal_cart_item_assignees (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  cart_item_id  uuid NOT NULL REFERENCES public.meal_cart_items(id) ON DELETE CASCADE,
-  member_id     uuid REFERENCES public.team_members(id) ON DELETE SET NULL, -- NULL when is_extra = true
-  is_extra      boolean NOT NULL DEFAULT false,
-  unit_qty      integer NOT NULL DEFAULT 1,
-  created_at    timestamptz NOT NULL DEFAULT now()
+  provider_payload      jsonb,
+  CONSTRAINT ck_meal_cart_items_extra_member CHECK (NOT is_extra OR member_id IS NULL)
 );

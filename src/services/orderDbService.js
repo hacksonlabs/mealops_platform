@@ -241,76 +241,40 @@ export const orderDbService = {
     const orderId = data.id;
 
     const cartItems = cartSnapshot?.items || [];
-    const cartItemIds = cartItems.map((item) => item?.id).filter(Boolean);
-
-    const assignmentsMap = new Map();
-    if (cartItemIds.length) {
-      const { data: assignments, error: assErr } = await supabase
-        .from('meal_cart_item_assignees')
-        .select('cart_item_id, member_id, is_extra, unit_qty')
-        .in('cart_item_id', cartItemIds);
-      if (assErr) throw assErr;
-      (assignments || []).forEach((row) => {
-        const list = assignmentsMap.get(row.cart_item_id) || [];
-        list.push(row);
-        assignmentsMap.set(row.cart_item_id, list);
-      });
-    }
 
     const orderItemRows = [];
     const customizationPerRow = [];
 
     cartItems.forEach((item) => {
-      const baseQuantity = Math.max(1, Number(item.quantity || 1));
-      const basePriceCents = Math.round(Number(item.price || 0) * 100);
-      const baseRow = {
-        order_id: orderId,
-        team_member_id: null,
-        product_id: item.menu_item_id || item.menuItemId || item.product_id || item.id,
-        name: item.item_name || item.name,
-        description: item.description || null,
-        image_url: item.image_url || null,
-        notes: item.special_instructions
-          || (typeof item.specialInstructions === 'string' ? item.specialInstructions : null)
-          || item.notes
-          || null,
-        quantity: baseQuantity,
-        product_marked_price_cents: basePriceCents,
-        is_extra: false,
-      };
-
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const priceCents = Math.round(Number(item.price || 0) * 100);
+      const productId = item.menu_item_id || item.menuItemId || item.product_id || item.id;
+      const displayName = item.item_name || item.name;
+      const imageUrl = item.image_url || item.image || null;
+      const rawNotes =
+        item.special_instructions
+        || (typeof item.specialInstructions === 'string' ? item.specialInstructions : null)
+        || item.notes
+        || null;
       const groups = extractCustomizationsFromSelections(item?.selectedOptions || item?.selected_options);
+      const rawMemberId = item.memberId ?? item.member_id ?? null;
+      const isExtra = Boolean(item.isExtra ?? item.is_extra);
+      const teamMemberId = isExtra ? null : (typeof rawMemberId === 'string' ? rawMemberId : null);
 
-      const assignments = assignmentsMap.get(item.id) || [];
-      if (assignments.length) {
-        let accounted = 0;
-        assignments.forEach((assignment) => {
-          const qty = Math.max(0, Number(assignment.unit_qty || 0));
-          if (!qty) return;
-          accounted += qty;
-          orderItemRows.push({
-            ...baseRow,
-            team_member_id: assignment.is_extra ? null : assignment.member_id,
-            quantity: qty,
-            is_extra: Boolean(assignment.is_extra),
-          });
-          customizationPerRow.push(groups);
-        });
+      orderItemRows.push({
+        order_id: orderId,
+        team_member_id: teamMemberId,
+        product_id: productId,
+        name: displayName,
+        description: item.description || null,
+        image_url: imageUrl,
+        notes: rawNotes,
+        quantity,
+        product_marked_price_cents: priceCents,
+        is_extra: isExtra,
+      });
 
-        const residual = Math.max(0, baseQuantity - accounted);
-        if (residual > 0) {
-          orderItemRows.push({
-            ...baseRow,
-            team_member_id: null,
-            quantity: residual,
-            is_extra: false,
-          });
-          customizationPerRow.push(groups);
-        }
-      } else {
-        orderItemRows.push({ ...baseRow, is_extra: false });
-        customizationPerRow.push(groups);
-      }
+      customizationPerRow.push(groups);
     });
 
     if (orderItemRows.length) {

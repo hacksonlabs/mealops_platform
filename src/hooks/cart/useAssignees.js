@@ -94,6 +94,14 @@ export default function useAssignees({
         ...Array.from({ length: Number(asg.extra_count || 0) }, () => EXTRA_SENTINEL),
       ];
     }
+    if (!ids.length) {
+      if (src.isExtra) {
+        const extrasQty = Math.max(1, Number(src.assignmentExtras || src.quantity || 1));
+        ids = Array.from({ length: extrasQty }, () => EXTRA_SENTINEL);
+      } else if (src.memberId) {
+        ids = [src.memberId];
+      }
+    }
 
     if (ids.length) {
       setAssigneeIds(ids.slice(0, Math.max(1, src.quantity || 1)));

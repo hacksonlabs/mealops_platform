@@ -345,6 +345,14 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
         ];
       }
     }
+    if (!ids.length) {
+      if (preset.isExtra || preset.is_extra) {
+        const count = Math.max(1, Number(preset.assignmentExtras || preset.quantity || 1));
+        ids = Array.from({ length: count }, () => EXTRA_SENTINEL);
+      } else if (preset.memberId || preset.member_id) {
+        ids = [preset.memberId || preset.member_id];
+      }
+    }
     if (ids.length) {
       setAssigneeIds(ids.slice(0, Math.max(1, preset.quantity || 1)));
       setAssigneesLocked(true);

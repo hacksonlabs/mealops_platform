@@ -192,6 +192,18 @@ const ShoppingCartCheckout = () => {
 
       const items = (cartSnapshot.items || []).map((it) => {
         if (Array.isArray(it?.assignedTo) && it.assignedTo.length) return it;
+        if (it?.isExtra || it?.is_extra) {
+          const count = Math.max(1, Number(it?.quantity || 1));
+          return { ...it, assignedTo: Array.from({ length: count }, () => ({ name: 'Extra', isExtra: true })) };
+        }
+        if (it?.memberId || it?.member_id) {
+          const name =
+            it?.assignedTo?.[0]?.name
+            || it?.memberName
+            || it?.userName
+            || 'Team member';
+          return { ...it, assignedTo: [{ id: it.memberId || it.member_id, name }] };
+        }
         const a = it?.selectedOptions?.__assignment__ || it?.selected_options?.__assignment__;
         if (a?.display_names?.length) {
           return { ...it, assignedTo: a.display_names.map((n) => ({ name: n })) };

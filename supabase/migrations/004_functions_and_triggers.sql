@@ -815,63 +815,6 @@ BEGIN
 END;
 $$;
 
--- capacity check: assignees (members + extras) must not exceed item.quantity
-CREATE OR REPLACE FUNCTION public.tg_assignees_capacity_check()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_qty int;
-  v_count int;
-BEGIN
-  SELECT quantity INTO v_qty FROM public.meal_cart_items WHERE id = COALESCE(NEW.cart_item_id, OLD.cart_item_id);
-
-  SELECT COUNT(*) INTO v_count
-    FROM public.meal_cart_item_assignees a
-   WHERE a.cart_item_id = COALESCE(NEW.cart_item_id, OLD.cart_item_id);
-
-  IF TG_OP = 'INSERT' THEN
-    v_count := v_count + 1;
-  END IF;
-
-  IF v_count > v_qty THEN
-    RAISE EXCEPTION 'Too many assignees for this item (count %, qty %)', v_count, v_qty;
-  END IF;
-
-  RETURN COALESCE(NEW, OLD);
-END;
-$$;
-
--- validate member_id (when provided) belongs to the same team as the cart
-CREATE OR REPLACE FUNCTION public.tg_assignee_member_team_check()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_cart_id uuid;
-  v_cart_team uuid;
-  v_member_team uuid;
-BEGIN
-  IF (COALESCE(NEW.member_id, OLD.member_id)) IS NULL THEN
-    RETURN COALESCE(NEW, OLD);
-  END IF;
-
-  SELECT cart_id INTO v_cart_id FROM public.meal_cart_items WHERE id = COALESCE(NEW.cart_item_id, OLD.cart_item_id);
-  SELECT team_id INTO v_cart_team FROM public.meal_carts WHERE id = v_cart_id;
-  SELECT team_id INTO v_member_team FROM public.team_members WHERE id = COALESCE(NEW.member_id, OLD.member_id);
-
-  IF v_cart_team IS DISTINCT FROM v_member_team THEN
-    RAISE EXCEPTION 'Assignee must belong to the same team as the cart';
-  END IF;
-
-  RETURN COALESCE(NEW, OLD);
-END;
-$$;
-
 -- Helper: is current user a coach of a given team?
 create or replace function public.is_coach_of_team(p_team_id uuid)
 returns boolean
@@ -1020,43 +963,36 @@ end;
 $$;
 
 
-CREATE OR REPLACE FUNCTION public.fn_check_item_assignment_totals()
+-- Enforce member/team consistency on meal_cart_items.
+CREATE OR REPLACE FUNCTION public.tg_item_member_team_check()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
-  v_item_id uuid;
-  v_expected int;
-  v_actual   int;
+  v_cart_team uuid;
+  v_member_team uuid;
 BEGIN
-  IF TG_TABLE_NAME = 'meal_cart_item_assignees' THEN
-    v_item_id := COALESCE(NEW.cart_item_id, OLD.cart_item_id);
-  ELSIF TG_TABLE_NAME = 'meal_cart_items' THEN
-    v_item_id := COALESCE(NEW.id, OLD.id);
-  ELSE
-    RAISE EXCEPTION 'Unexpected table % for fn_check_item_assignment_totals', TG_TABLE_NAME;
+  IF NEW.member_id IS NULL THEN
+    RETURN NEW;
   END IF;
 
-  SELECT quantity INTO v_expected
-  FROM public.meal_cart_items
-  WHERE id = v_item_id;
-
-  IF v_expected IS NULL THEN
-    RETURN NULL; -- item may be gone; FK will enforce consistency
+  SELECT team_id INTO v_cart_team FROM public.meal_carts WHERE id = NEW.cart_id;
+  IF v_cart_team IS NULL THEN
+    RAISE EXCEPTION 'Cart % not found', NEW.cart_id;
   END IF;
 
-  SELECT COALESCE(SUM(unit_qty), 0) INTO v_actual
-  FROM public.meal_cart_item_assignees
-  WHERE cart_item_id = v_item_id;
-
-  IF v_actual <> v_expected THEN
-    RAISE EXCEPTION
-      'Sum of assignee units (%) must equal cart item quantity (%) for cart_item_id %',
-      v_actual, v_expected, v_item_id
-      USING ERRCODE = '23514';
+  SELECT team_id INTO v_member_team FROM public.team_members WHERE id = NEW.member_id;
+  IF v_member_team IS NULL THEN
+    RAISE EXCEPTION 'Team member % not found', NEW.member_id;
   END IF;
 
-  RETURN NULL;
+  IF v_cart_team IS DISTINCT FROM v_member_team THEN
+    RAISE EXCEPTION 'Assigned member must belong to the same team as the cart';
+  END IF;
+
+  RETURN NEW;
 END;
 $$;
 
@@ -1196,24 +1132,6 @@ BEFORE INSERT ON public.meal_cart_items
 FOR EACH ROW
 EXECUTE FUNCTION public.tg_item_fill_owner();
 
-DROP TRIGGER IF EXISTS trg_assignees_capacity_insert ON public.meal_cart_item_assignees;
-CREATE TRIGGER trg_assignees_capacity_insert
-BEFORE INSERT ON public.meal_cart_item_assignees
-FOR EACH ROW
-EXECUTE FUNCTION public.tg_assignees_capacity_check();
-
-DROP TRIGGER IF EXISTS trg_assignees_capacity_update ON public.meal_cart_item_assignees;
-CREATE TRIGGER trg_assignees_capacity_update
-BEFORE UPDATE ON public.meal_cart_item_assignees
-FOR EACH ROW
-EXECUTE FUNCTION public.tg_assignees_capacity_check();
-
-DROP TRIGGER IF EXISTS trg_assignee_member_team ON public.meal_cart_item_assignees;
-CREATE TRIGGER trg_assignee_member_team
-BEFORE INSERT OR UPDATE ON public.meal_cart_item_assignees
-FOR EACH ROW
-EXECUTE FUNCTION public.tg_assignee_member_team_check();
-
 DROP TRIGGER IF EXISTS trg_validate_cart_creator_team_ins ON public.meal_carts;
 CREATE TRIGGER trg_validate_cart_creator_team_ins
 BEFORE INSERT ON public.meal_carts
@@ -1226,16 +1144,9 @@ BEFORE UPDATE OF team_id, created_by_member_id ON public.meal_carts
 FOR EACH ROW
 EXECUTE FUNCTION public.tg_validate_cart_creator_team();
 
--- Fire on assignee changes (insert/update/delete)
-DROP TRIGGER IF EXISTS trg_check_assign_totals_assignees ON public.meal_cart_item_assignees;
-CREATE CONSTRAINT TRIGGER trg_check_assign_totals_assignees
-AFTER INSERT OR UPDATE OR DELETE ON public.meal_cart_item_assignees
-DEFERRABLE INITIALLY DEFERRED
-FOR EACH ROW EXECUTE FUNCTION public.fn_check_item_assignment_totals();
-
--- Fire on item quantity change ONLY (not on INSERT)
-DROP TRIGGER IF EXISTS trg_check_assign_totals_items ON public.meal_cart_items;
-CREATE CONSTRAINT TRIGGER trg_check_assign_totals_items
-AFTER UPDATE OF quantity ON public.meal_cart_items
-DEFERRABLE INITIALLY DEFERRED
-FOR EACH ROW EXECUTE FUNCTION public.fn_check_item_assignment_totals();
+DROP TRIGGER IF EXISTS trg_item_member_team ON public.meal_cart_items;
+CREATE TRIGGER trg_item_member_team
+BEFORE INSERT OR UPDATE OF member_id, cart_id
+ON public.meal_cart_items
+FOR EACH ROW
+EXECUTE FUNCTION public.tg_item_member_team_check();

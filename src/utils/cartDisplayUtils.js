@@ -2,8 +2,6 @@
 
 // ---- helpers to shape/expand cart items into per-unit rows ----
 
-const isExtraName = (nm) => /^(extra|extras)$/i.test(String(nm || '').trim());
-
 /** Friendly text for customizations (best-effort across shapes). */
 export function extractCustomizations(it) {
   // 1) [{ name, price? }, ...]
@@ -64,69 +62,6 @@ export function extractCustomizations(it) {
   return '';
 }
 
-/** Names from meta.display_names, with fallback to assignedTo[].name. */
-export function getMemberNames(it) {
-  const meta = it?.selectedOptions?.__assignment__ || it?.selected_options?.__assignment__ || {};
-  let names = Array.isArray(meta.display_names) ? meta.display_names : null;
-
-  if (!names || !names.length) {
-    if (Array.isArray(it?.assignedTo) && it.assignedTo.length) {
-      names = it.assignedTo.map((a) => String(a?.name || '').trim()).filter(Boolean);
-    }
-  }
-
-  const out = [];
-  const seen = new Set();
-  for (const nmRaw of names || []) {
-    const nm = String(nmRaw || '').trim();
-    if (!nm || isExtraName(nm)) continue;
-    if (seen.has(nm)) continue;
-    seen.add(nm);
-    out.push(nm);
-  }
-  return out;
-}
-
-/**
- * Plan units by name so that sum(members) + extras === quantity.
- * - start with 1 per member
- * - extras = meta.extra_count (or variants)
- * - balance remainder to last member (or extras if no members)
- */
-export function planUnitsByName(quantity, memberNames = [], extrasCount = 0) {
-  const qty = Math.max(1, Number(quantity || 1));
-  const names = Array.from(memberNames || []).map((n) => String(n || '').trim()).filter(Boolean);
-  const ids = Array.from(new Set(names));
-  const units = {};
-
-  ids.forEach((nm) => {
-    units[nm] = (units[nm] || 0) + 1;
-  });
-
-  let extras = Math.max(0, Number(extrasCount || 0));
-  if (ids.length === 0) {
-    const baseExtras = Math.min(extras, qty);
-    const unassigned = Math.max(0, qty - baseExtras);
-    const unitsUn = unassigned > 0 ? { Unassigned: unassigned } : {};
-    return { unitsByName: unitsUn, extras: baseExtras };
-  }
-
-  const membersOnlyTotal = ids.length;
-  extras = Math.min(extras, Math.max(0, qty - membersOnlyTotal));
-  const baseTotal = membersOnlyTotal + extras;
-
-  if (qty <= baseTotal) {
-    return { unitsByName: units, extras };
-  }
-
-  const remaining = qty - baseTotal;
-  if (remaining > 0) {
-    units.Unassigned = (units.Unassigned || 0) + remaining;
-  }
-
-  return { unitsByName: units, extras };
-}
-
 /** Compute unit price = base price + per-unit customization prices (if present). */
 export function computeUnitPrice(it) {
   const base = Number(it?.customizedPrice ?? it?.price ?? 0);
@@ -150,51 +85,30 @@ export function expandItemsToUnitRows(items = []) {
     const special = String(it?.specialInstructions || '').trim();
     const sourceId = it?.id || it?.menuItemId || it?.product_id || itemName;
     const unitPrice = computeUnitPrice(it);
+    const quantity = Math.max(1, Number(it?.quantity || 1));
+    const isExtra = Boolean(it?.isExtra ?? it?.is_extra);
+    const memberId = it?.memberId ?? it?.member_id ?? null;
 
-    const meta = it?.selectedOptions?.__assignment__ || it?.selected_options?.__assignment__ || {};
-    const rawExtrasMeta = Number(
-      meta?.extra_count ??
-      meta?.extras_count ??
-      (Array.isArray(meta?.extras) ? meta.extras.length : 0) ??
-      0
-    ) || 0;
-
-    const hasExplicitExtras =
-      (Array.isArray(meta?.display_names) && meta.display_names.some((nm) => isExtraName(nm))) ||
-      (Array.isArray(meta?.extras) && meta.extras.length > 0) ||
-      (Array.isArray(it?.assignedTo) && it.assignedTo.some((a) => a?.isExtra || isExtraName(a?.name)));
-
-    const extrasMeta = hasExplicitExtras ? rawExtrasMeta : 0;
-
-    const memberNames = getMemberNames(it);
-    const { unitsByName, extras } = planUnitsByName(it?.quantity, memberNames, extrasMeta);
-
-    // members
-    for (const nm of Object.keys(unitsByName)) {
-      const count = unitsByName[nm];
-      for (let i = 0; i < count; i++) {
-        rows.push({
-          assignee: nm,
-          itemName,
-          customizations,
-          special,
-          unitPrice,
-          sourceId,
-          type: 'member',
-        });
-      }
+    let assigneeLabel = 'Unassigned';
+    if (isExtra) {
+      assigneeLabel = 'Extra';
+    } else if (Array.isArray(it?.assignedTo) && it.assignedTo.length) {
+      assigneeLabel = it.assignedTo[0]?.name || 'Team member';
+    } else if (memberId) {
+      assigneeLabel = 'Team member';
     }
 
-    // extras
-    for (let i = 0; i < extras; i++) {
+    const type = isExtra ? 'extra' : memberId ? 'member' : 'unassigned';
+
+    for (let i = 0; i < quantity; i++) {
       rows.push({
-        assignee: 'Extra',
+        assignee: assigneeLabel,
         itemName,
         customizations,
         special,
         unitPrice,
         sourceId,
-        type: 'extra',
+        type,
       });
     }
   }
