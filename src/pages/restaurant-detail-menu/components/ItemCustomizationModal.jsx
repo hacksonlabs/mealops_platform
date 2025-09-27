@@ -5,6 +5,7 @@ import Button from '../../../components/ui/custom/Button';
 import Select from '../../../components/ui/custom/Select';
 import { useAuth } from '../../../contexts';
 import { supabase } from '../../../lib/supabase';
+import { optionsListFromMembers } from '../../../utils/sharedCartCustomizationUtils';
 
 const EXTRA_SENTINEL = '__EXTRA__'; // guaranteed not to collide with UUIDs
 
@@ -157,7 +158,6 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
   const [members, setMembers] = useState([]); // [{id, full_name, email, role, phone_number}]
   const [assigneeIds, setAssigneeIds] = useState([]);
   const [assigneesLocked, setAssigneesLocked] = useState(false);
-  const [memberQuery, setMemberQuery] = useState('');
 
   // Quantity & generic selections
   const [quantity, setQuantity] = useState(1);
@@ -189,7 +189,6 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
     setSpecialInstructions('');
     setAssigneeIds([]);
     setAssigneesLocked(false);
-    setMemberQuery('');
   }, [isOpen, item]);
 
   // Default-select required SINGLE groups (e.g., Size) on open
@@ -346,6 +345,14 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
         ];
       }
     }
+    if (!ids.length) {
+      if (preset.isExtra || preset.is_extra) {
+        const count = Math.max(1, Number(preset.assignmentExtras || preset.quantity || 1));
+        ids = Array.from({ length: count }, () => EXTRA_SENTINEL);
+      } else if (preset.memberId || preset.member_id) {
+        ids = [preset.memberId || preset.member_id];
+      }
+    }
     if (ids.length) {
       setAssigneeIds(ids.slice(0, Math.max(1, preset.quantity || 1)));
       setAssigneesLocked(true);
@@ -382,28 +389,11 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
     });
   };
 
-  // Build options including a hidden search string
-  const optionsList = useMemo(() => {
-    const base = [{ value: EXTRA_SENTINEL, label: 'Extra', search: 'extra' }];
-    return base.concat(
-      (members || []).map(m => ({
-        value: m.id,
-        label: m.full_name || m.email || 'Unnamed',
-        search: `${m.full_name || ''}`.toLowerCase(),
-      }))
-    );
-  }, [members]);
-
-  // 🔎 Filter options by search query (case-insensitive, matches all tokens)
-  const filteredOptionsList = useMemo(() => {
-    const q = memberQuery.trim().toLowerCase();
-    if (!q) return optionsList;
-    const tokens = q.split(/\s+/);
-    return optionsList.filter(opt => {
-      const hay = (opt.search || opt.label.toLowerCase());
-      return tokens.every(t => hay.includes(t));
-    });
-  }, [optionsList, memberQuery]);
+  // Build member options (includes Extra sentinel) grouped by role
+  const optionsList = useMemo(
+    () => optionsListFromMembers(members, EXTRA_SENTINEL),
+    [members]
+  );
 
   const handleAdd = () => {
     if (missingRequired) return;
@@ -516,15 +506,16 @@ const ItemCustomizationModal = ({ item, isOpen, onClose, onAddToCart, preset }) 
                     }}
                     // placeholder={`Select up to ${quantity} ${quantity > 1 ? 'assignees' : 'assignee'} (optional)`}
                     options={optionsList}
+                    selectedNoun="members"
+                    groupBy="roleGroup"
+                    groupConfig={{
+                      order: ['Players', 'Coaches', 'Staff', 'Extras', 'Other'],
+                      fallbackLabel: 'Other',
+                      columnMinWidth: 180,
+                    }}
                     menuPortalTarget={document.body}
                     menuPosition="fixed"
                   />
-
-                  {filteredOptionsList.length === 0 && (
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      No matches. Try a different search.
-                    </div>
-                  )}
 
                   {assigneeIds.length > quantity && (
                     <div className="mt-1 text-xs text-error">

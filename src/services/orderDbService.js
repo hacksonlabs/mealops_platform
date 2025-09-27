@@ -104,6 +104,36 @@ function extractCustomizationsFromSelections(selectedOptions) {
 }
 
 export const orderDbService = {
+  async getSplitConfig() {
+    // Read flag + threshold from DB; fall back to defaults if missing
+    const [{ data: flagRow }, { data: settingRow }] = await Promise.all([
+      supabase.from('feature_flags').select('enabled').eq('key', 'split_large_orders').maybeSingle(),
+      supabase.from('app_settings').select('value').eq('key', 'split_threshold_cents').maybeSingle(),
+    ]);
+    const enabled = flagRow?.enabled ?? true;
+    const thresholdCents = Number(settingRow?.value?.value ?? 25000);
+    return { enabled, thresholdCents: Number.isFinite(thresholdCents) ? thresholdCents : 25000 };
+  },
+
+  async previewSplit(parentOrderId, thresholdCents = null) {
+    const { data, error } = await supabase.rpc('split_order_simple', {
+      p_parent_order_id: parentOrderId,
+      p_threshold_cents: thresholdCents,
+      p_preview: true,
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+  },
+
+  async applySplit(parentOrderId, thresholdCents = null) {
+    const { data, error } = await supabase.rpc('split_order_simple', {
+      p_parent_order_id: parentOrderId,
+      p_threshold_cents: thresholdCents,
+      p_preview: false,
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+  },
   async createDraftFromCart({
     cartSnapshot,
     orderInput,
@@ -211,76 +241,40 @@ export const orderDbService = {
     const orderId = data.id;
 
     const cartItems = cartSnapshot?.items || [];
-    const cartItemIds = cartItems.map((item) => item?.id).filter(Boolean);
-
-    const assignmentsMap = new Map();
-    if (cartItemIds.length) {
-      const { data: assignments, error: assErr } = await supabase
-        .from('meal_cart_item_assignees')
-        .select('cart_item_id, member_id, is_extra, unit_qty')
-        .in('cart_item_id', cartItemIds);
-      if (assErr) throw assErr;
-      (assignments || []).forEach((row) => {
-        const list = assignmentsMap.get(row.cart_item_id) || [];
-        list.push(row);
-        assignmentsMap.set(row.cart_item_id, list);
-      });
-    }
 
     const orderItemRows = [];
     const customizationPerRow = [];
 
     cartItems.forEach((item) => {
-      const baseQuantity = Math.max(1, Number(item.quantity || 1));
-      const basePriceCents = Math.round(Number(item.price || 0) * 100);
-      const baseRow = {
-        order_id: orderId,
-        team_member_id: null,
-        product_id: item.menu_item_id || item.menuItemId || item.product_id || item.id,
-        name: item.item_name || item.name,
-        description: item.description || null,
-        image_url: item.image_url || null,
-        notes: item.special_instructions
-          || (typeof item.specialInstructions === 'string' ? item.specialInstructions : null)
-          || item.notes
-          || null,
-        quantity: baseQuantity,
-        product_marked_price_cents: basePriceCents,
-        is_extra: false,
-      };
-
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const priceCents = Math.round(Number(item.price || 0) * 100);
+      const productId = item.menu_item_id || item.menuItemId || item.product_id || item.id;
+      const displayName = item.item_name || item.name;
+      const imageUrl = item.image_url || item.image || null;
+      const rawNotes =
+        item.special_instructions
+        || (typeof item.specialInstructions === 'string' ? item.specialInstructions : null)
+        || item.notes
+        || null;
       const groups = extractCustomizationsFromSelections(item?.selectedOptions || item?.selected_options);
+      const rawMemberId = item.memberId ?? item.member_id ?? null;
+      const isExtra = Boolean(item.isExtra ?? item.is_extra);
+      const teamMemberId = isExtra ? null : (typeof rawMemberId === 'string' ? rawMemberId : null);
 
-      const assignments = assignmentsMap.get(item.id) || [];
-      if (assignments.length) {
-        let accounted = 0;
-        assignments.forEach((assignment) => {
-          const qty = Math.max(0, Number(assignment.unit_qty || 0));
-          if (!qty) return;
-          accounted += qty;
-          orderItemRows.push({
-            ...baseRow,
-            team_member_id: assignment.is_extra ? null : assignment.member_id,
-            quantity: qty,
-            is_extra: Boolean(assignment.is_extra),
-          });
-          customizationPerRow.push(groups);
-        });
+      orderItemRows.push({
+        order_id: orderId,
+        team_member_id: teamMemberId,
+        product_id: productId,
+        name: displayName,
+        description: item.description || null,
+        image_url: imageUrl,
+        notes: rawNotes,
+        quantity,
+        product_marked_price_cents: priceCents,
+        is_extra: isExtra,
+      });
 
-        const residual = Math.max(0, baseQuantity - accounted);
-        if (residual > 0) {
-          orderItemRows.push({
-            ...baseRow,
-            team_member_id: null,
-            quantity: residual,
-            is_extra: false,
-          });
-          customizationPerRow.push(groups);
-        }
-      } else {
-        orderItemRows.push({ ...baseRow, is_extra: false });
-        customizationPerRow.push(groups);
-      }
+      customizationPerRow.push(groups);
     });
 
     if (orderItemRows.length) {
@@ -359,6 +353,16 @@ export const orderDbService = {
       .update({ order_status: 'confirmed', order_placed: true, payment_status: 'completed', ...extra })
       .eq('id', localOrderId);
     if (error) throw error;
+    await orderDbService.notifyOrderPlaced(localOrderId);
+  },
+
+  async markScheduled(localOrderId, extra = {}) {
+    const { error } = await supabase
+      .from('meal_orders')
+      .update({ order_status: 'scheduled', order_placed: true, ...extra })
+      .eq('id', localOrderId);
+    if (error) throw error;
+    await orderDbService.notifyOrderPlaced(localOrderId);
   },
 
   async markFailed(localOrderId, message) {
@@ -375,5 +379,55 @@ export const orderDbService = {
       .update(patch)
       .eq('id', localOrderId);
     if (error) throw error;
+  },
+
+  async notifyOrderPlaced(orderId) {
+    try {
+      const { data, error } = await supabase
+        .from('meal_orders')
+        .select(`
+          id,
+          title,
+          scheduled_date,
+          user_name,
+          user_phone,
+          restaurant:restaurants!meal_orders_restaurant_id_fkey ( name )
+        `)
+        .eq('id', orderId)
+        .maybeSingle();
+
+      if (error || !data) {
+        if (error) console.error('notifyOrderPlaced lookup failed', error);
+        return;
+      }
+
+      const phone = data?.user_phone;
+      if (!phone) return;
+
+      const firstName = data?.user_name?.split(' ')?.[0] || 'there';
+      const restaurantName = data?.restaurant?.name || 'your restaurant';
+      const when = data?.scheduled_date
+        ? new Date(data.scheduled_date).toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          })
+        : null;
+
+      const text = `Hi ${firstName}, your order for ${restaurantName}${when ? ` on ${when}` : ''} has been placed.`;
+
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke('send-sms', {
+        body: { to: phone, text },
+      });
+
+      if (fnErr) {
+        console.error('send-sms failed', fnErr);
+      } else if (process.env.NODE_ENV !== 'production') {
+        // console.log('send-sms response', fnData);
+      }
+    } catch (err) {
+      console.error('notifyOrderPlaced error', err);
+    }
   },
 };

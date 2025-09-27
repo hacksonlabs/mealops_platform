@@ -1,18 +1,66 @@
 // src/pages/shared-cart/components/SharedCartDrawer.jsx
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import Icon from "../../../components/AppIcon";
 import Button from "../../../components/ui/custom/Button";
 import { formatCustomizations } from "../../../utils/cartFormat";
+import cartDbService from "../../../services/cartDBService";
+import CartMemberProgressModal, { computeMemberProgress } from "../../../components/ui/cart/CartMemberProgressModal";
 
 export default function SharedCartDrawer({
   isOpen,
   onClose,
   cartBadge,   // { count, total, name, cartId }
-  cartPanel,   // { restaurant, items, fulfillment }
+  cartPanel,   // { restaurant, items, fulfillment, ownerMemberId }
   onEditItem,  // (item) => void
   onRemoveItem // (item) => void
 }) {
+  const [showRoster, setShowRoster] = useState(false);
+  const [roster, setRoster] = useState([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterError, setRosterError] = useState("");
+  const rosterFetchedRef = useRef(false);
+
+  const loadRoster = useCallback(async ({ silent = false } = {}) => {
+    if (!cartBadge?.cartId) return;
+    if (!silent) setRosterLoading(true);
+    setRosterError("");
+    try {
+      const list = await cartDbService.listCartMembersDetailed(cartBadge.cartId);
+      setRoster(list);
+    } catch (err) {
+      const msg = err?.message || "Failed to load cart members.";
+      setRosterError(msg);
+      setRoster([]);
+    } finally {
+      setRosterLoading(false);
+    }
+  }, [cartBadge?.cartId]);
+
+  useEffect(() => {
+    if (!isOpen || !cartBadge?.cartId) return;
+    if (rosterFetchedRef.current) return;
+    rosterFetchedRef.current = true;
+    loadRoster({ silent: true });
+  }, [isOpen, cartBadge?.cartId, loadRoster]);
+
+  useEffect(() => {
+    if (!isOpen) setShowRoster(false);
+  }, [isOpen]);
+
+  const { orderedMembers, waitingMembers, extrasCount, unassignedCount, hasRecipients, assignmentMembers } = useMemo(
+    () => computeMemberProgress({
+      roster,
+      items: cartPanel?.items || [],
+      ownerMemberId: cartPanel?.ownerMemberId ?? null,
+    }),
+    [roster, cartPanel?.items, cartPanel?.ownerMemberId]
+  );
+
+  const rosterButtonVisible =
+    (orderedMembers.length + waitingMembers.length > 0 || extrasCount > 0 || unassignedCount > 0) &&
+    cartBadge?.cartId;
+
   if (!isOpen) return null;
 
   return ReactDOM.createPortal(
@@ -26,9 +74,23 @@ export default function SharedCartDrawer({
       >
         {/* Header */}
         <div className="p-3 md:p-4 border-b border-border flex items-center justify-between shrink-0">
-          <div className="font-semibold flex items-center gap-2">
-            <Icon name="ShoppingCart" size={18} />
-            <span className="truncate">{cartBadge?.name || "Cart"}</span>
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Icon name="ShoppingCart" size={18} />
+              <span className="truncate">{cartBadge?.name || "Cart"}</span>
+            </div>
+            {rosterButtonVisible && (
+              <button
+                type="button"
+                className="self-start text-xs font-medium text-primary underline-offset-2 transition hover:underline"
+                onClick={() => {
+                  setShowRoster(true);
+                  loadRoster();
+                }}
+              >
+                View order progress
+              </button>
+            )}
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
             <Icon name="X" size={18} />
@@ -94,7 +156,6 @@ export default function SharedCartDrawer({
                       )}
                     </div>
 
-                    {/* Actions (icon-only) */}
                     <div className="mt-1.5 flex items-center gap-1.5">
                       <Button
                         variant="ghost"
@@ -103,10 +164,9 @@ export default function SharedCartDrawer({
                         aria-label="Edit item"
                         title="Edit item"
                         onClick={() => {
-													onClose?.();
-													// tiny defer to avoid overlap in portals
-													setTimeout(() => onEditItem?.(it), 0);
-													}}
+                          onClose?.();
+                          setTimeout(() => onEditItem?.(it), 0);
+                        }}
                       >
                         <Icon name="Pencil" size={14} />
                       </Button>
@@ -130,7 +190,7 @@ export default function SharedCartDrawer({
           )}
         </div>
 
-        {/* Footer (fixed) — no checkout button, just a friendly message */}
+        {/* Footer (fixed) */}
         <div className="p-3 md:p-4 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/75 shrink-0">
           <div className="mb-2 flex items-center justify-between text-sm">
             <div className="text-muted-foreground">
@@ -151,6 +211,18 @@ export default function SharedCartDrawer({
           </div>
         </div>
       </aside>
+      <CartMemberProgressModal
+        open={showRoster}
+        onClose={() => setShowRoster(false)}
+        orderedMembers={orderedMembers}
+        waitingMembers={waitingMembers}
+        loading={rosterLoading}
+        error={rosterError}
+        extrasCount={extrasCount}
+        unassignedCount={unassignedCount}
+        hasRecipients={hasRecipients}
+        assignmentMembers={assignmentMembers}
+      />
     </div>,
     document.body
   );

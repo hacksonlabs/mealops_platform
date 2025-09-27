@@ -1,18 +1,9 @@
 // src/services/cartDBService.js
 import { supabase } from '../lib/supabase';
 import { toTitleCase } from '../utils/stringUtils';
-/**
- * We keep a snapshot in selected_options.__assignment__ for quick UI use:
- * {
- *   __assignment__: {
- *     member_ids: [uuid, ...],   // team_members.id
- *     extra_count: number,       // how many "Extra" meals (total units)
- *     display_names: [string]    // snapshot for quick rendering in header
- *     // (optional) units_by_member: { [memberId]: units }  // if you choose to persist
- *   },
- *   ...other option groups...
- * }
- */
+import { featureFlags } from '../config/runtimeConfig';
+import { mealmeApi } from './mealmeApi';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const normalizeTitle = (t) => {
   const s = (t ?? '').trim();
@@ -27,145 +18,211 @@ const normalizeDbTime = (t) => {
   return `${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:${(ss || '00').padStart(2, '0')}`;
 };
 
-// ---------------------------------------------------------------------------
-// Assignment helpers: compute + persist unit quantities per assignee/extras
-// ---------------------------------------------------------------------------
-
-/**
- * Compute per-member units and extras to match a target quantity.
- * If quantity is missing/invalid, it is derived from unitsByMember+extraCount
- * or falls back to (memberIds.length + extraCount) or 1.
- */
-function computeUnits({ quantity, memberIds = [], unitsByMember = {}, extraCount = 0 }) {
-  const ids = Array.from(new Set(memberIds)); // de-dupe, keep order
-  const units = {};
-  let baseTot = 0;
-
-  // start with provided units or default 1 per member
-  for (const id of ids) {
-    const raw = Number(unitsByMember?.[id]);
-    const u = Number.isFinite(raw) && raw > 0 ? raw : 1;
-    units[id] = u;
-    baseTot += u;
-  }
-
-  // extras are ONLY the explicit extras the user asked for
-  let extras = Math.max(0, Number(extraCount || 0));
-
-  // target quantity
-  let targetQty = Number(quantity);
-  if (!Number.isFinite(targetQty) || targetQty <= 0) {
-    // if quantity omitted, derive from current plan or at least 1
-    targetQty = Math.max(1, baseTot || ids.length || extras || 1);
-  }
-
-  // If no members are selected, treat everything beyond explicit extras as unassigned.
-  if (ids.length === 0) {
-    const clampedExtras = Math.min(extras, targetQty);
-    const unassigned = Math.max(0, targetQty - clampedExtras);
-    return { targetQty, units: {}, extras: clampedExtras, unassigned };
-  }
-
-  extras = Math.min(extras, Math.max(0, targetQty - ids.length));
-  const baseTotal = ids.length + extras;
-
-  let unassigned = 0;
-
-  if (targetQty > baseTotal) {
-    unassigned = targetQty - baseTotal;
-  } else if (targetQty < baseTotal) {
-    let toRemove = baseTotal - targetQty;
-
-    const cut = Math.min(extras, toRemove);
-    extras -= cut;
-    toRemove -= cut;
-
-    for (let i = ids.length - 1; i >= 0 && toRemove > 0; i--) {
-      const id = ids[i];
-      const take = Math.min(units[id], toRemove);
-      units[id] -= take;
-      toRemove -= take;
-    }
-
-    for (const id of Object.keys(units)) {
-      if (units[id] <= 0) delete units[id];
-    }
-  }
-
-  return { targetQty, units, extras, unassigned };
-}
-
-
-/** Replace all assignees with explicit unit_qty (single extras row if extras>0). */
-async function writeAssigneesWithUnits(itemId, { unitsByMember = {}, extras = 0, unassigned = 0 }) {
-  const rows = [
-    ...Object.entries(unitsByMember).map(([member_id, unit_qty]) => ({
-      cart_item_id: itemId,
-      member_id,
-      is_extra: false,
-      unit_qty: Math.max(0, Number(unit_qty || 0)),
-    })),
-    ...(extras > 0
-      ? [{
-          cart_item_id: itemId,
-          is_extra: true,
-          unit_qty: Math.max(0, Number(extras || 0)),
-        }]
-      : []),
-    ...(unassigned > 0
-      ? [{
-          cart_item_id: itemId,
-          member_id: null,
-          is_extra: false,
-          unit_qty: Math.max(0, Number(unassigned || 0)),
-        }]
-      : []),
-  ].filter(r => r.unit_qty > 0);
-
-  // wipe then insert
-  const { error: delErr } = await supabase
-    .from('meal_cart_item_assignees')
-    .delete()
-    .eq('cart_item_id', itemId);
-  if (delErr) throw delErr;
-
-  if (rows.length) {
-    const { error: insErr } = await supabase
-      .from('meal_cart_item_assignees')
-      .insert(rows);
-    if (insErr) throw insErr;
+async function maybeCreateMealMeCart(cartId, {
+  teamId,
+  providerRestaurantId,
+  fulfillment,
+  title,
+} = {}) {
+  if (!featureFlags.mealMeEnabled) return null;
+  if (!providerRestaurantId) return null;
+  try {
+    const whenDate = fulfillment?.date;
+    const whenTime = fulfillment?.time ? normalizeDbTime(fulfillment.time) : null;
+    const scheduledAt = whenDate && whenTime ? `${whenDate}T${whenTime}` : null;
+    const payload = {
+      provider_restaurant_id: providerRestaurantId,
+      team_id: teamId,
+      service_type: fulfillment?.service || 'delivery',
+      scheduled_at: scheduledAt || undefined,
+      address: fulfillment?.address || undefined,
+      latitude: fulfillment?.coords?.lat,
+      longitude: fulfillment?.coords?.lng,
+      cart_name: title || undefined,
+    };
+    const response = await mealmeApi.createCart(payload);
+    const providerCartId = response?.cart_id || response?.id || response?.data?.cart_id || null;
+    await supabase
+      .from('meal_carts')
+      .update({
+        provider_cart_id: providerCartId,
+        provider_metadata: {
+          ...(response ? { mealme: response } : {}),
+        },
+      })
+      .eq('id', cartId);
+    return providerCartId;
+  } catch (error) {
+    console.warn('MealMe cart creation failed:', error?.message || error);
+    return null;
   }
 }
 
-/**
- * When only quantity changes (no new assignment payload), adjust current
- * assignments so the trigger passes. Extras absorb changes first.
- */
-async function syncAssigneesToQuantity(itemId, newQty) {
-  const { data: asg, error } = await supabase
-    .from('meal_cart_item_assignees')
-    .select('member_id, is_extra, unit_qty')
-    .eq('cart_item_id', itemId);
-  if (error) throw error;
+const toMealMeLineItem = ({ menuItem, quantity, unitPrice, specialInstructions, selectedOptions }) => {
+  const price = unitPrice != null ? Number(unitPrice) : Number(menuItem?.price ?? 0);
+  const payload = {
+    provider_item_id: menuItem?.provider_item_id || menuItem?.api_id || menuItem?.id || null,
+    name: menuItem?.name || menuItem?.item_name || 'Item',
+    quantity: Number.isFinite(Number(quantity)) ? Math.max(1, Number(quantity)) : 1,
+    price_cents: Math.round(Number.isFinite(price) ? price * 100 : 0),
+    special_instructions: specialInstructions || undefined,
+  };
+  if (selectedOptions) payload.selected_options = selectedOptions;
+  return payload;
+};
 
-  const unitsByMember = {};
-  let extras = 0;
+async function syncMealMeCartItemAdd(cartId, cartInfo, localItemId, ctx) {
+  if (!featureFlags.mealMeEnabled) return;
+  if (cartInfo?.provider_type !== 'mealme') return;
 
-  for (const r of asg || []) {
-    if (r.is_extra) extras += Number(r.unit_qty || 0);
-    else unitsByMember[r.member_id] = Math.max(0, Number(r.unit_qty || 0));
+  let providerCartId = cartInfo?.provider_cart_id;
+  if (!providerCartId) {
+    providerCartId = await maybeCreateMealMeCart(cartId, {
+      teamId: cartInfo?.team_id,
+      providerRestaurantId: cartInfo?.provider_restaurant_id,
+      fulfillment: {
+        service: cartInfo?.fulfillment_service,
+        address: cartInfo?.fulfillment_address,
+        coords: cartInfo?.fulfillment_latitude != null && cartInfo?.fulfillment_longitude != null
+          ? { lat: cartInfo.fulfillment_latitude, lng: cartInfo.fulfillment_longitude }
+          : null,
+        date: cartInfo?.fulfillment_date ?? undefined,
+        time: cartInfo?.fulfillment_time ?? undefined,
+      },
+      title: ctx?.title,
+    });
+    const refreshed = await getCartProviderInfo(cartId);
+    cartInfo = { ...refreshed };
   }
 
-  const memberIds = Object.keys(unitsByMember);
-  const { targetQty, units, extras: ex, unassigned } = computeUnits({
-    quantity: newQty,
-    memberIds,
-    unitsByMember,
-    extraCount: extras,
+  if (!cartInfo?.provider_cart_id) return;
+
+  try {
+    const payload = {
+      cart_id: cartInfo.provider_cart_id,
+      provider_restaurant_id: cartInfo.provider_restaurant_id,
+      line_item: toMealMeLineItem(ctx),
+    };
+    const response = await mealmeApi.addItemToCart(cartInfo.provider_cart_id, payload);
+    const providerLineId = response?.line_item_id || response?.id || response?.data?.line_item_id || null;
+    await supabase
+      .from('meal_cart_items')
+      .update({
+        provider_line_item_id: providerLineId,
+        provider_payload: {
+          ...(response ? { mealme: response } : {}),
+        },
+      })
+      .eq('id', localItemId);
+  } catch (error) {
+    console.warn('MealMe addItem sync failed:', error?.message || error);
+  }
+}
+
+async function syncMealMeCartItemRemove(cartId, itemInfo) {
+  if (!featureFlags.mealMeEnabled) return;
+  const cartInfo = await getCartProviderInfo(cartId);
+  if (cartInfo?.provider_type !== 'mealme') return;
+  if (!cartInfo?.provider_cart_id) return;
+  if (!itemInfo?.provider_line_item_id) return;
+  try {
+    await mealmeApi.removeItemFromCart(cartInfo.provider_cart_id, {
+      cart_id: cartInfo.provider_cart_id,
+      provider_restaurant_id: cartInfo.provider_restaurant_id,
+      line_item_id: itemInfo.provider_line_item_id,
+    });
+  } catch (error) {
+    console.warn('MealMe removeItem sync failed:', error?.message || error);
+  }
+}
+
+async function syncMealMeCartItemUpdate(cartId, itemId) {
+  if (!featureFlags.mealMeEnabled) return;
+  const cartInfo = await getCartProviderInfo(cartId);
+  if (cartInfo?.provider_type !== 'mealme') return;
+  if (!cartInfo?.provider_cart_id) return;
+
+  const { data } = await supabase
+    .from('meal_cart_items')
+    .select(`
+      id, provider_line_item_id, item_name, price, quantity, special_instructions, selected_options,
+      menu_item_id,
+      menu_items ( id, name, api_id )
+    `)
+    .eq('id', itemId)
+    .maybeSingle();
+
+  if (!data) return;
+
+  const menuItem = {
+    id: data.menu_item_id || data.menu_items?.id,
+    name: data.menu_items?.name || data.item_name,
+    provider_item_id: data.menu_items?.api_id || data.provider_line_item_id,
+  };
+
+  if (data.provider_line_item_id) {
+    await syncMealMeCartItemRemove(cartId, data);
+  }
+
+  await syncMealMeCartItemAdd(cartId, cartInfo, itemId, {
+    menuItem,
+    quantity: data.quantity,
+    unitPrice: data.price,
+    specialInstructions: data.special_instructions,
+    selectedOptions: data.selected_options,
   });
+}
 
-  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras: ex, unassigned });
-  return targetQty;
+// ---------------------------------------------------------------------------
+// Assignment helpers
+// ---------------------------------------------------------------------------
+
+function deriveAssignmentFields({ quantity, assignment = {} }) {
+  const fallbackQty = Math.max(1, Number(quantity || 1));
+
+  const memberIdsArray = Array.isArray(assignment.memberIds)
+    ? assignment.memberIds.filter((id) => UUID_RE.test(id))
+    : [];
+  const secondaryMemberId =
+    typeof assignment.memberId === 'string' && UUID_RE.test(assignment.memberId)
+      ? assignment.memberId
+      : null;
+  const normalizedMemberIds = memberIdsArray.length
+    ? memberIdsArray
+    : secondaryMemberId
+    ? [secondaryMemberId]
+    : [];
+  const unitsByMember = assignment.unitsByMember || {};
+  const extraCountRaw =
+    assignment.extraCount ??
+    assignment.extrasCount ??
+    (Array.isArray(assignment.extras) ? assignment.extras.length : 0) ??
+    0;
+  const extraCount = Math.max(0, Number(extraCountRaw || 0));
+
+  if (normalizedMemberIds.length > 0) {
+    const memberId = normalizedMemberIds[0];
+    const rawUnits = Number(unitsByMember?.[memberId]);
+    const qty = Number.isFinite(rawUnits) && rawUnits > 0 ? Math.floor(rawUnits) : fallbackQty;
+    const safeQty = Math.max(1, qty || 0);
+    return { quantity: safeQty, memberId, isExtra: false };
+  }
+
+  if (extraCount > 0) {
+    const qty = Math.max(1, Math.floor(extraCount));
+    return { quantity: qty, memberId: null, isExtra: true };
+  }
+
+  return { quantity: fallbackQty, memberId: null, isExtra: false };
+}
+
+function stripAssignmentSnapshot(selectedOptions) {
+  if (!selectedOptions || typeof selectedOptions !== 'object' || Array.isArray(selectedOptions)) {
+    return selectedOptions || null;
+  }
+  const next = { ...selectedOptions };
+  if ('__assignment__' in next) delete next.__assignment__;
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +262,16 @@ async function findActiveCartForRestaurant(teamId, restaurantId, providerType = 
   return data?.id ?? null;
 }
 
+async function getCartProviderInfo(cartId) {
+  const { data, error } = await supabase
+    .from('meal_carts')
+    .select('id, provider_type, provider_restaurant_id, provider_cart_id, provider_metadata, team_id, fulfillment_service, fulfillment_address, fulfillment_latitude, fulfillment_longitude, fulfillment_date, fulfillment_time')
+    .eq('id', cartId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 async function ensureCartForRestaurant(
   teamId,
   restaurantId,
@@ -235,7 +302,18 @@ async function ensureCartForRestaurant(
     .single();
 
   if (insErr) throw insErr;
-  return created.id;
+  const cartId = created.id;
+
+  if (providerType === 'mealme') {
+    await maybeCreateMealMeCart(cartId, {
+      teamId,
+      providerRestaurantId,
+      fulfillment,
+      title: cleanTitle,
+    });
+  }
+
+  return cartId;
 }
 
 export async function updateCartTitle(cartId, title) {
@@ -251,12 +329,51 @@ export async function updateCartTitle(cartId, title) {
 // Snapshots & meta
 // ---------------------------------------------------------------------------
 
+function mapCartItemRow(it) {
+  const memberId = it?.member_id || null;
+  const isExtra = Boolean(it?.is_extra);
+  const quantity = Math.max(1, Number(it?.quantity || 1));
+  const price = Number(it?.price || 0);
+  const rawOptions = it?.selected_options;
+  const normalizedOptions =
+    rawOptions && typeof rawOptions === 'object' && !Array.isArray(rawOptions) ? rawOptions : {};
+  const assigneeRecord = it?.assignee || it?.team_members || null;
+  const assignedTo = (() => {
+    if (isExtra) {
+      return [{ name: 'Extra', isExtra: true }];
+    }
+    if (memberId) {
+      const name = assigneeRecord?.full_name || assigneeRecord?.email || null;
+      return [{ id: memberId, name: name || 'Team member' }];
+    }
+    return [];
+  })();
+
+  return {
+    id: it?.id,
+    name: it?.item_name || it?.menu_items?.name || 'Item',
+    quantity,
+    price,
+    image: it?.menu_items?.image_url || null,
+    selectedOptions: normalizedOptions,
+    specialInstructions: it?.special_instructions || '',
+    menuItemId: it?.menu_item_id || it?.menu_items?.id,
+    assignedTo,
+    assignmentMemberIds: memberId ? [memberId] : [],
+    assignmentExtras: isExtra ? quantity : 0,
+    memberId,
+    isExtra,
+    addedByMemberId: it?.added_by_member_id || null,
+  };
+}
+
 async function getCartSnapshot(cartId) {
   // cart & its restaurant
   const { data: cart, error: cartErr } = await supabase
     .from('meal_carts')
     .select(`
-      id, team_id, restaurant_id, provider_type, provider_restaurant_id, title,
+      id, team_id, restaurant_id, provider_type, provider_restaurant_id, provider_cart_id, provider_metadata, title,
+      created_by_member_id,
       fulfillment_service, fulfillment_address, fulfillment_latitude, fulfillment_longitude,
       fulfillment_date, fulfillment_time,
       restaurants ( id, name, image_url, address, phone_number, rating ),
@@ -272,36 +389,16 @@ async function getCartSnapshot(cartId) {
     .from('meal_cart_items')
     .select(`
       id, cart_id, menu_item_id, item_name, quantity, price, special_instructions, selected_options, added_by_member_id,
-      menu_items ( id, name, image_url )
+      member_id, is_extra,
+      menu_items ( id, name, image_url ),
+      assignee:member_id ( id, full_name, email )
     `)
     .eq('cart_id', cartId)
     .order('created_at', { ascending: true });
 
   if (itemsErr) throw itemsErr;
 
-  const mapped = (items || []).map((it) => {
-    const sel = it.selected_options || {};
-    const assignment = sel.__assignment__ || {};
-    const displayNames = assignment.display_names || null;
-
-    return {
-      id: it.id, // unique row id (used as React key and for Edit/Remove)
-      name: it.item_name || it.menu_items?.name || 'Item',
-      quantity: it.quantity || 1,
-      price: Number(it.price || 0),
-      image: it.menu_items?.image_url || null,
-      selectedOptions: sel, // raw JSON you saved (still available for modal)
-      specialInstructions: it.special_instructions || '',
-      menuItemId: it.menu_item_id || it.menu_items?.id,
-      // For the header to show "For: Alice, Bob" (snapshot)
-      assignedTo: Array.isArray(displayNames)
-        ? displayNames.map((n) => ({ name: n }))
-        : [],
-
-      // extra fields you might use
-      addedByMemberId: it.added_by_member_id || null,
-    };
-  });
+  const mapped = (items || []).map(mapCartItemRow);
 
   // derive abandoned state (draft + scheduled in the past)
   const toMs = (d, t) => {
@@ -331,6 +428,7 @@ async function getCartSnapshot(cartId) {
     cart: {
       id: cart.id,
       teamId: cart.team_id,
+      createdByMemberId: cart.created_by_member_id ?? null,
       status: statusEffective,
       title: cart.title ?? cart.restaurants.name ?? null,
       fulfillment_service: cart.fulfillment_service ?? null,
@@ -340,6 +438,8 @@ async function getCartSnapshot(cartId) {
       fulfillment_date: cart.fulfillment_date ?? null,
       fulfillment_time: cart.fulfillment_time ?? null,
       meal_type: cart.meal_type ?? null,
+      provider_cart_id: cart.provider_cart_id ?? null,
+      provider_metadata: cart.provider_metadata ?? null,
     },
     restaurant: cart.restaurants
       ? {
@@ -354,7 +454,109 @@ async function getCartSnapshot(cartId) {
         }
       : null,
     items: mapped,
+    assignmentMemberIdsSnapshot: Array.from(
+      new Set(
+        mapped.flatMap((item) =>
+          Array.isArray(item.assignmentMemberIds) ? item.assignmentMemberIds.filter(Boolean) : []
+        )
+      )
+    ),
   };
+}
+
+async function getCartMembers(cartId) {
+  if (!cartId) return [];
+  const { data, error } = await supabase
+    .from('meal_cart_members')
+    .select('member_id')
+    .eq('cart_id', cartId);
+  if (error) throw error;
+  return (data || []).map((row) => row.member_id);
+}
+
+async function setCartMembers(cartId, memberIds = []) {
+  if (!cartId) throw new Error('Missing cartId');
+  const unique = Array.from(new Set((memberIds || []).filter(Boolean)));
+
+  try {
+    await supabase.rpc('join_cart_as_member', { p_cart_id: cartId });
+  } catch (err) {
+    console.warn('join_cart_as_member failed before syncing members:', err?.message || err);
+  }
+
+  if (unique.length === 0) {
+    const { error } = await supabase
+      .from('meal_cart_members')
+      .delete()
+      .eq('cart_id', cartId);
+    if (error) throw error;
+    return;
+  }
+
+  const { data: existingRows, error: existingErr } = await supabase
+    .from('meal_cart_members')
+    .select('member_id')
+    .eq('cart_id', cartId);
+  if (existingErr) throw existingErr;
+
+  const existingSet = new Set((existingRows || []).map((row) => row.member_id));
+  const uniqueSet = new Set(unique);
+  const toDelete = Array.from(existingSet).filter((id) => !uniqueSet.has(id));
+
+  if (toDelete.length) {
+    const { error: deleteErr } = await supabase
+      .from('meal_cart_members')
+      .delete()
+      .eq('cart_id', cartId)
+      .in('member_id', toDelete);
+    if (deleteErr) throw deleteErr;
+  }
+
+  const { data: memberRows, error: memberErr } = await supabase
+    .from('team_members')
+    .select('id, user_id')
+    .in('id', unique);
+  if (memberErr) throw memberErr;
+
+  const userMap = new Map((memberRows || []).map((row) => [row.id, row.user_id]));
+
+  const toInsert = unique.filter((memberId) => !existingSet.has(memberId));
+  if (!toInsert.length) return;
+
+  const rows = toInsert.map((memberId) => ({
+    cart_id: cartId,
+    member_id: memberId,
+    user_id: userMap.get(memberId) || null,
+  }));
+
+  const { error: insertErr } = await supabase
+    .from('meal_cart_members')
+    .insert(rows);
+  if (insertErr) throw insertErr;
+}
+
+async function listCartMembersDetailed(cartId) {
+  if (!cartId) return [];
+
+  const ids = await getCartMembers(cartId);
+  if (!ids.length) return [];
+
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('id, full_name, email, role')
+    .in('id', ids);
+  if (error) throw error;
+
+  const map = new Map((data || []).map((row) => [row.id, row]));
+  return ids.map((id) => {
+    const row = map.get(id) || {};
+    return {
+      id,
+      fullName: row.full_name || null,
+      email: row.email || null,
+      role: row.role || null,
+    };
+  });
 }
 
 export async function getSharedCartMeta(cartId) {
@@ -454,63 +656,51 @@ async function addItem(
   cartId,
   { menuItem, quantity, unitPrice, specialInstructions, selectedOptions, assignment, addedByMemberId }
 ) {
-  // sanitize inputs
-  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const rawIds = assignment?.memberIds ?? [];
-  const memberIds = rawIds.filter((id) => uuidRe.test(id));
-  const unitsByMember = assignment?.unitsByMember || {}; // optional mapping { memberId: units }
-  const inferredExtras = rawIds.filter((id) => id === '__EXTRA__').length;
-  const extraCount = Math.max(assignment?.extraCount ?? 0, inferredExtras);
+  try {
+    await supabase.rpc('join_cart_as_member', { p_cart_id: cartId });
+  } catch (err) {
+    console.warn('join_cart_as_member failed:', err?.message || err);
+  }
 
-  // compute per-assignee units and final quantity
-  const { targetQty, units, extras, unassigned } = computeUnits({
-    quantity,
-    memberIds,
-    unitsByMember,
-    extraCount,
-  });
-
-  // snapshot for UI
-  const selected_options = {
-    ...selectedOptions,
-    __assignment__: {
-      member_ids: memberIds,
-      extra_count: extras,
-      display_names: assignment?.displayNames || [],
-      // units_by_member: units, // optional: persist for round-tripping
-    },
-  };
+  const { quantity: normalizedQty, memberId, isExtra } = deriveAssignmentFields({ quantity, assignment });
+  const sanitizedOptions = stripAssignmentSnapshot(selectedOptions);
 
   const addedBy =
-    typeof addedByMemberId === 'string' && uuidRe.test(addedByMemberId)
+    typeof addedByMemberId === 'string' && UUID_RE.test(addedByMemberId)
       ? addedByMemberId
       : null;
 
-  // create the item with the final quantity
+  const payload = {
+    cart_id: cartId,
+    menu_item_id: menuItem?.id || null,
+    item_name: menuItem?.name || 'Item',
+    quantity: Math.max(1, Number(normalizedQty || 1)),
+    price: Number(unitPrice || 0),
+    special_instructions: specialInstructions || '',
+    selected_options: sanitizedOptions,
+    added_by_member_id: addedBy,
+    member_id: isExtra ? null : memberId || null,
+    is_extra: Boolean(isExtra),
+  };
+
   const { data, error } = await supabase
     .from('meal_cart_items')
-    .insert({
-      cart_id: cartId,
-      menu_item_id: menuItem?.id || null,
-      item_name: menuItem?.name || 'Item',
-      quantity: targetQty,
-      price: Number(unitPrice || 0),
-      special_instructions: specialInstructions || '',
-      selected_options,
-      added_by_member_id: addedBy,
-    })
+    .insert(payload)
     .select('id')
     .single();
 
   if (error) throw error;
   const itemId = data.id;
 
-  try {
-    await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras, unassigned });
-  } catch (asgErr) {
-    // rollback if assignments fail (triggers/RLS/etc.)
-    await supabase.from('meal_cart_items').delete().eq('id', itemId).eq('cart_id', cartId);
-    throw asgErr;
+  if (featureFlags.mealMeEnabled) {
+    const cartInfo = await getCartProviderInfo(cartId);
+    await syncMealMeCartItemAdd(cartId, cartInfo, itemId, {
+      menuItem,
+      quantity: payload.quantity,
+      unitPrice,
+      specialInstructions,
+      selectedOptions: sanitizedOptions,
+    });
   }
 
   return itemId;
@@ -519,13 +709,46 @@ async function addItem(
 async function updateItem(cartId, itemId, patch) {
   const wantsQty = typeof patch.quantity === 'number';
 
-  // Update item fields
+  const sanitizedOptions =
+    patch.selected_options !== undefined
+      ? stripAssignmentSnapshot(patch.selected_options)
+      : patch.selectedOptions !== undefined
+      ? stripAssignmentSnapshot(patch.selectedOptions)
+      : undefined;
+
+  let nextMemberId =
+    patch.memberId !== undefined ? patch.memberId : patch.member_id;
+  if (typeof nextMemberId === 'string' && !UUID_RE.test(nextMemberId)) {
+    nextMemberId = null;
+  } else if (nextMemberId !== undefined && nextMemberId !== null && typeof nextMemberId !== 'string') {
+    nextMemberId = null;
+  }
+
+  let nextIsExtra =
+    patch.isExtra !== undefined ? patch.isExtra : patch.is_extra;
+  if (nextIsExtra !== undefined) {
+    nextIsExtra = Boolean(nextIsExtra);
+  }
+  if (nextIsExtra === true) {
+    nextMemberId = null;
+  }
+
   const payload = {
     ...(wantsQty ? { quantity: Math.max(1, Number(patch.quantity || 1)) } : {}),
     ...(typeof patch.price === 'number' ? { price: patch.price } : {}),
     ...(typeof patch.special_instructions === 'string' ? { special_instructions: patch.special_instructions } : {}),
-    ...(patch.selected_options !== undefined ? { selected_options: patch.selected_options } : {}),
+    ...(sanitizedOptions !== undefined ? { selected_options: sanitizedOptions } : {}),
   };
+
+  if (nextMemberId !== undefined) {
+    payload.member_id = nextMemberId;
+  }
+  if (nextIsExtra !== undefined) {
+    payload.is_extra = Boolean(nextIsExtra);
+    if (payload.is_extra) {
+      payload.member_id = null;
+    }
+  }
 
   const { data, error } = await supabase
     .from('meal_cart_items')
@@ -536,15 +759,28 @@ async function updateItem(cartId, itemId, patch) {
     .single();
   if (error) throw error;
 
-  // If quantity changed (alone or with other fields), rebalance assignees.
-  if (wantsQty) {
-    await syncAssigneesToQuantity(itemId, payload.quantity);
+  if (featureFlags.mealMeEnabled) {
+    await syncMealMeCartItemUpdate(cartId, itemId);
   }
 
   return data.id;
 }
 
 async function removeItem(cartId, itemId) {
+  let snapshot = null;
+  if (featureFlags.mealMeEnabled) {
+    const { data } = await supabase
+      .from('meal_cart_items')
+      .select('id, provider_line_item_id')
+      .eq('id', itemId)
+      .maybeSingle();
+    snapshot = data || null;
+  }
+
+  if (snapshot) {
+    await syncMealMeCartItemRemove(cartId, snapshot);
+  }
+
   const { error } = await supabase
     .from('meal_cart_items')
     .delete()
@@ -595,6 +831,18 @@ async function upsertCartFulfillment(cartId, fulfillment = {}, meta = {}) {
   };
   const { error } = await supabase.from('meal_carts').update(payload).eq('id', cartId);
   if (error) throw error;
+
+  if (featureFlags.mealMeEnabled && (meta?.providerType ?? null) === 'mealme') {
+    const info = await getCartProviderInfo(cartId);
+    if (!info?.provider_cart_id) {
+      await maybeCreateMealMeCart(cartId, {
+        teamId: info?.team_id,
+        providerRestaurantId: meta?.providerRestaurantId,
+        fulfillment,
+        title: meta?.title,
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -762,59 +1010,35 @@ export async function joinCartWithEmail(cartId, email) {
   };
 }
 
-// Back-compat helper if referenced elsewhere: assigns unit_qty=1 per member and
-// a single extras row with unit_qty = extraCount.
-async function replaceItemAssignees(itemId, memberIds = [], extraCount = 0) {
-  const unitsByMember = {};
-  for (const id of memberIds) unitsByMember[id] = 1;
-  await writeAssigneesWithUnits(itemId, {
-    unitsByMember,
-    extras: Math.max(0, Number(extraCount || 0)),
-  });
-}
-
 async function updateItemFull(
   cartId,
   itemId,
   { quantity, unitPrice, specialInstructions, selectedOptions, assignment = {} }
 ) {
-  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const memberIds = (assignment.memberIds || []).filter(id => uuidRe.test(id));
-  const unitsByMember = assignment.unitsByMember || {};
-  const extraCount = Math.max(0, Number(assignment.extraCount || 0));
+  const { quantity: normalizedQty, memberId, isExtra } = deriveAssignmentFields({ quantity, assignment });
+  const sanitizedOptions = stripAssignmentSnapshot(selectedOptions);
 
-  const { targetQty, units, extras, unassigned } = computeUnits({
-    quantity,
-    memberIds,
-    unitsByMember,
-    extraCount,
-  });
-
-  const selected_options = {
-    ...(selectedOptions || {}),
-    __assignment__: {
-      member_ids: memberIds,
-      extra_count: extras,
-      display_names: selectedOptions?.__assignment__?.display_names || [],
-      // units_by_member: units, // optional snapshot
-    },
+  const payload = {
+    quantity: Math.max(1, Number(normalizedQty || 1)),
+    price: Number(unitPrice || 0),
+    special_instructions: specialInstructions || '',
+    selected_options: sanitizedOptions,
+    member_id: isExtra ? null : memberId || null,
+    is_extra: Boolean(isExtra),
   };
 
   const { data, error } = await supabase
     .from('meal_cart_items')
-    .update({
-      quantity: targetQty,
-      price: Number(unitPrice || 0),
-      special_instructions: specialInstructions || '',
-      selected_options,
-    })
+    .update(payload)
     .eq('id', itemId)
     .eq('cart_id', cartId)
     .select('id')
     .single();
   if (error) throw error;
 
-  await writeAssigneesWithUnits(itemId, { unitsByMember: units, extras, unassigned });
+  if (featureFlags.mealMeEnabled) {
+    await syncMealMeCartItemUpdate(cartId, itemId);
+  }
   return data.id;
 }
 
@@ -831,6 +1055,9 @@ export default {
   deleteCart,
   markSubmitted,
   updateCartTitle,
+  getCartMembers,
+  setCartMembers,
+  listCartMembersDetailed,
   getSharedCartMeta,
   joinCartWithEmail,
   updateItemFull,

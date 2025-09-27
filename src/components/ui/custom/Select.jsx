@@ -29,6 +29,8 @@ const Select = React.forwardRef(({
   selectedNoun = "items",
   menuPortalTarget,
   menuPosition = "fixed", // "absolute" | "fixed"
+  groupBy,
+  groupConfig = {},
   ...props
 }, ref) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -39,6 +41,9 @@ const Select = React.forwardRef(({
   const buttonRef = useRef(null);       // NEW: measure trigger for fixed menu
   const menuRef = useRef(null);         // NEW: outside-click when menu is portaled
   const [menuRect, setMenuRect] = useState(null);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth : 0
+  );
 
   // Generate unique ID if not provided
   const selectId = id || `select-${Math.random()?.toString(36)?.substr(2, 9)}`;
@@ -116,6 +121,14 @@ useEffect(() => {
     }
   }, [isOpen, searchable]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   // measure trigger rect for fixed-position menu
   const updateMenuRect = () => {
     if (!buttonRef.current) return;
@@ -153,6 +166,150 @@ useEffect(() => {
       return tokens.every((t) => hay.includes(t));
     });
   }, [options, searchable, searchTerm]);
+
+  const {
+    order: groupOrder,
+    fallbackLabel: groupFallbackLabel = 'Other',
+    columnMinWidth: groupColumnMinWidth = 180,
+    maxColumns: groupMaxColumns = 4,
+    headerFormatter: groupHeaderFormatter,
+  } = groupConfig || {};
+
+  const groupAccessor = useMemo(() => {
+    if (!groupBy) return null;
+    if (typeof groupBy === 'function') return groupBy;
+    if (typeof groupBy === 'string') {
+      return (option) => option?.[groupBy];
+    }
+    return null;
+  }, [groupBy]);
+
+  const resolveOrderIndex = useMemo(() => {
+    if (!Array.isArray(groupOrder) || groupOrder.length === 0) return null;
+    const lookup = new Map(groupOrder.map((label, idx) => [String(label).toLowerCase(), idx]));
+    return (label) => {
+      const key = String(label || '').toLowerCase();
+      return lookup.has(key) ? lookup.get(key) : -1;
+    };
+  }, [groupOrder]);
+
+  const groupLayout = useMemo(() => {
+    if (!groupAccessor) return null;
+    if (!filteredOptions?.length) return null;
+
+    const groups = new Map();
+
+    filteredOptions.forEach((option) => {
+      const raw = groupAccessor(option);
+      let label;
+      let sortHint = null;
+
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        label = raw.label ?? raw.value ?? raw.key;
+        if (raw.sortKey != null) sortHint = Number(raw.sortKey);
+      } else {
+        label = raw;
+      }
+
+      const resolvedLabel = String(label || '').trim() || groupFallbackLabel;
+      if (!groups.has(resolvedLabel)) {
+        groups.set(resolvedLabel, { label: resolvedLabel, options: [], sortHint: sortHint });
+      }
+      const entry = groups.get(resolvedLabel);
+      entry.options.push(option);
+      if (sortHint != null && (entry.sortHint == null || sortHint < entry.sortHint)) {
+        entry.sortHint = sortHint;
+      }
+    });
+
+    if (!groups.size) return null;
+
+    const defaultWeight = (label) => {
+      const lower = String(label || '').toLowerCase();
+      if (lower.includes('player')) return 0;
+      if (lower.includes('coach')) return 1;
+      if (lower.includes('staff')) return 2;
+      if (lower.includes('extra')) return 90;
+      if (lower.includes('other')) return 99;
+      return 50;
+    };
+
+    const entries = Array.from(groups.values()).map((entry) => {
+      const sortedOptions = entry.options.slice().sort((a, b) => {
+        const aLabel = String(a?.label || '').toLowerCase();
+        const bLabel = String(b?.label || '').toLowerCase();
+        return aLabel.localeCompare(bLabel);
+      });
+      return { ...entry, options: sortedOptions };
+    });
+
+    entries.sort((a, b) => {
+      const orderA = resolveOrderIndex ? resolveOrderIndex(a.label) : -1;
+      const orderB = resolveOrderIndex ? resolveOrderIndex(b.label) : -1;
+      const weightA = orderA !== -1 ? orderA : (a.sortHint != null ? a.sortHint : defaultWeight(a.label));
+      const weightB = orderB !== -1 ? orderB : (b.sortHint != null ? b.sortHint : defaultWeight(b.label));
+      if (weightA !== weightB) return weightA - weightB;
+      return String(a.label).localeCompare(String(b.label));
+    });
+
+    const minColumnWidth = groupColumnMinWidth || 180;
+    const isMobileViewport = viewportWidth && viewportWidth < 640;
+    const viewportCap = viewportWidth
+      ? Math.max(1, Math.floor((viewportWidth - 32) / minColumnWidth))
+      : (groupMaxColumns || entries.length);
+    const resolvedMax = groupMaxColumns || entries.length;
+    const derivedColumns = Math.min(
+      entries.length,
+      Math.max(1, Math.min(resolvedMax, viewportCap))
+    );
+    const columns = isMobileViewport ? 1 : derivedColumns;
+    const gridClass = columns === 1
+      ? 'grid-cols-1'
+      : columns === 2
+      ? 'grid-cols-2'
+      : columns === 3
+      ? 'grid-cols-3'
+      : 'grid-cols-4';
+
+    const minWidth = Math.max(0, columns) * minColumnWidth;
+
+    return {
+      entries,
+      gridClass,
+      minWidth,
+      headerFormatter: groupHeaderFormatter,
+    };
+  }, [filteredOptions, groupAccessor, groupFallbackLabel, groupColumnMinWidth, groupMaxColumns, groupHeaderFormatter, resolveOrderIndex, viewportWidth]);
+
+  const computedMenuStyle = useMemo(() => {
+    const viewportLimit = viewportWidth ? Math.max(240, viewportWidth - 24) : null;
+    if (menuPosition === "fixed" && menuRect) {
+      const base = {
+        top: menuRect.top,
+        left: menuRect.left,
+      };
+      let width = menuRect.width;
+      if (groupLayout?.minWidth) {
+        width = Math.max(width, groupLayout.minWidth);
+      }
+      if (viewportLimit) {
+        width = Math.min(width, viewportLimit);
+      }
+      return {
+        ...base,
+        width,
+      };
+    }
+
+    if (groupLayout?.minWidth) {
+      return {
+        minWidth: groupLayout.minWidth,
+        maxWidth: viewportLimit || undefined,
+      };
+    }
+
+    return viewportLimit ? { maxWidth: viewportLimit } : undefined;
+  }, [menuPosition, menuRect, groupLayout, viewportWidth]);
 
   // Display string
   const getSelectedDisplay = () => {
@@ -202,6 +359,55 @@ useEffect(() => {
     return multiple ? (normalizedValue?.includes(optionValue) || false) : normalizedValue === optionValue;
   };
 
+  const renderOption = (option, idx, { compact = false } = {}) => {
+    const optionKey = option?.value ?? `option-${idx}`;
+    const selected = isSelected(option?.value);
+
+    return (
+      <div
+        key={optionKey}
+        role="option"
+        aria-selected={selected}
+        tabIndex={0}
+        onClick={() => !option?.disabled && handleOptionSelect(option)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            if (!option?.disabled) handleOptionSelect(option);
+          }
+        }}
+        className={cn(
+          "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+          option?.disabled && "pointer-events-none opacity-50",
+          !multiple && selected && "bg-primary text-primary-foreground",
+          compact && "px-2 py-1.5"
+        )}
+      >
+        {multiple ? (
+          <div className="pointer-events-none">
+            <Checkbox checked={selected} readOnly className="mr-0" />
+          </div>
+        ) : (
+          <span
+            className={cn(
+              "mr-1 inline-block h-2 w-2 rounded-full border border-border",
+              selected && "border-transparent bg-current"
+            )}
+          />
+        )}
+
+        <div className="min-w-0 flex-1">
+          <div className="truncate">{option?.label}</div>
+          {option?.description && (
+            <div className="truncate text-xs text-muted-foreground">{option?.description}</div>
+          )}
+        </div>
+
+        {!multiple && selected && <Check className="h-4 w-4" />}
+      </div>
+    );
+  };
+
   const hasValue = multiple
     ? (normalizedValue?.length > 0)
     : (normalizedValue !== undefined && normalizedValue !== null && normalizedValue !== "");
@@ -214,11 +420,7 @@ useEffect(() => {
           ? "fixed z-[1200] rounded-md border border-border bg-white text-black shadow-md"
           : "absolute z-[1200] mt-1 rounded-md border border-border bg-white text-black shadow-md"
       }
-      style={
-        menuPosition === "fixed" && menuRect
-          ? { top: menuRect.top, left: menuRect.left, width: menuRect.width }
-          : undefined
-      }
+      style={computedMenuStyle}
       role="listbox"
       aria-labelledby={selectId}
     >
@@ -237,61 +439,28 @@ useEffect(() => {
         </div>
       )}
 
-      <div className="max-h-60 overflow-auto py-1">
+      <div className={cn("max-h-60 overflow-auto py-1 pb-2", groupLayout ? "px-1 pb-10" : undefined)}>
         {(filteredOptions?.length ?? 0) === 0 ? (
           <div className="px-3 py-2 text-sm text-muted-foreground">
             {searchTerm ? "No options found" : "No options available"}
           </div>
-        ) : (
-          filteredOptions.map((option) => {
-            const selected = isSelected(option?.value);
-
-            return (
-              <div
-                key={option?.value}
-                role="option"
-                aria-selected={selected}
-                tabIndex={0}
-                onClick={() => !option?.disabled && handleOptionSelect(option)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    if (!option?.disabled) handleOptionSelect(option);
-                  }
-                }}
-                className={cn(
-                  "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
-                  option?.disabled && "pointer-events-none opacity-50",
-                  !multiple && selected && "bg-primary text-primary-foreground"
-                )}
-              >
-                {/* Left: indicator */}
-                {multiple ? (
-                  <div className="pointer-events-none">
-                    <Checkbox checked={selected} readOnly className="mr-0" />
-                  </div>
-                ) : (
-                  <span
-                    className={cn(
-                      "mr-1 inline-block h-2 w-2 rounded-full border border-border",
-                      selected && "border-transparent bg-current"
-                    )}
-                  />
-                )}
-
-                {/* Label & (optional) description */}
-                <div className="min-w-0 flex-1">
-                  <div className="truncate">{option?.label}</div>
-                  {option?.description && (
-                    <div className="truncate text-xs text-muted-foreground">{option?.description}</div>
-                  )}
+        ) : groupLayout ? (
+          <div className={cn("grid gap-3 pr-1", groupLayout.gridClass)}>
+            {groupLayout.entries.map((entry) => (
+              <div key={entry.label} className="min-w-0">
+                <div className="px-1 text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+                  {typeof groupLayout.headerFormatter === 'function'
+                    ? groupLayout.headerFormatter(entry.label)
+                    : entry.label}
                 </div>
-
-                {/* Right: checkmark for single */}
-                {!multiple && selected && <Check className="h-4 w-4" />}
+                <div className="space-y-1">
+                  {entry.options.map((option, idx) => renderOption(option, idx, { compact: true }))}
+                </div>
               </div>
-            );
-          })
+            ))}
+          </div>
+        ) : (
+          filteredOptions.map((option, idx) => renderOption(option, idx))
         )}
       </div>
     </div>

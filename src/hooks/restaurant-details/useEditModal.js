@@ -15,20 +15,21 @@ export default function useEditModal({ location, menuRaw, EXTRA_SENTINEL }) {
     const editedMenuItemId = editState.menuItemId || editState.menu_items?.id || editState.id;
     if (editedMenuItemId !== selectedItem.id) return undefined;
 
-    let assignedTo = null;
+    let assignedTo = Array.isArray(editState.assignedTo) ? [...editState.assignedTo] : null;
     const asg = editState.selectedOptions?.__assignment__ || null;
     let hasExplicitExtras = false;
     let members = [];
     let extrasArray = [];
     let extrasCount = 0;
-    if (asg) {
+
+    if ((!assignedTo || assignedTo.length === 0) && asg) {
       members = Array.isArray(asg.member_ids) ? asg.member_ids.map((id) => ({ id })) : [];
 
       extrasArray = Array.isArray(asg.extras) ? asg.extras : [];
       extrasCount = Number(asg.extra_count ?? asg.extras_count ?? extrasArray.length ?? 0) || 0;
       hasExplicitExtras =
-        extrasArray.length > 0 ||
-        (Array.isArray(asg.display_names) && asg.display_names.some(isExtraName));
+        extrasArray.length > 0
+        || (Array.isArray(asg.display_names) && asg.display_names.some(isExtraName));
 
       const extras = hasExplicitExtras
         ? Array.from({ length: Math.max(extrasCount, extrasArray.length) }, () => ({ id: EXTRA_SENTINEL, name: 'Extra' }))
@@ -39,7 +40,24 @@ export default function useEditModal({ location, menuRaw, EXTRA_SENTINEL }) {
     }
 
     if (!assignedTo || assignedTo.length === 0) {
-      assignedTo = editState.assignedTo || (editState.userName ? [{ name: editState.userName }] : null);
+      if (editState.isExtra) {
+        const extraQty = Math.max(1, Number(editState.assignmentExtras || editState.quantity || 1));
+        extrasCount = extraQty;
+        hasExplicitExtras = true;
+        assignedTo = Array.from({ length: extraQty }, () => ({ id: EXTRA_SENTINEL, name: 'Extra' }));
+      } else if (editState.memberId) {
+        const name =
+          editState.assignedTo?.[0]?.name
+          || editState.memberName
+          || editState.userName
+          || null;
+        assignedTo = [{ id: editState.memberId, name }];
+        members = [{ id: editState.memberId }];
+      }
+    }
+
+    if (!assignedTo || assignedTo.length === 0) {
+      assignedTo = editState.userName ? [{ name: editState.userName }] : null;
     }
 
     if (Array.isArray(assignedTo) && assignedTo.length) {
@@ -72,7 +90,11 @@ export default function useEditModal({ location, menuRaw, EXTRA_SENTINEL }) {
             if (!assign.display_names.length) delete assign.display_names;
           }
         }
-        next.__assignment__ = assign;
+        if (!assign.member_ids.length && !hasExplicitExtras) {
+          delete next.__assignment__;
+        } else {
+          next.__assignment__ = assign;
+        }
       }
       return next;
     })();

@@ -37,6 +37,10 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
   };
 
   const memberEntries = Array.isArray(order.team_members) ? order.team_members : [];
+  const childOrders = Array.isArray(order?.suborders) ? order.suborders : [];
+  const isSplitParent = Boolean(order?.is_split_parent) && childOrders.length > 0;
+  const childOrderLabels = childOrders.map((co) => `#${co.orderNumber}`).join(', ');
+  const orderNumber = order?.orderNumber || order?.api_order_id || `ORD-${String(order?.id || '').substring(0, 8)}`;
   const extrasCount = Number(order.extrasCount ?? order.extras_count ?? 0) || 0;
   const unassignedCount = Number(order.unassignedCount ?? order.unassigned_count ?? 0) || 0;
   const attendeesCount = Number(order.attendeesTotal ?? (
@@ -86,6 +90,8 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
   const showDeliveryInstructions =
     order?.fulfillment_method === 'delivery' && !!order?.delivery_instructions;
 
+  const showOrderNumber = !isSplitParent;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
@@ -127,7 +133,12 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
           </div>
 
           {/* Row 3: Order number */}
-          <div className="mt-1 text-sm text-muted-foreground">Order #{order?.id}</div>
+          {showOrderNumber && (
+            <div className="mt-1 text-sm text-muted-foreground">Order #{orderNumber}</div>
+          )}
+          {isSplitParent && childOrderLabels && (
+            <div className="mt-1 text-xs text-muted-foreground">Orders: {childOrderLabels}</div>
+          )}
         </div>
 
         {/* Content */}
@@ -203,7 +214,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order, onEdit, onCancel, onOpenDet
           </div>
 
           {/* Created */}
-          <div className="space-y-1">
+         <div className="space-y-1">
             <div className="flex items-center gap-2">
               <Icon name="History" size={16} className="text-muted-foreground" />
               <span className="text-sm font-medium text-foreground">Created</span>

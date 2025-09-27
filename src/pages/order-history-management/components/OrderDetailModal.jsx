@@ -29,7 +29,7 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
 
   // Prefer normalized snapshot items. Support a few shapes defensively.
   const items = React.useMemo(
-    () => order?.items || order?.meal_order_items || order?.meal_items || [],
+    () => order?.items || order?.orderItems || order?.meal_order_items || order?.meal_items || [],
     [order]
   );
 
@@ -40,6 +40,17 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
     (it?.user_profile
       ? `${it.user_profile.first_name || ''} ${it.user_profile.last_name || ''}`.trim()
       : null);
+  const normalizeExtraFlag = (value) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    if (typeof value === 'string') {
+      const val = value.trim().toLowerCase();
+      return val === 'true' || val === 't' || val === '1' || val === 'yes';
+    }
+    return false;
+  };
+
+  const isExtraItem = (item) => normalizeExtraFlag(item?.is_extra);
 
   // Sort line items for display:
   // 1) Assigned items (alphabetically by assignee name)
@@ -51,8 +62,8 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
     list.sort((a, b) => {
       const aAssignee = getAssigneeName(a);
       const bAssignee = getAssigneeName(b);
-      const aExtra = !!a?.is_extra;
-      const bExtra = !!b?.is_extra;
+      const aExtra = isExtraItem(a);
+      const bExtra = isExtraItem(b);
 
       const aCat = aExtra ? 2 : (aAssignee ? 0 : 1);
       const bCat = bExtra ? 2 : (bAssignee ? 0 : 1);
@@ -93,7 +104,7 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
       const qty = Math.max(1, Number(it?.quantity ?? 1));
       totalUnits += qty;
 
-      if (it?.is_extra) {
+      if (isExtraItem(it)) {
         extrasCount += qty;
         return;
       }
@@ -159,6 +170,19 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
   const restaurantName = order?.restaurant?.name || '—';
   const restaurantAddr = order?.restaurant?.address || '';
 
+  const childOrders = Array.isArray(order?.suborders)
+    ? order.suborders
+    : [];
+  const childOrderNumbers = childOrders.length
+    ? childOrders.map((co) => co.orderNumber).filter(Boolean)
+    : Array.isArray(order?.child_order_numbers)
+      ? order.child_order_numbers
+      : [];
+  const childOrderLabels = childOrderNumbers.map((n) => `#${n}`).join(', ');
+  const isSplitParent = Boolean(order?.is_split_parent) && childOrderNumbers.length > 0;
+  const parentOrderNumber = order?.api_order_id || order?.orderNumber || `ORD-${String(order?.id || '').substring(0, 8)}`;
+  const scheduledDateTime = order?.scheduled_date ? formatDate(order?.scheduled_date) : null;
+
   // Location rule: delivery => per-order destination; else => restaurant address
   const deliveryAddress = [
     order?.delivery_address_line1 || '',
@@ -214,16 +238,22 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                     <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
                       {fulfillment ? titleCase(fulfillment) : '—'}
                     </span>
+                    {getStatusBadge(order?.order_status)}
                   </div>
                 </div>
               </div>
-
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {getStatusBadge(order?.order_status)}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Order #{order?.api_order_id || `ORD-${String(order?.id || '').substring(0, 8)}`} | {formatDate(order?.scheduled_date)}
-              </p>
+              {!isSplitParent && (
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  {scheduledDateTime && <p>{scheduledDateTime}</p>}
+                  <p>Order #{parentOrderNumber}</p>
+                </div>
+              )}
+              {isSplitParent && (
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  {scheduledDateTime && <p>{scheduledDateTime}</p>}
+                  {childOrderLabels && <p>Orders: {childOrderLabels}</p>}
+                </div>
+              )}
             </div>
 
             {/* Desktop header */}
@@ -233,10 +263,23 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                   <Icon name="ClipboardList" size={24} className="text-primary-foreground" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-heading font-semibold text-foreground">Order Details</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Order #{order?.api_order_id || `ORD-${String(order?.id || '').substring(0, 8)}`} | {formatDate(order?.scheduled_date)}
-                  </p>
+                  <h2 className="text-xl font-heading font-semibold text-foreground pb-0.5">Order Details</h2>
+                  <div className="text-sm text-muted-foreground space-y-0.5">
+                    {!isSplitParent && (
+                      <>
+                        {scheduledDateTime && <p>{scheduledDateTime}</p>}
+                        <p>Order #{parentOrderNumber}</p>
+                        
+                      </>
+                    )}
+                    {isSplitParent && (
+                      <>
+                        {scheduledDateTime && <p>{scheduledDateTime}</p>}
+                        {childOrderLabels && <p>Orders: {childOrderLabels}</p>}
+                       
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -288,30 +331,30 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                   )}
                 </div>
 
-                <div className="bg-muted rounded-lg p-3 sm:p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Icon name="Users" size={14} className="text-muted-foreground" />
-                    <span className="text-[13px] sm:text-sm font-medium text-foreground">Attendees</span>
-                  </div>
-                  <p className="text-base sm:text-lg font-semibold text-foreground">{assignmentStats.attendeeTotal}</p>
-                  {assignmentStats.fullBreakdown.length > 0 && (
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      <div>{assignmentStats.fullBreakdown.join(' + ')}</div>
-                    </div>
-                  )}
+              <div className="bg-muted rounded-lg p-3 sm:p-4">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Icon name="Users" size={14} className="text-muted-foreground" />
+                  <span className="text-[13px] sm:text-sm font-medium text-foreground">Attendees</span>
                 </div>
-
-                <div className="bg-muted rounded-lg p-3 sm:p-4">
-                  <div className="flex items-center gap-1 mb-1.5">
-                    <Icon name="DollarSign" size={14} className="text-muted-foreground" />
-                    <span className="text-[13px] sm:text-sm font-medium text-foreground">Total Cost</span>
-                    <InfoTooltip text="This includes all the taxes + fees" />
+                <p className="text-base sm:text-lg font-semibold text-foreground">{assignmentStats.attendeeTotal}</p>
+                {assignmentStats.fullBreakdown.length > 0 && (
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    <div>{assignmentStats.fullBreakdown.join(' + ')}</div>
                   </div>
-                  <p className="text-base sm:text-lg font-semibold text-foreground">
-                    {formatCurrency(order?.total_amount)}
-                  </p>
-                </div>
+                )}
               </div>
+
+              <div className="bg-muted rounded-lg p-3 sm:p-4">
+                <div className="flex items-center gap-1 mb-1.5">
+                  <Icon name="DollarSign" size={14} className="text-muted-foreground" />
+                  <span className="text-[13px] sm:text-sm font-medium text-foreground">Total Cost</span>
+                  <InfoTooltip text="This includes all the taxes + fees" />
+                </div>
+                <p className="text-base sm:text-lg font-semibold text-foreground">
+                  {formatCurrency(order?.total_amount)}
+                </p>
+              </div>
+            </div>
 
               {/* Line Items (with assigned member) */}
               <div>
@@ -348,9 +391,8 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                                   </div>
                                   <div className="min-w-0">
                                     <div className="truncate font-medium">
-                                      {it?.is_extra ? 'Extra' : assignee || 'Unassigned'}
+                                      {isExtraItem(it) ? 'Extra' : assignee || 'Unassigned'}
                                     </div>
-                                    
                                   </div>
                                 </div>
                               </td>
@@ -371,20 +413,20 @@ const OrderDetailModal = ({ order, isOpen, onClose, onAction }) => {
                             </tr>
                           );
                         })}
-                        {(!items || items.length === 0) && (
-                          <tr>
-                            <td
-                              colSpan={4}
-                              className="px-3 sm:px-4 py-6 text-xs sm:text-sm text-muted-foreground text-center"
-                            >
-                              No line items recorded for this order.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+        {(!items || items.length === 0) && (
+          <tr>
+            <td
+              colSpan={4}
+              className="px-3 sm:px-4 py-6 text-xs sm:text-sm text-muted-foreground text-center"
+            >
+              No line items recorded for this order.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</div>
               </div>
 
               {/* Payment Information */}

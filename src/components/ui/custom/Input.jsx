@@ -55,12 +55,12 @@ const Input = forwardRef(({
   }
 
   return (
-    <div className="space-y-2">
+    <div>
       {label && (
         <label
           htmlFor={inputId}
           className={cn(
-            "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
+            "mb-2 block text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
             error ? "text-destructive" : "text-foreground"
           )}
         >

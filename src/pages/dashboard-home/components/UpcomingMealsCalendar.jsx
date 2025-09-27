@@ -6,6 +6,27 @@ import Button from '../../../components/ui/custom/Button';
 const UpcomingMealsCalendar = ({ upcomingMeals, onDateClick, onMealClick }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
 
+  const toLocalDay = (value) => {
+    if (!value) return null;
+    if (value instanceof Date) {
+      return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    }
+    if (typeof value === 'string') {
+      const parts = value.split('-');
+      if (parts.length === 3) {
+        const [yy, mm, dd] = parts.map(Number);
+        if ([yy, mm, dd].every((n) => Number.isInteger(n))) {
+          return new Date(yy, mm - 1, dd);
+        }
+      }
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) {
+        return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+      }
+    }
+    return null;
+  };
+
   const getDaysInMonth = (date) => {
     return new Date(date.getFullYear(), date.getMonth() + 1, 0)?.getDate();
   };
@@ -89,18 +110,23 @@ const UpcomingMealsCalendar = ({ upcomingMeals, onDateClick, onMealClick }) => {
 
   // Compute all upcoming meals for the currently displayed month
   const mealsThisMonth = (Array.isArray(upcomingMeals) ? upcomingMeals : [])
+    .map((meal) => ({
+      ...meal,
+      __localDate: toLocalDay(meal?.date),
+    }))
     .filter((meal) => {
-      const d = new Date(meal?.date);
+      const d = meal.__localDate;
       return (
-        !Number.isNaN(d.getTime()) &&
+        d &&
         d.getMonth() === currentDate.getMonth() &&
         d.getFullYear() === currentDate.getFullYear()
       );
     })
     .sort((a, b) => {
-      const ad = new Date(`${a.date} ${a.time}`);
-      const bd = new Date(`${b.date} ${b.time}`);
-      return ad - bd;
+      const ad = a.__localDate;
+      const bd = b.__localDate;
+      if (ad && bd && ad.getTime() !== bd.getTime()) return ad - bd;
+      return String(a.time).localeCompare(String(b.time));
     });
 
   return (
@@ -153,7 +179,7 @@ const UpcomingMealsCalendar = ({ upcomingMeals, onDateClick, onMealClick }) => {
               >
                 <Icon name={getMealTypeIcon(meal?.mealType)} size={14} className="text-muted-foreground" />
                 <span className="text-xs font-medium text-foreground">
-                  {new Date(meal.date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {(meal.__localDate || toLocalDay(meal.date))?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || meal.date}
                 </span>
                 <span className="text-xs text-muted-foreground">{meal?.time}</span>
                 <span className="text-sm text-muted-foreground truncate">{meal?.restaurant}</span>

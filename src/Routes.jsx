@@ -23,6 +23,8 @@ import ShoppingCartCheckout from './pages/shopping-cart-checkout';
 import SharedCartMenu from './pages/shared-cart';
 import PayPage from './pages/payments';
 import OrderSuccess from './pages/order-success';
+import ProfilePage from './pages/profile';
+import SavesPage from './pages/saves';
 
 const Routes = () => {
   return (
@@ -42,6 +44,7 @@ const Routes = () => {
         <Route path="/team-members-management" element={<TeamMembersManagement />} />
         <Route path="/saved-addresses-locations" element={<SavedAddressesLocations />} />
         <Route path="/payment-methods-billing" element={<PaymentMethodsBilling />} />
+        <Route path="/saves" element={<SavesPage />} />
         <Route path="/terms-and-conditions" element={<TermsConditoins />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="/awaiting-email-verification" element={<AwaitingEmailVerificationPage />} />
@@ -52,6 +55,7 @@ const Routes = () => {
         <Route path="/shared-cart/:cartId" element={<SharedCartMenu />} />
         <Route path="/pay" element={<PayPage />} />
         <Route path="/order/success" element={<OrderSuccess />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>

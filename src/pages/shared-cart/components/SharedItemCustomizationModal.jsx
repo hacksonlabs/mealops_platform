@@ -86,7 +86,14 @@ const SharedItemCustomizationModal = ({
 		const map = new Map((optionsList || []).map((o) => [String(o.value), { ...o, value: String(o.value) }]));
 		(assigneeIds || []).forEach((id) => {
 			const key = String(id);
-			if (!map.has(key)) map.set(key, { value: key, label: 'Selected member' });
+			if (!map.has(key)) {
+				map.set(key, {
+					value: key,
+					label: 'Selected member',
+					roleGroup: 'Other',
+					search: 'selected member',
+				});
+			}
 		});
 		return Array.from(map.values());
 	}, [optionsList, assigneeIds]);
@@ -242,6 +249,13 @@ const SharedItemCustomizationModal = ({
                         setAssigneeIds(arr); // warn below if beyond quantity; clamp on save
                       }}
                       options={mergedOptionsList}
+                      selectedNoun="members"
+                      groupBy="roleGroup"
+                      groupConfig={{
+                        order: ['Players', 'Coaches', 'Staff', 'Extras', 'Other'],
+                        fallbackLabel: 'Other',
+                        columnMinWidth: 180,
+                      }}
                       menuPortalTarget={document.body}
                       menuPosition="fixed"
                     />

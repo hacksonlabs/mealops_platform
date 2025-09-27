@@ -64,6 +64,7 @@ const OrderHistoryManagement = () => {
         id, team_id, title, description, meal_type, scheduled_date, order_status, fulfillment_method,
         total_amount, api_order_id,
         delivery_address_line1, delivery_city, delivery_state, delivery_zip, delivery_instructions,
+        parent_order_id, is_split_child, split_group,
 
         restaurant:restaurants ( id, name, address ),
         payment_method:payment_methods ( id, card_name, last_four, is_default ),
@@ -87,7 +88,7 @@ const OrderHistoryManagement = () => {
       setErrorOrders('Failed to load orders.');
       setOrders([]);
     } else {
-      const transformedOrders = (data || []).map(order => {
+      const transformedOrdersAll = (data || []).map(order => {
         const items = order.meal_items || [];
 
         const memberCounts = new Map(); // name -> quantity
@@ -161,6 +162,7 @@ const OrderHistoryManagement = () => {
           order?.delivery_zip
         ].filter(Boolean).join(', ');
 
+        const orderNumber = order.api_order_id || `ORD-${String(order.id).substring(0, 8)}`;
         return {
           id: order.id,
           date: order.scheduled_date,
@@ -184,13 +186,16 @@ const OrderHistoryManagement = () => {
           memberCount: assignedMemberNames.length,
           totalCost: Number(order.total_amount) || 0,
           status: order.order_status,
-          orderNumber: order.api_order_id || `ORD-${String(order.id).substring(0, 8)}`,
+          orderNumber,
           teamMembers: teamMembersDetailed,
           teamMembersTooltip,
           paymentMethod: order.payment_method
             ? `${order.payment_method.card_name} (**** ${order.payment_method.last_four})`
             : '—',
           fulfillmentMethod: order.fulfillment_method || '',
+          isSplitChild: Boolean(order.is_split_child),
+          parentOrderId: order.parent_order_id || null,
+          splitGroup: order.split_group || null,
           originalOrderData: {
             ...order,
             extrasCount,
@@ -203,7 +208,53 @@ const OrderHistoryManagement = () => {
         };
       });
 
-      setOrders(transformedOrders);
+      // Group suborders under parents; show parents and non-split orders at top level
+      const childrenByParent = new Map();
+      transformedOrdersAll.forEach(o => {
+        if (o.isSplitChild && o.parentOrderId) {
+          const arr = childrenByParent.get(o.parentOrderId) || [];
+          arr.push(o);
+          childrenByParent.set(o.parentOrderId, arr);
+        }
+      });
+
+      // map of parent id -> orderNumber for display in child detail modal
+      const parentNumberById = new Map();
+      transformedOrdersAll.forEach(o => { if (!o.isSplitChild) parentNumberById.set(o.id, o.orderNumber); });
+
+      const parentsOnly = transformedOrdersAll
+        .filter(o => !o.isSplitChild)
+        .map(o => {
+          const subs = (childrenByParent.get(o.id) || []).map(so => ({
+            ...so,
+            parentOrderNumber: parentNumberById.get(o.id) || null,
+            originalOrderData: {
+              ...so.originalOrderData,
+              is_split_child: true,
+              parent_order_number: parentNumberById.get(o.id) || null,
+            },
+          }));
+          const parentWithSubs = {
+            ...o,
+            suborders: subs,
+            originalOrderData: {
+              ...o.originalOrderData,
+              is_split_parent: subs.length > 0,
+              child_order_numbers: subs.map(s => s.orderNumber).filter(Boolean),
+              suborders: subs.map(({ id, orderNumber, date, restaurant, itemsCount, totalCost }) => ({
+                id,
+                orderNumber,
+                date,
+                restaurant,
+                itemsCount,
+                totalCost,
+              })),
+            }
+          };
+          return parentWithSubs;
+        });
+
+      setOrders(parentsOnly);
     }
     setLoadingOrders(false);
   }, [teamId, filters]);
@@ -348,7 +399,21 @@ const OrderHistoryManagement = () => {
         break;
       case 'receipt':
         try {
-          await downloadReceiptPdf(order?.id);
+          const subordersForDownload = Array.isArray(order?.suborders)
+            ? order.suborders
+            : Array.isArray(order?.originalOrderData?.suborders)
+              ? order.originalOrderData.suborders
+              : [];
+
+          const childIds = subordersForDownload
+            .map((so) => so?.id)
+            .filter(Boolean);
+
+          if (childIds.length > 0) {
+            await downloadReceiptsZip(childIds);
+          } else {
+            await downloadReceiptPdf(order?.id);
+          }
         } catch (err) {
           console.error('Failed to download receipt:', err);
         }

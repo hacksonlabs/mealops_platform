@@ -1,13 +1,16 @@
 // src/services/paymentService.js
 import { supabase } from '../lib/supabase';
+import { featureFlags } from '../config/runtimeConfig';
+import { mealmeApi } from './mealmeApi';
 
 /** ----------------------------------------------------------------------
  * Provider selection
  *  - env: VITE_PAYMENTS_PROVIDER = 'stripe' | 'mealme'
  *  - env: VITE_PAYMENTS_MOCK = '1' to bypass ALL network calls (uses mock adapter)
  * --------------------------------------------------------------------- */
-const DEFAULT_PROVIDER = (import.meta?.env?.VITE_PAYMENTS_PROVIDER || 'mealme').toLowerCase();
-const FORCE_MOCK = String(import.meta?.env?.VITE_PAYMENTS_MOCK ?? '1') === '1'; // <-- default ON for dev scaffolding
+const ENV_PROVIDER = (import.meta?.env?.VITE_PAYMENTS_PROVIDER || (featureFlags.mealMeEnabled ? 'mealme' : 'stripe')).toLowerCase();
+const DEFAULT_PROVIDER = featureFlags.mealMeEnabled ? 'mealme' : 'stripe';
+const FORCE_MOCK = featureFlags.paymentsMock;
 
 /** Common error mapper */
 const handleServiceError = (error, operation) => {
@@ -192,61 +195,48 @@ const mealmeAdapter = {
   id: 'mealme',
 
   async startCheckout({ orderInput }) {
-    const res = await fetch('/api/mealme/get-payment-intent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(orderInput),
-    });
-    if (!res.ok) throw new Error('MealMe: failed to get payment intent');
-    const json = await res.json();
+    const response = await mealmeApi.getPaymentIntent(orderInput);
+    const payload = response?.result || response;
+    if (!payload?.client_secret) throw new Error('MealMe: missing client_secret');
     return {
       kind: 'elements',
-      clientSecret: json.client_secret,
-      publishableKey: json.publishable_key,
-      orderId: json.order_id,
-      stripeIntentId: json.payment_intent_id,
+      clientSecret: payload?.client_secret,
+      publishableKey: payload?.publishable_key,
+      orderId: payload?.order_id,
+      stripeIntentId: payload?.payment_intent_id,
     };
   },
 
   async listSavedMethods({ teamId, userId, email }) {
-    const url = `/api/mealme/payment/list?user_id=${encodeURIComponent(userId)}&user_email=${encodeURIComponent(email)}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      // If your backend route isn't ready, fall back to your DB only
-      return db.listPaymentMethods(teamId);
+    try {
+      const result = await mealmeApi.listPaymentMethods({ user_id: userId, user_email: email });
+      const rows = (result?.payment_methods || result?.result?.payment_methods || []).map((pm) => ({
+        team_id: teamId || null,
+        card_name: pm.nickname || pm.label || 'Card',
+        last_four: String(pm.last4 || pm.card_last4 || '').slice(-4),
+        is_default: Boolean(pm.is_default),
+        provider: 'mealme',
+        provider_customer_id: pm.customer_id || null,
+        provider_payment_method_id: pm.id,
+        brand: (pm.brand || pm.card_brand || 'card').toLowerCase(),
+        exp_month: pm.exp_month || null,
+        exp_year: pm.exp_year || null,
+        billing_zip: pm.billing_zip || null,
+      }));
+      if (rows.length) await db.upsertPaymentMethods(rows);
+    } catch (error) {
+      console.warn('MealMe listSavedMethods failed, falling back to DB:', error?.message || error);
     }
-    const json = await res.json();
-
-    const rows = (json?.payment_methods || []).map((pm) => ({
-      team_id: teamId || null,
-      card_name: pm.nickname || 'Card',
-      last_four: String(pm.last4 || pm.card_last4 || '').slice(-4),
-      is_default: !!pm.is_default,
-      provider: 'mealme',
-      provider_customer_id: pm.customer_id || null,
-      provider_payment_method_id: pm.id,
-      brand: (pm.brand || pm.card_brand || 'card').toLowerCase(),
-      exp_month: pm.exp_month || null,
-      exp_year: pm.exp_year || null,
-      billing_zip: pm.billing_zip || null,
-    }));
-
-    if (rows.length) await db.upsertPaymentMethods(rows);
     return db.listPaymentMethods(teamId);
   },
 
   async deleteSavedMethod({ dbId, mealmePaymentMethodId, userId, email }) {
     try {
-      const res = await fetch('/api/mealme/payment/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          user_email: email,
-          payment_method_id: mealmePaymentMethodId,
-        }),
+      await mealmeApi.deletePaymentMethod({
+        payment_method_id: mealmePaymentMethodId,
+        user_id: userId,
+        user_email: email,
       });
-      if (!res.ok) throw new Error('MealMe: failed to delete payment method');
     } finally {
       if (dbId) await db.deletePaymentMethod(dbId);
     }
@@ -308,7 +298,9 @@ const ADAPTERS = { stripe: stripeAdapter, mealme: mealmeAdapter, mock: mockAdapt
 /** Choose adapter. If FORCE_MOCK, always use mock. */
 const pick = (provider) => {
   if (FORCE_MOCK) return mockAdapter;
-  return ADAPTERS[(provider || DEFAULT_PROVIDER).toLowerCase()] || stripeAdapter;
+  const key = (provider || ENV_PROVIDER || DEFAULT_PROVIDER).toLowerCase();
+  if (key === 'mealme' && !featureFlags.mealMeEnabled) return stripeAdapter;
+  return ADAPTERS[key] || ADAPTERS[DEFAULT_PROVIDER] || stripeAdapter;
 };
 
 /** ----------------------------------------------------------------------

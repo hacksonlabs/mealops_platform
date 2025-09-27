@@ -21,7 +21,8 @@ ALTER TABLE public.restaurants ADD CONSTRAINT uq_restaurants_api UNIQUE (api_sou
 ALTER TABLE public.meal_cart_items
   DROP CONSTRAINT IF EXISTS cart_items_cart_id_fkey,
   ADD CONSTRAINT cart_items_cart_id_fkey
-    FOREIGN KEY (cart_id) REFERENCES public.meal_carts(id) ON DELETE CASCADE;
+    FOREIGN KEY (cart_id) REFERENCES public.meal_carts(id) ON DELETE CASCADE,
+  ADD CONSTRAINT meal_cart_items_extra_member_ck CHECK (NOT is_extra OR member_id IS NULL);
 
 ALTER TABLE public.meal_cart_members
   ADD CONSTRAINT meal_cart_members_user_id_fkey
@@ -30,11 +31,3 @@ ALTER TABLE public.meal_cart_members
 ALTER TABLE public.meal_cart_members
   ADD CONSTRAINT meal_cart_members_cart_id_member_id_key
   UNIQUE (cart_id, member_id);
-
-ALTER TABLE public.meal_cart_item_assignees
-  ADD CONSTRAINT ck_assignee_unit_qty_pos CHECK (unit_qty > 0),
-  ADD CONSTRAINT ck_assignee_valid
-  CHECK (
-    (member_id IS NOT NULL AND is_extra = FALSE)
-    OR member_id IS NULL
-  );

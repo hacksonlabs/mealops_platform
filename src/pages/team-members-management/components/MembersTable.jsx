@@ -125,11 +125,11 @@ const MembersTable = ({
               </th>
 
               <th className="px-4 py-3 text-left">
-                <span className="text-sm font-medium text-foreground">Allergies</span>
+                <span className="text-sm font-medium text-foreground">Birthday</span>
               </th>
 
               <th className="px-4 py-3 text-left">
-                <span className="text-sm font-medium text-foreground">Birthday</span>
+                <span className="text-sm font-medium text-foreground">Allergies</span>
               </th>
 
               <th className="px-4 py-3 text-right">
@@ -174,8 +174,10 @@ const MembersTable = ({
 
                 <td className="px-4 py-4">
                   <div className="text-sm">
-                    {member?.allergies ? (
-                      <p className="text-foreground max-w-xs line-clamp-2">{member.allergies}</p>
+                    {member?.birthday ? (
+                      <p className="text-foreground max-w-xs line-clamp-2">
+                        {formatDateToMMDDYYYY(member.birthday)}
+                      </p>
                     ) : (
                       <span className="text-muted-foreground">-</span>
                     )}
@@ -184,10 +186,8 @@ const MembersTable = ({
 
                 <td className="px-4 py-4">
                   <div className="text-sm">
-                    {member?.birthday ? (
-                      <p className="text-foreground max-w-xs line-clamp-2">
-                        {formatDateToMMDDYYYY(member.birthday)}
-                      </p>
+                    {member?.allergies ? (
+                      <p className="text-foreground max-w-xs line-clamp-2">{member.allergies}</p>
                     ) : (
                       <span className="text-muted-foreground">-</span>
                     )}

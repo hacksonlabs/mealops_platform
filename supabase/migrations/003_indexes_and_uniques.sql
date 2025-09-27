@@ -37,6 +37,9 @@ CREATE UNIQUE INDEX uniq_team_member_email_per_team ON public.team_members (team
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_member_groups_team_name ON public.member_groups (team_id, lower(name));
 CREATE INDEX idx_member_groups_team_id ON public.member_groups(team_id);
 CREATE INDEX idx_member_groups_created_by ON public.member_groups(created_by);
+CREATE INDEX IF NOT EXISTS idx_saved_trips_team_id ON public.saved_trips(team_id);
+CREATE INDEX IF NOT EXISTS idx_saved_locations_team_id ON public.saved_locations(team_id);
+CREATE INDEX IF NOT EXISTS idx_saved_locations_trip_id ON public.saved_locations(trip_id);
 
 CREATE INDEX IF NOT EXISTS idx_mgm_group_id  ON public.member_group_members(group_id);
 CREATE INDEX IF NOT EXISTS idx_mgm_member_id ON public.member_group_members(member_id);
@@ -64,16 +67,10 @@ create index if not exists idx_meal_cart_members_cart_id on public.meal_cart_mem
 CREATE INDEX IF NOT EXISTS idx_cart_items_cart ON public.meal_cart_items(cart_id);
 CREATE INDEX IF NOT EXISTS idx_cart_items_member ON public.meal_cart_items(added_by_member_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_item_member
-  ON public.meal_cart_item_assignees (cart_item_id, member_id)
-  WHERE is_extra = false;
+-- Splitting support indexes
+CREATE INDEX IF NOT EXISTS idx_meal_orders_parent_order_id ON public.meal_orders(parent_order_id);
+CREATE INDEX IF NOT EXISTS idx_meal_orders_is_split_child ON public.meal_orders(is_split_child);
+CREATE INDEX IF NOT EXISTS idx_meal_order_splits_parent ON public.meal_order_splits(parent_order_id);
+CREATE INDEX IF NOT EXISTS idx_meal_order_splits_child  ON public.meal_order_splits(child_order_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_item_extra
-  ON public.meal_cart_item_assignees (cart_item_id)
-  WHERE is_extra = true;
-  
--- prevent duplicate member assignment to same item
-CREATE UNIQUE INDEX IF NOT EXISTS uq_item_assignee_member
-  ON public.meal_cart_item_assignees(cart_item_id, member_id)
-  WHERE member_id IS NOT NULL;
--- CREATE INDEX IF NOT EXISTS idx_item_assignees_item ON public.meal_cart_item_assignees(cart_item_id);
+-- saved locations

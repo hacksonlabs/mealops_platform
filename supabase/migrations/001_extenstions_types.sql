@@ -12,3 +12,5 @@ CREATE TYPE public.fulfillment_method AS ENUM ('delivery', 'pickup', 'dine-in');
 CREATE TYPE public.meal_type AS ENUM ('breakfast','lunch','dinner','snack', 'other');
 CREATE TYPE public.cart_status AS ENUM ('draft','locked','submitted','abandoned');
 CREATE TYPE public.cart_member_role AS ENUM ('owner','member');
+CREATE TYPE location_side AS ENUM ('home','away','neutral');
+CREATE TYPE location_kind AS ENUM ('main','practice','hotel','other');

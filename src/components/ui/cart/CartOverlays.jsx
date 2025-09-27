@@ -17,7 +17,7 @@ export default function CartOverlays() {
   // Drawer state
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartBadge, setCartBadge] = useState({ count: 0, total: 0, name: "Cart", cartId: null });
-  const [cartPanel, setCartPanel] = useState({ restaurant: null, items: [], fulfillment: null });
+  const [cartPanel, setCartPanel] = useState({ restaurant: null, items: [], fulfillment: null, ownerMemberId: null });
 
   // Hub state
   const [isCartHubOpen, setIsCartHubOpen] = useState(false);
@@ -29,13 +29,14 @@ export default function CartOverlays() {
   useEffect(() => {
     const onBadge = (e) => {
       if (!e?.detail) return;
-      const { restaurant, items, fulfillment, ...rest } = e.detail;
+      const { restaurant, items, fulfillment, ownerMemberId, ...rest } = e.detail;
       setCartBadge((prev) => ({ ...prev, ...rest }));
       if (restaurant || items || fulfillment) {
         setCartPanel((p) => ({
           restaurant: restaurant ?? p.restaurant,
           items: Array.isArray(items) ? items : p.items,
           fulfillment: fulfillment ?? p.fulfillment,
+          ownerMemberId: ownerMemberId ?? p.ownerMemberId ?? null,
         }));
       }
     };

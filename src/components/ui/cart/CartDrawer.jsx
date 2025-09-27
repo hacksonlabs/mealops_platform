@@ -1,10 +1,12 @@
 // src/components/ui/cart/CartDrawer.jsx
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { useNavigate } from "react-router-dom";
 import Button from "../custom/Button";
 import Icon from "../../AppIcon";
 import { formatCustomizations } from "../../../utils/cartFormat";
+import cartDbService from "../../../services/cartDBService";
+import CartMemberProgressModal, { computeMemberProgress } from "./CartMemberProgressModal";
 
 export default function CartDrawer({
   isOpen,
@@ -16,6 +18,52 @@ export default function CartDrawer({
   onRefresh    // () => void
 }) {
   const navigate = useNavigate();
+  const [showRoster, setShowRoster] = useState(false);
+  const [roster, setRoster] = useState([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterError, setRosterError] = useState("");
+  const rosterFetchedRef = useRef(false);
+
+  const loadRoster = useCallback(async ({ silent = false } = {}) => {
+    if (!cartBadge?.cartId) return;
+    if (!silent) setRosterLoading(true);
+    setRosterError("");
+    try {
+      const list = await cartDbService.listCartMembersDetailed(cartBadge.cartId);
+      setRoster(list);
+    } catch (err) {
+      const msg = err?.message || "Failed to load cart members.";
+      setRosterError(msg);
+      setRoster([]);
+    } finally {
+      setRosterLoading(false);
+    }
+  }, [cartBadge?.cartId]);
+
+  useEffect(() => {
+    if (!isOpen || !cartBadge?.cartId) return;
+    if (rosterFetchedRef.current) return;
+    rosterFetchedRef.current = true;
+    loadRoster({ silent: true });
+  }, [isOpen, cartBadge?.cartId, loadRoster]);
+
+  useEffect(() => {
+    if (!isOpen) setShowRoster(false);
+  }, [isOpen]);
+
+  const { orderedMembers, waitingMembers, extrasCount, unassignedCount, hasRecipients, assignmentMembers } = useMemo(
+    () => computeMemberProgress({
+      roster,
+      items: cartPanel?.items || [],
+      ownerMemberId: cartPanel?.ownerMemberId ?? null,
+    }),
+    [roster, cartPanel?.items, cartPanel?.ownerMemberId]
+  );
+
+  const rosterButtonVisible =
+    (orderedMembers.length + waitingMembers.length > 0 || extrasCount > 0 || unassignedCount > 0) &&
+    cartBadge?.cartId;
+
   if (!isOpen) return null;
 
   return ReactDOM.createPortal(
@@ -29,9 +77,23 @@ export default function CartDrawer({
       >
         {/* Header */}
         <div className="p-3 md:p-4 border-b border-border flex items-center justify-between shrink-0">
-          <div className="font-semibold flex items-center gap-2">
-            <Icon name="ShoppingCart" size={18} />
-            <span className="truncate">{cartBadge?.name || "Cart"}</span>
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Icon name="ShoppingCart" size={18} />
+              <span className="truncate">{cartBadge?.name || "Cart"}</span>
+            </div>
+            {rosterButtonVisible && (
+              <button
+                type="button"
+                className="self-start text-xs font-medium text-primary underline-offset-2 transition hover:underline"
+                onClick={() => {
+                  setShowRoster(true);
+                  loadRoster();
+                }}
+              >
+                View order progress
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <Button
@@ -57,7 +119,7 @@ export default function CartDrawer({
                 const unit = Number(it?.customizedPrice ?? it?.price ?? 0);
                 const qty = Number(it?.quantity ?? 1);
 
-                const lines = formatCustomizations(it) || []; // ← no special requests here anymore
+                const lines = formatCustomizations(it) || [];
                 const customizations = lines.length ? lines.join(", ") : null;
 
                 const assigneesList = Array.isArray(it?.assignedTo) ? it.assignedTo.map((a) => a?.name).filter(Boolean) : [];
@@ -177,6 +239,18 @@ export default function CartDrawer({
           </Button>
         </div>
       </aside>
+      <CartMemberProgressModal
+        open={showRoster}
+        onClose={() => setShowRoster(false)}
+        orderedMembers={orderedMembers}
+        waitingMembers={waitingMembers}
+        loading={rosterLoading}
+        error={rosterError}
+        extrasCount={extrasCount}
+        unassignedCount={unassignedCount}
+        hasRecipients={hasRecipients}
+        assignmentMembers={assignmentMembers}
+      />
     </div>,
     document.body
   );

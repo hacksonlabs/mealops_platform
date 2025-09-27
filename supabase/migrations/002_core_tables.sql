@@ -119,6 +119,9 @@ CREATE TABLE public.meal_orders (
     cancel_requested_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
     cancel_reason TEXT,
     canceled_at TIMESTAMPTZ,
+    parent_order_id UUID NULL REFERENCES public.meal_orders(id) ON DELETE CASCADE,
+    split_group TEXT NULL,
+    is_split_child BOOLEAN NOT NULL DEFAULT FALSE,
     -- API Integration Fields
     api_order_id TEXT, -- The ID returned by the external API for this order
     api_source public.api_source_type, -- Which API the order was placed through
@@ -267,6 +270,38 @@ CREATE TABLE public.meal_order_item_options (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Feature flags and app settings (for runtime toggles like order splitting)
+CREATE TABLE public.feature_flags (
+  key TEXT PRIMARY KEY,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  description TEXT,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE public.app_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Defaults for splitting feature
+INSERT INTO public.feature_flags (key, enabled, description)
+VALUES ('split_large_orders', TRUE, 'Enable splitting large orders by threshold')
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO public.app_settings (key, value)
+VALUES ('split_threshold_cents', '{"value":25000}')
+ON CONFLICT (key) DO NOTHING;
+
+-- Mapping table parent → child
+CREATE TABLE public.meal_order_splits (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  parent_order_id UUID NOT NULL REFERENCES public.meal_orders(id) ON DELETE CASCADE,
+  child_order_id  UUID NOT NULL UNIQUE REFERENCES public.meal_orders(id) ON DELETE CASCADE,
+  split_group TEXT,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE public.meal_polls (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES public.teams(id) ON DELETE CASCADE,
@@ -353,6 +388,46 @@ create table if not exists public.member_group_members (
   primary key (group_id, member_id)
 );
 
+-- Trips group locations/restaurants for recurring travel
+CREATE TABLE IF NOT EXISTS public.saved_trips (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id UUID NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+  created_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
+  trip_name TEXT NOT NULL,
+  description TEXT,
+  notes TEXT,
+  tags TEXT[] DEFAULT '{}',
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Saved locations for quickly reusing delivery/pickup addresses
+CREATE TABLE IF NOT EXISTS public.saved_locations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id UUID NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+  created_by UUID REFERENCES public.user_profiles(id) ON DELETE SET NULL,
+  trip_id UUID REFERENCES public.saved_trips(id) ON DELETE SET NULL,
+  location_id TEXT,
+  address_side location_side NOT NULL DEFAULT 'home',
+  address_kind location_kind NOT NULL DEFAULT 'main',
+  address_name TEXT NOT NULL,
+  formatted_address TEXT NOT NULL,
+  address_description TEXT,
+  contact_name TEXT,
+  contact_phone TEXT,
+  contact_email TEXT,
+  delivery_notes TEXT,
+  organization_name TEXT,
+  google_place_id TEXT,
+  latitude DECIMAL(10, 8),
+  longitude DECIMAL(11, 8),
+  tags TEXT[] DEFAULT '{}',
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Parent cart row (one per restaurant/session)
 CREATE TABLE IF NOT EXISTS public.meal_carts (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -372,7 +447,9 @@ CREATE TABLE IF NOT EXISTS public.meal_carts (
   fulfillment_longitude DOUBLE PRECISION,
   fulfillment_date DATE,
   fulfillment_time TIME WITHOUT TIME ZONE,
-  meal_type public.meal_type
+  meal_type public.meal_type,
+  provider_cart_id text,
+  provider_metadata jsonb
 );
 
 -- Cart membership (who can add to the cart)
@@ -389,6 +466,8 @@ CREATE TABLE IF NOT EXISTS public.meal_cart_members (
 CREATE TABLE IF NOT EXISTS public.meal_cart_items (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   cart_id               uuid NOT NULL REFERENCES public.meal_carts(id) ON DELETE CASCADE,
+  member_id             uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  is_extra              boolean NOT NULL DEFAULT false,
   added_by_member_id    uuid NOT NULL REFERENCES public.team_members(id) ON DELETE SET NULL,
   menu_item_id          uuid REFERENCES public.menu_items(id) ON DELETE SET NULL,
   item_name             text NOT NULL,   -- fallback display name
@@ -397,15 +476,8 @@ CREATE TABLE IF NOT EXISTS public.meal_cart_items (
   selected_options      jsonb,            -- normalized options for UI/rehydration
   special_instructions  text,
   created_at            timestamptz NOT NULL DEFAULT now(),
-  updated_at            timestamptz NOT NULL DEFAULT now()
-);
-
--- Assignees for a cart item (supports multiple and “Extra”)
-CREATE TABLE IF NOT EXISTS public.meal_cart_item_assignees (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  cart_item_id  uuid NOT NULL REFERENCES public.meal_cart_items(id) ON DELETE CASCADE,
-  member_id     uuid REFERENCES public.team_members(id) ON DELETE SET NULL, -- NULL when is_extra = true
-  is_extra      boolean NOT NULL DEFAULT false,
-  unit_qty      integer NOT NULL DEFAULT 1,
-  created_at    timestamptz NOT NULL DEFAULT now()
+  updated_at            timestamptz NOT NULL DEFAULT now(),
+  provider_line_item_id text,
+  provider_payload      jsonb,
+  CONSTRAINT ck_meal_cart_items_extra_member CHECK (NOT is_extra OR member_id IS NULL)
 );

@@ -35,6 +35,7 @@ const Header = ({ className = '' }) => {
     { label: 'Calendar', path: '/calendar-order-scheduling', icon: 'Calendar', tooltip: 'Schedule and manage meal orders' },
     { label: 'Orders', path: '/order-history-management', icon: 'ClipboardList', tooltip: 'View and manage order history' },
     { label: 'Team', path: '/team-members-management', icon: 'Users', tooltip: 'Manage team members and roles' },
+    { label: 'Saves', path: '/saves', icon: 'Bookmark', tooltip: 'Manage saved locations and info' },
   ];
 
   const handleNavigation = (path) => {
@@ -222,19 +223,22 @@ const Header = ({ className = '' }) => {
                     <p className="text-xs text-muted-foreground">{user?.email || 'user@example.com'}</p>
                   </div>
                   <button
-                    onClick={() => setIsUserMenuOpen(false)}
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      navigate('/profile');
+                    }}
                     className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted transition-athletic flex items-center space-x-2"
                   >
                     <Icon name="User" size={16} />
                     <span>Profile</span>
                   </button>
-                  <button
+                  {/* <button
                     onClick={() => setIsUserMenuOpen(false)}
                     className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted transition-athletic flex items-center space-x-2"
                   >
                     <Icon name="Settings" size={16} />
                     <span>Settings</span>
-                  </button>
+                  </button> */}
                   <div className="border-t border-border">
                     <button
                       onClick={handleLogout}
@@ -279,11 +283,14 @@ const Header = ({ className = '' }) => {
               </p>
             </div>
             <button
-              onClick={() => setIsUserMenuOpen(true)}
+              onClick={() => {
+                setIsUserMenuOpen(false);
+                handleNavigation('/profile');
+              }}
               className="p-2 text-muted-foreground hover:text-foreground transition-athletic"
-              aria-label="Open profile menu"
+              aria-label="Go to profile"
             >
-              <Icon name="Settings" size={18} />
+              <Icon name="User" size={18} />
             </button>
           </div>
           <nav className="px-3 py-2 space-y-1">
